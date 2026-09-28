@@ -3,7 +3,7 @@ import Image from 'next/image';
 import styles from './page.module.css';
 import { User, Phone, CarFront, MapPin, ArrowRight, MessageSquareText } from 'lucide-react';
 import CarBrands from '../components/CarBrands/CarBrands';
-import { getProducts, mapMoySkladToProduct } from '../lib/moysklad';
+import { getProductsByIds } from '../lib/moysklad';
 import { Product } from '../data/products';
 import SideSlider from '../components/SideSlider/SideSlider';
 import HomeConsultationForm from '../components/HomeConsultationForm/HomeConsultationForm';
@@ -11,15 +11,18 @@ import LocationMap from '../components/LocationMap/LocationMap';
 
 export const revalidate = 3600; // Revalidate every hour to shuffle featured products
 
+const FEATURED_PRODUCT_IDS = [
+  '055306c7-4e95-11f1-0a80-17ce000b2820', // Амортизатор задний Chevrolet
+  '0560c932-4e95-11f1-0a80-17ce000b2828', // Амортизатор задний Chevrolet
+  '056c806b-4e95-11f1-0a80-17ce000b2830', // Амортизатор задний Chevrolet
+  '05f6cd65-4e97-11f1-0a80-17ce000d8d3e', // Моторчик (насос) омывателя Hyundai/Kia
+  '01d1bd94-4e95-11f1-0a80-17ce000b2613', // Датчик кислородный (лямбдазонд) Hyundai/Kia
+];
+
 export default async function Home() {
   let sliderProducts: Product[] = [];
   try {
-    const res = await getProducts(100, 0, '', '', '', true);
-    if (res.rows && res.rows.length > 0) {
-      const mapped = res.rows.map(mapMoySkladToProduct);
-      const withImages = mapped.filter(p => p.image);
-      sliderProducts = [...withImages].sort(() => 0.5 - Math.random()).slice(0, 5);
-    }
+    sliderProducts = await getProductsByIds(FEATURED_PRODUCT_IDS);
   } catch (error) {
     console.error("Failed to fetch products for slider:", error);
   }
@@ -48,7 +51,7 @@ export default async function Home() {
           <div className={styles.mainBanner}>
             <div className={styles.mainBannerContent}>
               <h1 className={styles.mainBannerTitle}>
-                Koma.kz - магазин<br />автозапчастей на<br />Hyundai/Kia, Chevrolet
+                Koma Auto - магазин<br />автозапчастей на<br />Hyundai/Kia, Chevrolet
               </h1>
               <p className={styles.mainBannerSubtitle}>Доставка по всему Казахстану</p>
             </div>
@@ -103,7 +106,7 @@ export default async function Home() {
           {/* Store Location Block */}
           <div className={styles.infoBlock}>
             <div className={styles.infoCard}>
-              <h3 className={styles.storeTitle}>Koma.kz - у нас есть более 17.000 позиций!</h3>
+              <h3 className={styles.storeTitle}>Koma Auto - у нас есть более 17.000 позиций!</h3>
               <div className={styles.locationContent}>
                 <div className={styles.locationTextWrapper}>
                   <MapPin size={32} className={styles.locationIcon} />

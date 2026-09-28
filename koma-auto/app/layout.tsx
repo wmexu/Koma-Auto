@@ -13,7 +13,7 @@ const geistSans = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Koma.kz - Автозапчасти",
+  title: "koma.com.kz - Автозапчасти",
   description: "Интернет-магазин автозапчастей",
 };
 

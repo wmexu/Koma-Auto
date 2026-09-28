@@ -70,7 +70,7 @@ export default function Header() {
         <Link href="/" className={styles.logoWrapper}>
           <Image 
             src="/img/LogoKomaKZ.png" 
-            alt="Koma.kz Auto Parts" 
+            alt="koma.com.kz Auto Parts" 
             width={120} 
             height={40} 
             className={styles.logoImage}

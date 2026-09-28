@@ -1,8 +1,8 @@
 import styles from './Delivery.module.css';
 
 export const metadata = {
-  title: 'Доставка и оплата | Koma.kz',
-  description: 'Информация о доставке и оплате автозапчастей в магазине Koma.kz',
+  title: 'Доставка и оплата | koma.com.kz',
+  description: 'Информация о доставке и оплате автозапчастей в магазине koma.com.kz',
 };
 
 export default function DeliveryPage() {

@@ -11,7 +11,7 @@ export default function Footer() {
           <Link href="/" className={styles.logoWrapper}>
             <Image
               src="/img/LogoKomaKZ.png"
-              alt="Koma.kz Auto Parts"
+              alt="koma.com.kz Auto Parts"
               width={150}
               height={50}
               className={styles.logoImage}
@@ -61,7 +61,7 @@ export default function Footer() {
       </div>
       <div className={styles.bottom}>
         <div className="container">
-          <p>&copy; {new Date().getFullYear()} Koma.kz &middot; ИП «KAMOLDIN», ИИН 860516303365. Все права защищены.</p>
+          <p>&copy; {new Date().getFullYear()} koma.com.kz &middot; ИП «KAMOLDIN», ИИН 860516303365. Все права защищены.</p>
         </div>
       </div>
     </footer>

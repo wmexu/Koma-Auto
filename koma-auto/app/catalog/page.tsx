@@ -2,7 +2,7 @@ import { Metadata } from 'next';
 import CatalogClient from './CatalogClient';
 
 export const metadata: Metadata = {
-  title: 'Каталог запчастей - Koma.kz',
+  title: 'Каталог запчастей - koma.com.kz',
   description: 'Широкий выбор автозапчастей в наличии и под заказ.',
 };
 
