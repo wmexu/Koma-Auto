@@ -477,3 +477,112 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Brand Picker */
+.brandPickerSection {
+  margin-bottom: 28px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: var(--radius-md, 12px);
+  border: 1px solid #e2e8f0;
+}
+
+.brandPickerHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.brandPickerTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-navy, #060F48);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.brandPickerCount {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.brandGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.brandOption {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 2px solid #e2e8f0;
+  border-radius: var(--radius-sm, 8px);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+  min-height: 72px;
+}
+
+.brandOption:hover {
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.brandOptionActive {
+  border-color: var(--color-navy, #060F48);
+  background-color: #ffffff;
+  box-shadow: 0 4px 12px rgba(6, 15, 72, 0.08);
+}
+
+.brandOptionOutOfStock {
+  opacity: 0.6;
+}
+
+.brandOptionMain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.brandOptionName {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-navy, #060F48);
+  line-height: 1.2;
+}
+
+.brandOptionPrice {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.brandOptionStatus {
+  display: flex;
+  align-items: center;
+}
+
+.variantBadgeInStock {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-success, #2a9d8f);
+}
+
+.variantBadgeOutOfStock {
+  font-size: 11px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
+@media (max-width: 640px) {
+  .brandGrid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}
+

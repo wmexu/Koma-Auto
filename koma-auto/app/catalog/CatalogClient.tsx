@@ -19,15 +19,12 @@ export default function CatalogClient() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [availableBrands, setAvailableBrands] = useState<string[]>([]);
   
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
 
   const [search, setSearch] = useState(initialSearch);
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
-  const [selectedBrand, setSelectedBrand] = useState('');
-  const [onlyOriginals, setOnlyOriginals] = useState(false);
   const [showOutOfStock, setShowOutOfStock] = useState(false);
   const [sort, setSort] = useState('popular');
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
@@ -81,7 +78,7 @@ export default function CatalogClient() {
     setProducts([]);
     setOffset(0);
     setHasMore(true);
-  }, [debouncedSearch, selectedCategory, selectedBrand, onlyOriginals, showOutOfStock, sort]);
+  }, [debouncedSearch, selectedCategory, showOutOfStock, sort]);
 
   // Fetch Categories ONCE on mount
   useEffect(() => {
@@ -89,16 +86,6 @@ export default function CatalogClient() {
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) setCategories(data);
-      })
-      .catch(console.error);
-  }, []);
-
-  // Fetch Brands ONCE on mount
-  useEffect(() => {
-    fetch('/api/brands')
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setAvailableBrands(data);
       })
       .catch(console.error);
   }, []);
@@ -120,11 +107,6 @@ export default function CatalogClient() {
 
       if (debouncedSearch) params.append('search', debouncedSearch);
       if (selectedCategory) params.append('category', selectedCategory);
-      if (onlyOriginals) {
-        params.append('originalsOnly', 'true');
-      } else if (selectedBrand) {
-        params.append('brand', selectedBrand);
-      }
 
       const url = `/api/products?${params.toString()}`;
       const res = await fetch(url);
@@ -155,7 +137,7 @@ export default function CatalogClient() {
       setIsLoading(false);
       setIsFetchingMore(false);
     }
-  }, [debouncedSearch, selectedCategory, selectedBrand, onlyOriginals, showOutOfStock]);
+  }, [debouncedSearch, selectedCategory, showOutOfStock]);
 
   // Initial fetch and on filter changes
   useEffect(() => {
@@ -209,7 +191,7 @@ export default function CatalogClient() {
           </div>
           <input
             type="text"
-            placeholder="Введите название или номер запчасти..."
+            placeholder="Поиск по названию или OEM коду (напр. 31112B1000)..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className={styles.topSearchInput}
@@ -268,39 +250,8 @@ export default function CatalogClient() {
             </button>
           </div>
 
-
-
           <div className={styles.filterGroup}>
-            <h4 className={styles.filterTitle}>Бренд</h4>
-            <select
-              value={selectedBrand}
-              onChange={(e) => {
-                setSelectedBrand(e.target.value);
-                if (e.target.value) setOnlyOriginals(false);
-              }}
-              className={styles.filterSelect}
-              disabled={onlyOriginals}
-            >
-              <option value="">Все бренды</option>
-              {availableBrands.map((b) => (
-                <option key={b} value={b}>{b}</option>
-              ))}
-            </select>
-            
-            <div className={styles.originalsToggle}>
-              <label className={styles.checkboxLabel}>
-                <input
-                  type="checkbox"
-                  checked={onlyOriginals}
-                  onChange={(e) => {
-                    setOnlyOriginals(e.target.checked);
-                    if (e.target.checked) setSelectedBrand('');
-                  }}
-                />
-                Только оригинальные товары
-              </label>
-            </div>
-            
+            <h4 className={styles.filterTitle}>Наличие</h4>
             <div className={styles.originalsToggle}>
               <label className={styles.checkboxLabel}>
                 <input
@@ -308,7 +259,7 @@ export default function CatalogClient() {
                   checked={showOutOfStock}
                   onChange={(e) => setShowOutOfStock(e.target.checked)}
                 />
-                Нет в наличии
+                Показывать отсутствующие
               </label>
             </div>
           </div>
@@ -356,7 +307,7 @@ export default function CatalogClient() {
                 onClick={() => {
                   setSearch('');
                   setSelectedCategory('');
-                  setSelectedBrand('');
+                  setShowOutOfStock(false);
                 }}
               >
                 Сбросить фильтры

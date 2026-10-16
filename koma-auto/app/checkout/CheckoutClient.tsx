@@ -4,9 +4,12 @@ import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Script from 'next/script';
 import Link from 'next/link';
-import { CheckCircle, Shield } from 'lucide-react';
+import { CheckCircle, Shield, Package } from 'lucide-react';
 import { useCartStore } from '../../store/useCartStore';
 import { useToastStore } from '../../store/useToastStore';
+import { useAuthStore } from '../../store/useAuthStore';
+import { Order, getEffectiveOrderStatus } from '@/lib/order-types';
+import { persistOrder, getLocalOrderById } from '@/lib/orders';
 import styles from './Checkout.module.css';
 
 declare global {
@@ -48,7 +51,9 @@ export default function CheckoutClient() {
   const searchParams = useSearchParams();
   const { items, getTotalPrice, clearCart } = useCartStore();
   const { addToast } = useToastStore();
+  const { user } = useAuthStore();
   const [isSuccess, setIsSuccess] = useState(false);
+  const [lastOrderId, setLastOrderId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<{name?: string}>({});
   const [isCityModalOpen, setIsCityModalOpen] = useState(false);
@@ -56,8 +61,36 @@ export default function CheckoutClient() {
   useEffect(() => {
     const status = searchParams.get('status');
     const error = searchParams.get('error');
+    const orderId = searchParams.get('orderId') || (typeof window !== 'undefined' ? sessionStorage.getItem('lastEpayInvoiceId') : null);
+
     if (status === 'fail' || error) {
-      addToast('Оплата не была завершена или отклонена банком. Пожалуйста, попробуйте еще раз.', 'error');
+      const localOrder = orderId ? getLocalOrderById(orderId) : null;
+      const paymentUrl = localOrder?.paymentUrl;
+
+      if (localOrder && paymentUrl && getEffectiveOrderStatus(localOrder) === 'pending') {
+        addToast(
+          'Оплата ещё не была завершена. Ваш заказ ожидает оплаты.',
+          'warning',
+          {
+            autoClose: false,
+            action: {
+              label: 'Вернуться к оплате',
+              onClick: () => {
+                window.location.href = paymentUrl;
+              },
+            },
+            onDismiss: () => {
+              addToast(
+                'Вы всегда можете вернуться к оплате в профиле (в разделе «Мои заказы»)',
+                'info',
+                { autoClose: true, duration: 5000 }
+              );
+            },
+          }
+        );
+      } else {
+        addToast('Оплата не была завершена или отклонена банком. Пожалуйста, попробуйте еще раз.', 'error');
+      }
     }
   }, [searchParams, addToast]);
 
@@ -204,12 +237,54 @@ export default function CheckoutClient() {
           throw new Error(data.error || 'Ошибка при обращении к платёжной системе');
         }
 
+        // Create and persist the Order in local storage and database
+        const fullAddress = formData.deliveryMethod === 'courier'
+          ? `г. ${formData.city}, ул. ${formData.street}, д. ${formData.house}${formData.apartment ? `, кв. ${formData.apartment}` : ''}${formData.entrance ? `, подъезд ${formData.entrance}` : ''}${formData.postalCode ? `, инд. ${formData.postalCode}` : ''}`
+          : 'Самовывоз: г. Алматы, Car City 1 ярус Подвал';
+
+        const order: Order = {
+          id: data.invoiceId,
+          invoiceId: data.invoiceId,
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
+          status: 'pending',
+          amount: finalPrice,
+          itemsPrice: totalPrice,
+          deliveryCost: deliveryCost,
+          deliveryMethod: formData.deliveryMethod as 'courier' | 'pickup',
+          address: fullAddress,
+          city: formData.city,
+          customer: {
+            name: formData.name,
+            phone: formData.phone,
+            email: formData.email,
+            comment: formData.comment,
+          },
+          paymentMethod: 'online',
+          paymentUrl: data.paymentUrl,
+          items: items.map((item) => ({
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            image: item.image || (item.images && item.images[0]) || '',
+            article: item.article || '',
+          })),
+          userId: user?.uid || null,
+        };
+
+        // Persist order locally & to server API
+        await persistOrder(order);
+
         // Save order invoice to sessionStorage
         try {
           sessionStorage.setItem('lastEpayInvoiceId', data.invoiceId);
         } catch (e) {
           // ignore
         }
+
+        // Clear cart now that order is securely registered
+        clearCart();
 
         // Redirect to Halyk ePay
         if (typeof window !== 'undefined' && window.halyk && typeof window.halyk.pay === 'function') {
@@ -228,6 +303,39 @@ export default function CheckoutClient() {
     }
 
     // For offline/cash payment upon pickup
+    const offlineOrderId = Math.floor(10000000 + Math.random() * 90000000).toString();
+    const offlineOrder: Order = {
+      id: offlineOrderId,
+      invoiceId: offlineOrderId,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      status: 'pending',
+      amount: finalPrice,
+      itemsPrice: totalPrice,
+      deliveryCost: deliveryCost,
+      deliveryMethod: 'pickup',
+      address: 'Самовывоз: г. Алматы, Car City 1 ярус Подвал',
+      city: formData.city || 'Алматы',
+      customer: {
+        name: formData.name,
+        phone: formData.phone,
+        email: formData.email,
+        comment: formData.comment,
+      },
+      paymentMethod: formData.paymentMethod as 'cash' | 'card_receipt',
+      items: items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        image: item.image || (item.images && item.images[0]) || '',
+        article: item.article || '',
+      })),
+      userId: user?.uid || null,
+    };
+
+    await persistOrder(offlineOrder);
+    setLastOrderId(offlineOrderId);
     setIsSuccess(true);
     clearCart();
   };
@@ -237,10 +345,16 @@ export default function CheckoutClient() {
       <div className={`container ${styles.successState}`}>
         <CheckCircle size={80} color="var(--color-success)" />
         <h1>Заказ успешно оформлен!</h1>
-        <p>Ваш заказ №{Math.floor(Math.random() * 100000)} принят в обработку. Мы свяжемся с вами в ближайшее время.</p>
-        <Link href="/" className={styles.homeBtn}>
-          Вернуться на главную
-        </Link>
+        <p>Ваш заказ №{lastOrderId || Math.floor(Math.random() * 100000)} принят в обработку. Мы свяжемся с вами в ближайшее время.</p>
+        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <Link href="/profile" className={styles.homeBtn} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            <Package size={18} />
+            Перейти в мои заказы
+          </Link>
+          <Link href="/" className={styles.homeBtn} style={{ backgroundColor: '#f0f2f5', color: 'var(--color-navy)' }}>
+            На главную
+          </Link>
+        </div>
       </div>
     );
   }

@@ -38,12 +38,25 @@ export default function ProductCard({ product }: ProductCardProps) {
     }
   };
 
+  const hasMultiplePrices =
+    product.minPrice !== undefined &&
+    product.maxPrice !== undefined &&
+    product.minPrice < product.maxPrice;
+
+  const displayOem = product.oem || product.article;
+  const hasMultipleBrands = product.availableBrandsCount && product.availableBrandsCount > 1;
+
   return (
     <Link href={`/product/${product.id}`} className={styles.card}>
       <div className={styles.imageContainer}>
         {!imageLoaded && <div className={styles.skeleton}></div>}
         <Image
-          src={product.image || `https://placehold.co/400x400/F5F5F5/060F48?text=${encodeURIComponent(product.name.split(' ').slice(0, 2).join('\n'))}`}
+          src={
+            product.image ||
+            `https://placehold.co/400x400/F5F5F5/060F48?text=${encodeURIComponent(
+              product.name.split(' ').slice(0, 2).join('\n')
+            )}`
+          }
           alt={product.name}
           width={400}
           height={400}
@@ -51,9 +64,7 @@ export default function ProductCard({ product }: ProductCardProps) {
           onLoad={() => setImageLoaded(true)}
           unoptimized
         />
-        {product.oldPrice && (
-          <div className={styles.badgeSale}>Sale</div>
-        )}
+        {product.oldPrice && <div className={styles.badgeSale}>Sale</div>}
         <button
           className={`${styles.favoriteBtn} ${favorite ? styles.active : ''}`}
           onClick={handleToggleFavorite}
@@ -65,17 +76,25 @@ export default function ProductCard({ product }: ProductCardProps) {
 
       <div className={styles.content}>
         <div className={styles.meta}>
-          <span className={styles.article}>Код: {product.article}</span>
-          <span className={styles.brand}>{product.brand}</span>
+          <span className={styles.article}>OEM: {displayOem}</span>
+          <span className={styles.brand}>
+            {hasMultipleBrands ? `Брендов: ${product.availableBrandsCount}` : product.brand}
+          </span>
         </div>
 
         <h3 className={styles.title}>{product.name}</h3>
 
         <div className={styles.bottom}>
           <div className={styles.priceContainer}>
-            <span className={styles.price}>{product.price.toLocaleString()} ₸</span>
+            <span className={styles.price}>
+              {hasMultiplePrices
+                ? `от ${product.minPrice?.toLocaleString('ru-RU')} ₸`
+                : `${product.price.toLocaleString('ru-RU')} ₸`}
+            </span>
             {product.oldPrice && (
-              <span className={styles.oldPrice}>{product.oldPrice.toLocaleString()} ₸</span>
+              <span className={styles.oldPrice}>
+                {product.oldPrice.toLocaleString('ru-RU')} ₸
+              </span>
             )}
           </div>
 
@@ -88,7 +107,7 @@ export default function ProductCard({ product }: ProductCardProps) {
             <ShoppingCart size={20} />
           </button>
         </div>
-        
+
         {!product.inStock && <div className={styles.outOfStock}>Нет в наличии</div>}
       </div>
     </Link>

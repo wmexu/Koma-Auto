@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ShoppingCart, Heart, Box, Truck, CornerUpLeft, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Product } from '../../../data/products';
+import { Product, ProductVariant } from '../../../data/products';
 import { useCartStore } from '../../../store/useCartStore';
 import { useFavoritesStore } from '../../../store/useFavoritesStore';
 import { useToastStore } from '../../../store/useToastStore';
@@ -13,6 +13,7 @@ import styles from './ProductDetails.module.css';
 
 export default function ProductDetails({ id }: { id: string }) {
   const [product, setProduct] = useState<Product | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -35,6 +36,10 @@ export default function ProductDetails({ id }: { id: string }) {
         const res = await fetch(`/api/products/${id}`);
         const data = await res.json();
         setProduct(data);
+
+        if (data && data.variants && data.variants.length > 0) {
+          setSelectedVariantId(data.variants[0].id);
+        }
         
         if (data && data.category) {
           const simRes = await fetch(`/api/products?category=${encodeURIComponent(data.category)}&limit=5`);
@@ -72,17 +77,54 @@ export default function ProductDetails({ id }: { id: string }) {
     );
   }
 
-  const favorite = isFavorite(product.id);
+  const activeVariant: ProductVariant | null =
+    product.variants && product.variants.length > 0
+      ? (product.variants.find((v) => v.id === selectedVariantId) || product.variants[0])
+      : null;
+
+  const displayOem = activeVariant?.oem || product.oem || product.article || '';
+  const currentPrice = activeVariant ? activeVariant.price : product.price;
+  const currentOldPrice = activeVariant ? activeVariant.oldPrice : product.oldPrice;
+  const isItemInStock = activeVariant ? activeVariant.inStock : product.inStock;
+  const displayBrand = activeVariant ? activeVariant.brand : product.brand;
+
+  const displayPrice = currentPrice * quantity;
+  const displayOldPrice = currentOldPrice ? currentOldPrice * quantity : undefined;
+
+  const favorite = isFavorite(activeVariant ? activeVariant.id : product.id);
 
   const handleAddToCart = () => {
+    const target = activeVariant || product;
+    const itemToAdd: Product = {
+      ...product,
+      id: target.id,
+      moySkladId: ('moySkladId' in target && target.moySkladId) ? target.moySkladId : target.id,
+      name: target.name || product.name,
+      brand: target.brand || product.brand,
+      price: target.price,
+      oldPrice: target.oldPrice,
+      inStock: target.inStock,
+      article: ('oem' in target && target.oem) ? target.oem : (product.oem || product.article),
+      oem: ('oem' in target && target.oem) ? target.oem : (product.oem || product.article),
+    };
     for (let i = 0; i < quantity; i++) {
-      addItemToCart(product);
+      addItemToCart(itemToAdd);
     }
-    addToast('Товар добавлен в корзину', 'success');
+    addToast(`${target.brand} добавлен в корзину`, 'success');
   };
 
   const handleToggleFavorite = () => {
-    toggleFavorite(product);
+    const target = activeVariant || product;
+    const itemToToggle: Product = {
+      ...product,
+      id: target.id,
+      name: target.name || product.name,
+      brand: target.brand || product.brand,
+      price: target.price,
+      article: ('oem' in target && target.oem) ? target.oem : (product.oem || product.article),
+      oem: ('oem' in target && target.oem) ? target.oem : (product.oem || product.article),
+    };
+    toggleFavorite(itemToToggle);
     if (!favorite) {
       addToast('Добавлено в избранное', 'info');
     } else {
@@ -90,14 +132,17 @@ export default function ProductDetails({ id }: { id: string }) {
     }
   };
 
-  const images = product.images && product.images.length > 0 ? product.images : (product.image ? [product.image] : []);
+  const variantImages = (activeVariant?.images && activeVariant.images.length > 0)
+    ? activeVariant.images
+    : (activeVariant?.image ? [activeVariant.image] : null);
+
+  const images = (variantImages && variantImages.length > 0)
+    ? variantImages
+    : (product.images && product.images.length > 0 ? product.images : (product.image ? [product.image] : []));
   const currentImage = images.length > 0 ? images[currentImageIndex] : `https://placehold.co/600x600/F5F5F5/060F48?text=${encodeURIComponent(product.name.split(' ').slice(0, 2).join('\n'))}`;
 
   const nextImage = () => setCurrentImageIndex(prev => (prev === images.length - 1 ? 0 : prev + 1));
   const prevImage = () => setCurrentImageIndex(prev => (prev === 0 ? images.length - 1 : prev - 1));
-
-  const displayPrice = product.price * quantity;
-  const displayOldPrice = product.oldPrice ? product.oldPrice * quantity : undefined;
 
   const handleTouchStart = (e: React.TouchEvent) => {
     setTouchStart(e.targetTouches[0].clientX);
@@ -195,14 +240,14 @@ export default function ProductDetails({ id }: { id: string }) {
 
         <div className={styles.info}>
           <div className={styles.meta}>
-            <span className={styles.article}>Код / OEM: {product.article}</span>
-            <span className={styles.brand}>{product.brand}</span>
+            <span className={styles.article}>OEM: {displayOem}</span>
+            <span className={styles.brand}>{displayBrand}</span>
           </div>
 
           <h1 className={styles.title}>{product.name}</h1>
 
           <div className={styles.status}>
-            {product.inStock ? (
+            {isItemInStock ? (
               <span className={styles.inStock}>В наличии</span>
             ) : (
               <span className={styles.outOfStock}>Нет в наличии</span>
@@ -218,6 +263,40 @@ export default function ProductDetails({ id }: { id: string }) {
             </div>
           </div>
 
+          {product.variants && product.variants.length > 1 && (
+            <div className={styles.brandPickerSection}>
+              <div className={styles.brandPickerHeader}>
+                <span className={styles.brandPickerTitle}>Выберите производителя</span>
+                <span className={styles.brandPickerCount}>Вариантов: {product.variants.length}</span>
+              </div>
+              <div className={styles.brandGrid}>
+                {product.variants.map((v) => {
+                  const isSelected = activeVariant ? v.id === activeVariant.id : false;
+                  return (
+                    <button
+                      key={v.id}
+                      type="button"
+                      className={`${styles.brandOption} ${isSelected ? styles.brandOptionActive : ''} ${!v.inStock ? styles.brandOptionOutOfStock : ''}`}
+                      onClick={() => setSelectedVariantId(v.id)}
+                    >
+                      <div className={styles.brandOptionMain}>
+                        <span className={styles.brandOptionName}>{v.brand}</span>
+                        <span className={styles.brandOptionPrice}>{v.price.toLocaleString('ru-RU')} ₸</span>
+                      </div>
+                      <div className={styles.brandOptionStatus}>
+                        {v.inStock ? (
+                          <span className={styles.variantBadgeInStock}>В наличии</span>
+                        ) : (
+                          <span className={styles.variantBadgeOutOfStock}>Нет в наличии</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className={styles.actions}>
             <div className={styles.quantity}>
               <button onClick={() => setQuantity(Math.max(1, quantity - 1))}>-</button>
@@ -226,9 +305,9 @@ export default function ProductDetails({ id }: { id: string }) {
             </div>
             
             <button
-              className={`${styles.addToCartBtn} ${!product.inStock ? styles.disabled : ''}`}
+              className={`${styles.addToCartBtn} ${!isItemInStock ? styles.disabled : ''}`}
               onClick={handleAddToCart}
-              disabled={!product.inStock}
+              disabled={!isItemInStock}
             >
               <ShoppingCart size={20} />
               В корзину
@@ -281,6 +360,18 @@ export default function ProductDetails({ id }: { id: string }) {
         <div className={styles.tabContent}>
           {activeTab === 'specs' && (
             <div className={styles.specsList}>
+              {displayOem && (
+                <div className={styles.specRow}>
+                  <span className={styles.specName}>OEM номер</span>
+                  <span className={styles.specValue}>{displayOem}</span>
+                </div>
+              )}
+              {displayBrand && (
+                <div className={styles.specRow}>
+                  <span className={styles.specName}>Производитель</span>
+                  <span className={styles.specValue}>{displayBrand}</span>
+                </div>
+              )}
               {product.description && (
                 <div style={{ whiteSpace: 'pre-wrap', marginBottom: '20px', lineHeight: '1.6', color: 'var(--color-navy)' }}>
                   {product.description}

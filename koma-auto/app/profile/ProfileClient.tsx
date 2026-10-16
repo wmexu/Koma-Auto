@@ -18,6 +18,7 @@ import {
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import { User as UserIcon, Mail, Calendar, Briefcase, Clock, LogOut, Package, Pencil, Eye, EyeOff } from 'lucide-react';
+import OrdersHistory from '@/components/Orders/OrdersHistory';
 import styles from './Profile.module.css';
 
 export default function ProfileClient() {
@@ -664,15 +665,11 @@ export default function ProfileClient() {
           </div>
 
           <div className={styles.infoCard}>
-            <h2 className={styles.infoCardTitle} style={{ borderBottom: 'none', marginBottom: '0' }}>
+            <h2 className={styles.infoCardTitle}>
               <Package size={20} />
               Мои заказы
             </h2>
-            <div className={styles.emptyState}>
-              <Package size={40} color="#dcdfe6" style={{ marginBottom: '12px' }} />
-              <p>У вас пока нет заказов</p>
-              <span style={{ fontSize: '13px', marginTop: '4px' }}>История появится здесь после первой покупки</span>
-            </div>
+            <OrdersHistory userId={user.uid} />
           </div>
         </div>
 
@@ -957,6 +954,14 @@ export default function ProfileClient() {
           </svg>
           Войти через Google
         </button>
+
+        <div style={{ marginTop: '28px', width: '100%', borderTop: '1px solid #eef2f6', paddingTop: '20px' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--color-navy)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Package size={17} />
+            Заказы на этом устройстве
+          </h3>
+          <OrdersHistory userId={null} />
+        </div>
 
       </div>
     </div>

@@ -184,7 +184,7 @@ export default function CartClient() {
                   <Link href={`/product/${item.id}`} className={styles.itemName}>
                     {item.name}
                   </Link>
-                  <div className={styles.itemMeta}>Код: {item.article} | {item.brand}</div>
+                  <div className={styles.itemMeta}>OEM: {item.oem || item.article} | {item.brand}</div>
                 </div>
 
                 <div className={styles.itemActions}>

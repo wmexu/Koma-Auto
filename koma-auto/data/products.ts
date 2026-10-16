@@ -1,10 +1,31 @@
+export interface ProductVariant {
+  id: string;
+  moySkladId?: string;
+  name: string;
+  code: string;
+  oem: string;
+  brand: string;
+  tier: number;
+  price: number;
+  oldPrice?: number;
+  stock: number;
+  inStock: boolean;
+  image?: string;
+  images?: string[];
+  article?: string;
+  description?: string;
+}
+
 export interface Product {
   id: string;
   moySkladId?: string;
   article: string;
+  oem?: string;
   brand: string;
   name: string;
   price: number;
+  minPrice?: number;
+  maxPrice?: number;
   oldPrice?: number;
   inStock: boolean;
   category: string;
@@ -13,6 +34,8 @@ export interface Product {
   specs: Record<string, string>;
   compatibility: string[];
   description?: string;
+  variants?: ProductVariant[];
+  availableBrandsCount?: number;
 }
 
 export const categories = [
@@ -47,12 +70,14 @@ export const categories = [
 ];
 
 export const brands = [
-  { id: 'bosch', name: 'Bosch' },
-  { id: 'brembo', name: 'Brembo' },
-  { id: 'mann', name: 'Mann-Filter' },
-  { id: 'ngk', name: 'NGK' },
-  { id: 'kayaba', name: 'KYB' },
-  { id: 'denso', name: 'Denso' },
+  { id: 'hyundai', name: 'Hyundai' },
+  { id: 'mobis', name: 'Mobis' },
+  { id: 'gates', name: 'Gates' },
+  { id: 'mando', name: 'Mando' },
+  { id: 'korparts', name: 'Korparts' },
+  { id: 'hiq', name: 'Hi-Q' },
+  { id: 'uzdw', name: 'UzDW' },
+  { id: 'korwheel', name: 'Korwheel' },
 ];
 
 export const products: Product[] = [];

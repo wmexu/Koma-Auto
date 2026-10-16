@@ -1,98 +1,75 @@
 import { NextResponse } from 'next/server';
-import { getProducts, getProductFolders, mapMoySkladToProduct, fetchMoySklad } from '@/lib/moysklad';
+import {
+  getProducts,
+  getProductFolders,
+  mapMoySkladToProduct,
+  groupProductsByOem,
+  PODVAL_STORE_URL,
+} from '@/lib/moysklad';
 import { products as fallbackProducts } from '@/data/products';
-
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '24', 10);
+    const limit = parseInt(searchParams.get('limit') || '36', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
     const inStockOnly = searchParams.get('inStockOnly') === 'true';
     const category = searchParams.get('category');
-    const brand = searchParams.get('brand');
     const search = searchParams.get('search');
-    const originalsOnly = searchParams.get('originalsOnly') === 'true';
 
     let categoryHref: string | string[] = '';
-    
+
     if (category) {
       const foldersRes = await getProductFolders();
-      const folder = foldersRes.rows.find((f: any) => f.name.toLowerCase() === category.toLowerCase() || f.id === category);
+      const folder = foldersRes.rows.find(
+        (f: any) => f.name.toLowerCase() === category.toLowerCase() || f.id === category
+      );
       if (folder && folder.meta) {
         categoryHref = folder.meta.href;
       }
     }
 
-    let brandHref: string | string[] = '';
-    
-    if (originalsOnly) {
-      // Fetch original brands
-      try {
-        const suppliersRes = await fetchMoySklad<any>('/entity/counterparty?search=Hyundai');
-        const originalNames = [
-          'hyundai', 'hyundai org', 'hyundai org atc',
-          'hyundai-kia', 'hyundai/kia', 'hyundai/kia org'
-        ];
-        const hrefs = suppliersRes.rows
-          ?.filter((s: any) => originalNames.includes(s.name.toLowerCase().trim()))
-          .map((s: any) => s.meta.href) || [];
-          
-        if (hrefs.length > 0) {
-          brandHref = hrefs;
-        }
-      } catch (e) {
-        console.error('Failed to resolve original brand hrefs', e);
-      }
-    } else if (brand) {
-      // Fetch counterparties by search to get hrefs for all variants (e.g. KORPARTS, Korparts)
-      try {
-        const suppliersRes = await fetchMoySklad<any>(`/entity/counterparty?search=${encodeURIComponent(brand)}`);
-        // Find all exact case-insensitive matches
-        const matchedSuppliers = suppliersRes.rows?.filter((s: any) => s.name.toLowerCase() === brand.toLowerCase());
-        
-        if (matchedSuppliers && matchedSuppliers.length > 0) {
-          brandHref = matchedSuppliers.map((s: any) => s.meta.href);
-        } else if (suppliersRes.rows?.[0]) {
-          // Fallback to first search result if no exact match
-          brandHref = suppliersRes.rows[0].meta.href;
-        }
-      } catch (e) {
-        console.error('Failed to resolve brand href', e);
-      }
-    }
+    // Fetch from MoySklad strictly using store "Car City 1 ярус Подвал"
+    const productsRes = await getProducts(
+      limit,
+      offset,
+      search || '',
+      categoryHref,
+      '',
+      inStockOnly
+    );
 
-    const productsRes = await getProducts(limit, offset, search || '', categoryHref, brandHref, inStockOnly, category || '');
+    // Map each MoySklad product to Product with OEM and clean normalized brand
+    let mappedProducts = (productsRes.rows || []).map((msProduct) =>
+      mapMoySkladToProduct(msProduct)
+    );
 
-    // Map products
-    let mappedProducts = (productsRes.rows || []).map(msProduct => mapMoySkladToProduct(msProduct));
+    // Filter out products with 0 price
+    mappedProducts = mappedProducts.filter((p) => p.price > 0);
 
-    // Apply any final filtering that MoySklad API couldn't handle
-    // Globally hide products that have a price of 0
-    mappedProducts = mappedProducts.filter(p => p.price > 0);
+    // Group products that share the same OEM code into 1 single card!
+    const groupedProducts = groupProductsByOem(mappedProducts);
 
     const rawCount = productsRes.rows?.length || 0;
-    const hasMore = rawCount === limit;
+    const hasMore = rawCount >= limit;
 
-    // Return the response
     return NextResponse.json({
-      products: mappedProducts,
-      total: productsRes.meta?.size || mappedProducts.length,
+      products: groupedProducts,
+      total: productsRes.meta?.size || groupedProducts.length,
       limit: productsRes.meta?.limit || limit,
       offset: productsRes.meta?.offset || offset,
       hasMore,
     });
   } catch (error) {
     console.error('Error fetching products from API:', error);
-    // Return fallback static data if API fails so the site doesn't crash completely
     return NextResponse.json({
       products: fallbackProducts,
       total: fallbackProducts.length,
       limit: 100,
       offset: 0,
-      error: 'MoySklad API failed, using fallback data'
+      error: 'MoySklad API failed, using fallback data',
     });
   }
 }

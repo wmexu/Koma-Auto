@@ -1,5 +1,6 @@
-import { MoySkladListResponse, MoySkladProduct, MoySkladProductFolder, MoySkladStockReport } from './moysklad-types';
-import { Product } from '../data/products';
+import { MoySkladListResponse, MoySkladProduct, MoySkladProductFolder } from './moysklad-types';
+import { Product, ProductVariant } from '../data/products';
+import { extractOemCode, normalizeBrand, sortProductVariants } from './brand-utils';
 
 const API_URL = process.env.MOYSKLAD_API_URL || 'https://api.moysklad.ru/api/remap/1.2';
 const TOKEN = process.env.MOYSKLAD_TOKEN;
@@ -7,7 +8,9 @@ const LOGIN = process.env.MOYSKLAD_LOGIN;
 const PASSWORD = process.env.MOYSKLAD_PASSWORD;
 
 // The main store URL for "Car City 1 ярус Подвал"
-const MAIN_STORE_URL = 'https://api.moysklad.ru/api/remap/1.2/entity/store/4240a87a-4ea5-11f1-0a80-1b5c0008497a';
+export const PODVAL_STORE_URL =
+  'https://api.moysklad.ru/api/remap/1.2/entity/store/4240a87a-4ea5-11f1-0a80-1b5c0008497a';
+const MAIN_STORE_URL = PODVAL_STORE_URL;
 
 export function getMoySkladAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
@@ -27,7 +30,7 @@ export function getMoySkladAuthHeaders(): Record<string, string> {
 
 export async function fetchMoySklad<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = path.startsWith('http') ? path : `${API_URL}${path}`;
-  
+
   const headers = {
     ...getMoySkladAuthHeaders(),
     ...options.headers,
@@ -59,27 +62,19 @@ export async function fetchMoySklad<T>(path: string, options: RequestInit = {}):
 }
 
 export async function getProducts(
-  limit = 24,
+  limit = 48,
   offset = 0,
   search = '',
   categoryHref: string | string[] = '',
   brandHref: string | string[] = '',
-  inStockOnly = false,
-  categoryName = ''
+  inStockOnly = false
 ): Promise<MoySkladListResponse<MoySkladProduct>> {
   const filters: string[] = ['archived=false'];
   if (categoryHref) {
     if (Array.isArray(categoryHref)) {
-      categoryHref.forEach(href => filters.push(`productFolder=${href}`));
+      categoryHref.forEach((href) => filters.push(`productFolder=${href}`));
     } else {
       filters.push(`productFolder=${categoryHref}`);
-    }
-  }
-  if (brandHref) {
-    if (Array.isArray(brandHref)) {
-      brandHref.forEach(href => filters.push(`supplier=${href}`));
-    } else {
-      filters.push(`supplier=${brandHref}`);
     }
   }
 
@@ -87,28 +82,51 @@ export async function getProducts(
     filters.push(`stockMode=positiveonly`);
   }
 
-  if (search) {
-    filters.push(`search=${encodeURIComponent(search)}`);
+  const cleanSearch = search.trim();
+  let url = `/entity/assortment?limit=${limit}&offset=${offset}&expand=images,productFolder,supplier&stockStore=${encodeURIComponent(
+    PODVAL_STORE_URL
+  )}`;
+
+  // If search matches OEM alphanumeric pattern, try filter=code~=... or search
+  if (cleanSearch) {
+    const isOemLike = /^[0-9a-zA-Z]{3,}$/.test(cleanSearch.replace(/[\s\-\.]/g, ''));
+    if (isOemLike) {
+      filters.push(`code~=${encodeURIComponent(cleanSearch.replace(/[\s\-\.]/g, ''))}`);
+    } else {
+      url += `&search=${encodeURIComponent(cleanSearch)}`;
+    }
   }
 
-  let url = `/entity/assortment?limit=${limit}&offset=${offset}&expand=images,productFolder,supplier&stockStore=${encodeURIComponent(MAIN_STORE_URL)}`;
-  
   if (filters.length > 0) {
     url += `&filter=${filters.join(';')}`;
   }
-  
-  return fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(url);
+
+  try {
+    return await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(url);
+  } catch (err) {
+    // If filter=code~ failed or returned error, fallback to general search
+    if (cleanSearch) {
+      const fallbackUrl = `/entity/assortment?limit=${limit}&offset=${offset}&expand=images,productFolder,supplier&stockStore=${encodeURIComponent(
+        PODVAL_STORE_URL
+      )}&search=${encodeURIComponent(cleanSearch)}`;
+      return await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(fallbackUrl);
+    }
+    throw err;
+  }
 }
 
 export async function getProduct(id: string): Promise<MoySkladProduct> {
-  const res = await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(`/entity/assortment?limit=1&filter=id=${id}&expand=images,productFolder,supplier&stockStore=${encodeURIComponent(MAIN_STORE_URL)}`);
+  const res = await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(
+    `/entity/assortment?limit=1&filter=id=${id}&expand=images,productFolder,supplier&stockStore=${encodeURIComponent(
+      PODVAL_STORE_URL
+    )}`
+  );
   if (!res.rows || res.rows.length === 0) {
     throw new Error(`Product with id ${id} not found in assortment`);
   }
-  
+
   const product = res.rows[0];
-  
-  // Workaround for MoySklad API bug where expand=supplier sometimes fails to include the name when filtering by id
+
   if (product.supplier && !product.supplier.name && product.supplier.meta && product.supplier.meta.href) {
     try {
       const supplierData = await fetchMoySklad<any>(product.supplier.meta.href);
@@ -119,24 +137,51 @@ export async function getProduct(id: string): Promise<MoySkladProduct> {
       console.error('Failed to fetch supplier details for product:', e);
     }
   }
-  
+
   return product;
 }
 
-// Removed getStockAll as assortment endpoint returns stock natively
+export async function getProductVariantsByOem(oem: string): Promise<MoySkladProduct[]> {
+  if (!oem || oem.length < 4) return [];
+
+  const cleanOem = oem.replace(/[\s\-\.]/g, '');
+  try {
+    const res = await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(
+      `/entity/assortment?filter=code~=${encodeURIComponent(cleanOem)}&expand=images,supplier&stockStore=${encodeURIComponent(
+        PODVAL_STORE_URL
+      )}&limit=100`
+    );
+    return res.rows || [];
+  } catch (e) {
+    // Fallback to search
+    try {
+      const fallbackRes = await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(
+        `/entity/assortment?search=${encodeURIComponent(cleanOem)}&expand=images,supplier&stockStore=${encodeURIComponent(
+          PODVAL_STORE_URL
+        )}&limit=50`
+      );
+      return fallbackRes.rows || [];
+    } catch (err) {
+      console.error('Error fetching variants by OEM:', err);
+      return [];
+    }
+  }
+}
 
 export async function getProductsByIds(ids: string[]): Promise<Product[]> {
   if (!ids || ids.length === 0) return [];
-  
+
   const chunkSize = 20;
   const allProducts: Product[] = [];
-  
+
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
-    const filterStr = chunk.map(id => `id=${id}`).join(';');
+    const filterStr = chunk.map((id) => `id=${id}`).join(';');
     try {
       const res = await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(
-        `/entity/assortment?limit=100&filter=${filterStr}&expand=images,productFolder,supplier&stockStore=${encodeURIComponent(MAIN_STORE_URL)}`
+        `/entity/assortment?limit=100&filter=${filterStr}&expand=images,productFolder,supplier&stockStore=${encodeURIComponent(
+          PODVAL_STORE_URL
+        )}`
       );
       if (res.rows) {
         allProducts.push(...res.rows.map(mapMoySkladToProduct));
@@ -145,7 +190,7 @@ export async function getProductsByIds(ids: string[]): Promise<Product[]> {
       console.error('Error fetching batch products chunk:', e);
     }
   }
-  
+
   return allProducts;
 }
 
@@ -153,25 +198,15 @@ export async function getProductFolders(): Promise<MoySkladListResponse<MoySklad
   return fetchMoySklad<MoySkladListResponse<MoySkladProductFolder>>(`/entity/productfolder`);
 }
 
-export function mapMoySkladToProduct(
-  msProduct: MoySkladProduct
-): Product {
+export function mapMoySkladToProduct(msProduct: MoySkladProduct): Product {
   let category = 'other';
   if (msProduct.productFolder && 'name' in msProduct.productFolder) {
     category = msProduct.productFolder.name as string;
   }
 
-  let brand = 'НЕИЗВЕСТНО';
-  if (msProduct.supplier && msProduct.supplier.name) {
-    brand = msProduct.supplier.name;
-  } else if (msProduct.attributes) {
-    const brandAttr = msProduct.attributes.find(a => a.name.toLowerCase() === 'бренд');
-    if (brandAttr && typeof brandAttr.value === 'string') {
-      brand = brandAttr.value;
-    } else if (brandAttr && typeof brandAttr.value === 'object' && 'name' in brandAttr.value) {
-       brand = brandAttr.value.name;
-    }
-  }
+  const supplierName = msProduct.supplier?.name;
+  const brandInfo = normalizeBrand(supplierName, msProduct.code);
+  const oem = extractOemCode(msProduct.code, msProduct.article);
 
   let price = 0;
   if (msProduct.salePrices && msProduct.salePrices.length > 0) {
@@ -186,6 +221,7 @@ export function mapMoySkladToProduct(
     }
   }
 
+  // Stock from 1 ярус Подвал
   const stock = msProduct.stock || 0;
   const inStock = stock > 0;
 
@@ -196,21 +232,21 @@ export function mapMoySkladToProduct(
     if (imgUrl) {
       image = `/api/images?href=${encodeURIComponent(imgUrl)}`;
     }
-    
-    images = msProduct.images.rows.map(img => {
-      return img.meta.downloadHref ? `/api/images?href=${encodeURIComponent(img.meta.downloadHref)}` : '';
-    }).filter(url => url !== '');
+
+    images = msProduct.images.rows
+      .map((img) => (img.meta.downloadHref ? `/api/images?href=${encodeURIComponent(img.meta.downloadHref)}` : ''))
+      .filter((url) => url !== '');
   }
 
   const specs: Record<string, string> = {};
   if (msProduct.attributes) {
-    msProduct.attributes.forEach(attr => {
+    msProduct.attributes.forEach((attr) => {
       if (attr.name.toLowerCase() !== 'бренд') {
-         if (typeof attr.value === 'string') {
-             specs[attr.name] = attr.value;
-         } else if (typeof attr.value === 'object' && 'name' in attr.value) {
-             specs[attr.name] = attr.value.name;
-         }
+        if (typeof attr.value === 'string') {
+          specs[attr.name] = attr.value;
+        } else if (typeof attr.value === 'object' && 'name' in attr.value) {
+          specs[attr.name] = attr.value.name;
+        }
       }
     });
   }
@@ -218,8 +254,9 @@ export function mapMoySkladToProduct(
   return {
     id: msProduct.id,
     moySkladId: msProduct.id,
-    article: msProduct.code || msProduct.article || '',
-    brand,
+    article: oem || msProduct.code || msProduct.article || '',
+    oem: oem || msProduct.code || '',
+    brand: brandInfo.brand,
     name: msProduct.name,
     price,
     oldPrice,
@@ -230,5 +267,129 @@ export function mapMoySkladToProduct(
     specs,
     compatibility: [],
     description: msProduct.description || '',
+    variants: [
+      {
+        id: msProduct.id,
+        name: msProduct.name,
+        code: msProduct.code || '',
+        oem,
+        brand: brandInfo.brand,
+        tier: brandInfo.tier,
+        price,
+        oldPrice,
+        stock,
+        inStock,
+        image,
+        images,
+        article: oem || msProduct.code || '',
+      },
+    ],
+    availableBrandsCount: 1,
   };
+}
+
+/**
+ * Groups multiple products sharing the same OEM into 1 single Product card with variants
+ */
+export function groupProductsByOem(products: Product[]): Product[] {
+  const groups = new Map<string, Product[]>();
+
+  products.forEach((p) => {
+    const key = (p.oem || p.article || p.id).toUpperCase().replace(/[\s\-\.]/g, '');
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key)!.push(p);
+  });
+
+  const groupedList: Product[] = [];
+
+  for (const [oemKey, items] of groups.entries()) {
+    // Collect all variants
+    const allVariants: ProductVariant[] = [];
+    items.forEach((item) => {
+      if (item.variants && item.variants.length > 0) {
+        allVariants.push(...item.variants);
+      } else {
+        const brandInfo = normalizeBrand(item.brand, item.article);
+        allVariants.push({
+          id: item.id,
+          name: item.name,
+          code: item.article,
+          oem: item.oem || item.article,
+          brand: item.brand,
+          tier: brandInfo.tier,
+          price: item.price,
+          oldPrice: item.oldPrice,
+          stock: item.inStock ? 1 : 0,
+          inStock: item.inStock,
+          image: item.image,
+          images: item.images,
+        });
+      }
+    });
+
+    // Deduplicate variants by brand (if duplicate supplier entries exist, pick in-stock or cheaper)
+    const uniqueVariantsMap = new Map<string, ProductVariant>();
+    allVariants.forEach((v) => {
+      const existing = uniqueVariantsMap.get(v.brand);
+      if (!existing) {
+        uniqueVariantsMap.set(v.brand, v);
+      } else {
+        // Prefer in-stock, then lower price
+        if (!existing.inStock && v.inStock) {
+          uniqueVariantsMap.set(v.brand, v);
+        } else if (existing.inStock === v.inStock && v.price < existing.price && v.price > 0) {
+          uniqueVariantsMap.set(v.brand, v);
+        }
+      }
+    });
+
+    const sortedVariants = sortProductVariants(Array.from(uniqueVariantsMap.values()));
+
+    // The primary variant (top tier with stock, or top tier)
+    const primary = sortedVariants[0] || allVariants[0];
+    const prices = sortedVariants.map((v) => v.price).filter((p) => p > 0);
+    const minPrice = prices.length > 0 ? Math.min(...prices) : primary.price;
+    const maxPrice = prices.length > 0 ? Math.max(...prices) : primary.price;
+    const hasAnyStock = sortedVariants.some((v) => v.inStock);
+
+    // Pick best image available across all variants
+    const bestImage =
+      primary.image ||
+      sortedVariants.find((v) => v.image)?.image ||
+      items.find((i) => i.image)?.image;
+
+    const allImages = Array.from(
+      new Set(
+        sortedVariants
+          .flatMap((v) => v.images || (v.image ? [v.image] : []))
+          .filter((img): img is string => Boolean(img))
+      )
+    );
+
+    groupedList.push({
+      id: primary.id,
+      moySkladId: primary.id,
+      article: primary.oem || oemKey,
+      oem: primary.oem || oemKey,
+      name: primary.name,
+      brand: primary.brand,
+      price: primary.price,
+      minPrice,
+      maxPrice,
+      oldPrice: primary.oldPrice,
+      inStock: hasAnyStock,
+      category: items[0].category,
+      image: bestImage,
+      images: allImages,
+      specs: items[0].specs || {},
+      compatibility: items[0].compatibility || [],
+      description: primary.description || items[0].description,
+      variants: sortedVariants,
+      availableBrandsCount: sortedVariants.length,
+    });
+  }
+
+  return groupedList;
 }

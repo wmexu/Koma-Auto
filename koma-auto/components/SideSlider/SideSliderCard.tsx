@@ -34,7 +34,7 @@ export default function SideSliderCard({ product }: { product: Product }) {
       </div>
       <div className={styles.cardInfo}>
         <div className={styles.cardHeader}>
-          <span className={styles.cardArticle}>{product.article}</span>
+          <span className={styles.cardArticle}>OEM: {product.oem || product.article}</span>
           <span className={styles.cardBrand}>{product.brand}</span>
         </div>
         <h4 className={styles.cardTitle} title={product.name}>{product.name}</h4>
@@ -44,7 +44,11 @@ export default function SideSliderCard({ product }: { product: Product }) {
             {product.oldPrice && (
               <span className={styles.cardOldPrice}>{product.oldPrice.toLocaleString()} ₸</span>
             )}
-            <span className={styles.cardPrice}>{product.price.toLocaleString()} ₸</span>
+            <span className={styles.cardPrice}>
+              {product.minPrice !== undefined && product.maxPrice !== undefined && product.minPrice < product.maxPrice
+                ? `от ${product.minPrice.toLocaleString()} ₸`
+                : `${product.price.toLocaleString()} ₸`}
+            </span>
           </div>
           <button
             className={`${styles.cartBtn} ${!product.inStock ? styles.disabled : ''}`}

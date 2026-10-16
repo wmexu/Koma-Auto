@@ -6,49 +6,120 @@
   flex-direction: column;
   gap: 12px;
   z-index: 9999;
+  max-width: 420px;
+  pointer-events: none;
 }
 
 .toast {
+  pointer-events: auto;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
-  min-width: 300px;
+  min-width: 320px;
   padding: 16px;
   border-radius: var(--radius-sm);
   background-color: var(--color-white);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  animation: slideIn 0.3s ease-out forwards;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  border-left: 4px solid #cbd5e1;
+  user-select: none;
+  touch-action: pan-y;
+}
+
+.toast.success {
+  border-left-color: var(--color-success);
 }
 
 .toast.success .icon {
   color: var(--color-success);
 }
 
+.toast.error {
+  border-left-color: var(--color-danger);
+}
+
 .toast.error .icon {
   color: var(--color-danger);
+}
+
+.toast.info {
+  border-left-color: var(--color-navy);
 }
 
 .toast.info .icon {
   color: var(--color-navy);
 }
 
-.message {
+.toast.warning {
+  border-left-color: #f59e0b;
+}
+
+.toast.warning .icon {
+  color: #f59e0b;
+}
+
+.contentCol {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message {
   font-size: 14px;
   font-weight: 500;
   color: var(--color-dark-gray);
+  line-height: 1.45;
+}
+
+.actionBtn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--color-navy);
+  color: var(--color-white);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+  margin-top: 2px;
+}
+
+.actionBtn:hover {
+  background-color: #030c42;
+  transform: translateY(-1px);
+}
+
+.actionBtn:active {
+  transform: translateY(0);
 }
 
 .closeBtn {
   color: #999;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: color 0.2s;
+  border-radius: 4px;
 }
 
 .closeBtn:hover {
   color: var(--color-dark-gray);
+  background-color: #f0f2f5;
+}
+
+.dismissing {
+  transition: opacity 0.2s ease, transform 0.2s ease !important;
+  opacity: 0 !important;
+  transform: translateX(100%) !important;
 }
 
 @keyframes slideIn {
@@ -67,6 +138,7 @@
     bottom: 16px;
     right: 16px;
     left: 16px;
+    max-width: none;
   }
 
   .toast {

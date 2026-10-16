@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getProduct, mapMoySkladToProduct } from '@/lib/moysklad';
-import { products as fallbackProducts } from '@/data/products';
+import { getProduct, mapMoySkladToProduct, getProductVariantsByOem } from '@/lib/moysklad';
+import { products as fallbackProducts, ProductVariant } from '@/data/products';
+import { sortProductVariants, normalizeBrand } from '@/lib/brand-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,21 +11,99 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const { id } = params;
 
     const productRes = await getProduct(id);
-
-    // Map product
     const mappedProduct = mapMoySkladToProduct(productRes);
+
+    // Fetch all variants sharing the same OEM
+    const oem = mappedProduct.oem || mappedProduct.article;
+    if (oem && oem.length >= 4) {
+      try {
+        const rawVariants = await getProductVariantsByOem(oem);
+        if (rawVariants && rawVariants.length > 0) {
+          const variantsList: ProductVariant[] = rawVariants.map((ms) => {
+            const mapped = mapMoySkladToProduct(ms);
+            const brandInfo = normalizeBrand(ms.supplier?.name, ms.code);
+            return {
+              id: ms.id,
+              moySkladId: ms.id,
+              name: ms.name,
+              code: ms.code || '',
+              oem,
+              brand: brandInfo.brand,
+              tier: brandInfo.tier,
+              price: mapped.price,
+              oldPrice: mapped.oldPrice,
+              stock: ms.stock || 0,
+              inStock: (ms.stock || 0) > 0,
+              image: mapped.image,
+              images: mapped.images,
+              article: oem,
+              description: ms.description || mapped.description,
+            };
+          });
+
+          // Ensure current product is included in variants list
+          if (!variantsList.some((v) => v.id === mappedProduct.id)) {
+            const curBrand = normalizeBrand(productRes.supplier?.name, productRes.code);
+            variantsList.push({
+              id: mappedProduct.id,
+              moySkladId: mappedProduct.id,
+              name: mappedProduct.name,
+              code: productRes.code || '',
+              oem,
+              brand: curBrand.brand,
+              tier: curBrand.tier,
+              price: mappedProduct.price,
+              oldPrice: mappedProduct.oldPrice,
+              stock: productRes.stock || 0,
+              inStock: (productRes.stock || 0) > 0,
+              image: mappedProduct.image,
+              images: mappedProduct.images,
+              article: oem,
+              description: mappedProduct.description,
+            });
+          }
+
+          // Deduplicate variants by brand (keep in-stock or lower price)
+          const brandMap = new Map<string, ProductVariant>();
+          variantsList.forEach((v) => {
+            const existing = brandMap.get(v.brand);
+            if (!existing) {
+              brandMap.set(v.brand, v);
+            } else {
+              if (!existing.inStock && v.inStock) {
+                brandMap.set(v.brand, v);
+              } else if (existing.inStock === v.inStock && v.price < existing.price && v.price > 0) {
+                brandMap.set(v.brand, v);
+              }
+            }
+          });
+
+          const sortedVariants = sortProductVariants(Array.from(brandMap.values()));
+          mappedProduct.variants = sortedVariants;
+          mappedProduct.availableBrandsCount = sortedVariants.length;
+
+          // Default to first variant (which is highest tier in-stock)
+          if (sortedVariants.length > 0) {
+            mappedProduct.brand = sortedVariants[0].brand;
+          }
+        }
+      } catch (varErr) {
+        console.warn('Failed to load variants for OEM:', oem, varErr);
+      }
+    }
 
     return NextResponse.json(mappedProduct);
   } catch (error) {
     console.error(`Error fetching product:`, error);
-    
-    // Fallback logic
+
     const params = await context.params;
-    const fallbackProduct = fallbackProducts.find(p => p.id === params.id || p.moySkladId === params.id);
+    const fallbackProduct = fallbackProducts.find(
+      (p) => p.id === params.id || p.moySkladId === params.id
+    );
     if (fallbackProduct) {
-       return NextResponse.json(fallbackProduct);
+      return NextResponse.json(fallbackProduct);
     }
-    
+
     return NextResponse.json({ error: 'Failed to fetch product' }, { status: 500 });
   }
 }

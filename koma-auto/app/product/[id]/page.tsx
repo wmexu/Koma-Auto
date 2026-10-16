@@ -17,14 +17,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
     return {
       title: `${product.name} - ${product.brand} | koma.com.kz`,
-      description: `Купить ${product.name} (код: ${product.article}) по выгодной цене.`,
+      description: `Купить ${product.name} (OEM: ${product.oem || product.article}) по выгодной цене.`,
     };
   } catch (error) {
     const product = fallbackProducts.find((p) => p.id === id || p.moySkladId === id);
     if (product) {
       return {
         title: `${product.name} - ${product.brand} | koma.com.kz`,
-        description: `Купить ${product.name} (код: ${product.article}) по выгодной цене.`,
+        description: `Купить ${product.name} (OEM: ${product.oem || product.article}) по выгодной цене.`,
       };
     }
     return { title: 'Товар не найден' };
