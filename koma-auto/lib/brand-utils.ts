@@ -45,23 +45,48 @@ export interface GroupedProduct {
 
 /**
  * Extracts canonical OEM code from product code or article
+ * Strictly ignores internal MoySklad counter numbers (e.g. 000009554, 004200200, 003303131)
  */
-export function extractOemCode(code?: string, article?: string): string {
-  if (!code && !article) return '';
-  const raw = (code || article || '').trim().replace(/[\s\-\.]/g, '');
+export function extractOemCode(code?: string, article?: string, name?: string): string {
+  const isInternalCounter = (str: string) => /^00[0-9]{4,}$/.test(str) || /^[0-9]{1,4}$/.test(str);
 
-  // 1. GM / Daewoo / Chevrolet: 8 digits followed by letters/end (e.g. 96130396gm -> 96130396)
-  const gm = raw.match(/^([0-9]{8})([a-zA-Z]*)$/);
+  const cleanCode = (code || '').trim().replace(/[\s\-\.]/g, '');
+  let cleanArticle = (article || '').trim().replace(/[\s\-\.]/g, '');
+  if (isInternalCounter(cleanArticle)) {
+    cleanArticle = '';
+  }
+
+  const raw = cleanCode || cleanArticle;
+  if (!raw) {
+    if (name) {
+      const nameOem = name.match(/([0-9]{5}[0-9a-zA-Z]{5}|[1-9][0-9]{7})/i);
+      if (nameOem) return nameOem[1].toUpperCase();
+    }
+    return '';
+  }
+
+  // 1. GM / Daewoo: 8 digits not starting with 00 (e.g. 96130396gm -> 96130396, 95259950 -> 95259950)
+  const gm = raw.match(/^([1-9][0-9]{7})([a-zA-Z]*)$/);
   if (gm) return gm[1];
 
-  // 2. Hyundai / Kia: 10 chars (5 digits + 5 alphanumeric) followed by letters/end (e.g. 31112b1000org -> 31112B1000)
+  // 2. Hyundai / Kia: 10 chars (e.g. 31112b1000org -> 31112B1000, 253293x600mob -> 253293X600, 41700a75d10uz -> 41700A75D10)
   const hk = raw.match(/^([0-9]{5}[0-9a-zA-Z]{5})([a-zA-Z]*)$/i);
   if (hk) return hk[1].toUpperCase();
 
-  // 3. Fallback: if ends with 1-4 letters and prefix is at least 5 alphanumeric
-  const sfxMatch = raw.match(/^([0-9a-zA-Z]{5,})([a-zA-Z]{1,4})$/);
-  if (sfxMatch) {
+  // 3. Known supplier code suffixes (e.g. JL132Buz -> JL132B, 94583399SAUL -> 94583399, 343304EXCEL -> 343304)
+  const knownSfx = raw.match(/^([0-9a-zA-Z]{4,})?(org|mob|gmq|gm|buz|uz|sq|hq|kex|kp|kap|ps|mp|car|kw|os|aydo|trt|ml|ux|cs|saul|mj|ysf|dyc|dy|ch|bs|sl|hyt|excel|w)$/i);
+  if (knownSfx && knownSfx[1] && !isInternalCounter(knownSfx[1])) {
+    return knownSfx[1].toUpperCase();
+  }
+
+  // 4. Fallback: if ends with 1-4 letters and prefix is at least 4 alphanumeric
+  const sfxMatch = raw.match(/^([0-9a-zA-Z]{4,})([a-zA-Z]{1,4})$/);
+  if (sfxMatch && !isInternalCounter(sfxMatch[1])) {
     return sfxMatch[1].toUpperCase();
+  }
+
+  if (isInternalCounter(raw)) {
+    return '';
   }
 
   return raw.toUpperCase();

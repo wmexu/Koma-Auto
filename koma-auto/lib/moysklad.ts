@@ -206,7 +206,7 @@ export function mapMoySkladToProduct(msProduct: MoySkladProduct): Product {
 
   const supplierName = msProduct.supplier?.name;
   const brandInfo = normalizeBrand(supplierName, msProduct.code);
-  const oem = extractOemCode(msProduct.code, msProduct.article);
+  const oem = extractOemCode(msProduct.code, msProduct.article, msProduct.name);
 
   let price = 0;
   if (msProduct.salePrices && msProduct.salePrices.length > 0) {

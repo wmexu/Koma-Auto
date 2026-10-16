@@ -329,10 +329,36 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px;
-  border: 1px solid #f1f5f9;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
   border-radius: var(--radius-sm);
   background-color: #ffffff;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.itemRow:hover {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(6, 15, 72, 0.06);
+}
+
+.itemRow:hover .itemName {
+  color: var(--color-navy);
+  text-decoration: underline;
+}
+
+.itemRow:hover .itemArrow {
+  transform: translateX(3px);
+  color: var(--color-navy);
+}
+
+.itemArrow {
+  color: #94a3b8;
+  flex-shrink: 0;
+  transition: transform 0.2s ease, color 0.2s ease;
 }
 
 .itemInfo {

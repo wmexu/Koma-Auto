@@ -77,9 +77,9 @@ export default function ProductCard({ product }: ProductCardProps) {
       <div className={styles.content}>
         <div className={styles.meta}>
           <span className={styles.article}>OEM: {displayOem}</span>
-          <span className={styles.brand}>
-            {hasMultipleBrands ? `Брендов: ${product.availableBrandsCount}` : product.brand}
-          </span>
+          {hasMultipleBrands && (
+            <span className={styles.brand}>Вариантов: {product.availableBrandsCount}</span>
+          )}
         </div>
 
         <h3 className={styles.title}>{product.name}</h3>

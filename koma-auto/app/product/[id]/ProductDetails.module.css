@@ -44,14 +44,26 @@
 }
 
 .main {
-  display: flex;
-  gap: 40px;
+  display: grid;
+  grid-template-columns: minmax(360px, 480px) 1fr;
+  grid-template-areas:
+    "gallery info"
+    "tabs    info";
+  column-gap: 48px;
+  row-gap: 20px;
+  align-items: start;
   margin-bottom: 60px;
 }
 
 .gallery {
-  flex: 1;
-  max-width: 500px;
+  grid-area: gallery;
+  width: 100%;
+  max-width: 480px;
+}
+
+.info {
+  grid-area: info;
+  min-width: 0;
 }
 
 .imageWrapper {
@@ -344,19 +356,23 @@
 }
 
 .tabsSection {
-  margin-bottom: 60px;
+  grid-area: tabs;
+  width: 100%;
+  max-width: 480px;
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
 .tabsHeader {
   display: flex;
-  gap: 32px;
+  gap: 24px;
   border-bottom: 1px solid var(--color-light-gray);
-  margin-bottom: 32px;
+  margin-bottom: 20px;
 }
 
 .tabBtn {
-  padding: 16px 0;
-  font-size: 18px;
+  padding: 10px 0;
+  font-size: 17px;
   font-weight: 600;
   color: #888;
   position: relative;
@@ -435,10 +451,21 @@
 
 @media (max-width: 900px) {
   .main {
+    display: flex;
     flex-direction: column;
+    gap: 32px;
   }
   .gallery {
+    order: 1;
     max-width: 100%;
+  }
+  .info {
+    order: 2;
+  }
+  .tabsSection {
+    order: 3;
+    max-width: 100%;
+    margin-bottom: 40px;
   }
   .similarGrid {
     grid-template-columns: repeat(2, 1fr);
@@ -495,11 +522,11 @@
 }
 
 .brandPickerTitle {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--color-navy, #060F48);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .brandPickerCount {

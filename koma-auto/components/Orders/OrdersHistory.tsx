@@ -299,7 +299,12 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
                 </h4>
                 <div className={styles.itemsList}>
                   {selectedOrder.items.map((item, idx) => (
-                    <div key={idx} className={styles.itemRow}>
+                    <Link
+                      key={idx}
+                      href={`/product/${item.id}`}
+                      className={styles.itemRow}
+                      title={`Перейти к товару: ${item.name}`}
+                    >
                       <div className={styles.itemInfo}>
                         <div className={styles.itemThumb}>
                           {item.image ? (
@@ -323,7 +328,8 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
                           {item.quantity} шт × {item.price.toLocaleString('ru-RU')} ₸
                         </span>
                       </div>
-                    </div>
+                      <ChevronRight size={16} className={styles.itemArrow} />
+                    </Link>
                   ))}
                 </div>
               </div>
@@ -501,7 +507,7 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
             </table>
 
             <div className={styles.receiptTotalRow}>
-              <span>ИТОГО К ОПЛАТЕ:</span>
+              <span>Итого к оплате:</span>
               <span>{receiptOrder.amount.toLocaleString('ru-RU')} ₸</span>
             </div>
 

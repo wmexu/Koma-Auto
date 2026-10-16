@@ -171,8 +171,8 @@ export default function CheckoutClient() {
 
   const validateFullName = (fullName: string) => {
     const trimmed = fullName.trim();
-    if (!trimmed.includes(' ') || trimmed.length < 8) {
-      return 'Пожалуйста, введите Имя и Фамилию через пробел, полным значением (не менее 8 символов)';
+    if (trimmed.length < 3) {
+      return 'Пожалуйста, введите Имя и Фамилию (не менее 3 символов)';
     }
     return '';
   };

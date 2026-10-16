@@ -345,51 +345,51 @@ export default function ProductDetails({ id }: { id: string }) {
             </div>
           </div>
         </div>
-      </div>
 
-      <div className={styles.tabsSection}>
-        <div className={styles.tabsHeader}>
-          <button
-            className={`${styles.tabBtn} ${activeTab === 'specs' ? styles.activeTab : ''}`}
-            onClick={() => setActiveTab('specs')}
-          >
-            Характеристики
-          </button>
-        </div>
+        <div className={styles.tabsSection}>
+          <div className={styles.tabsHeader}>
+            <button
+              className={`${styles.tabBtn} ${activeTab === 'specs' ? styles.activeTab : ''}`}
+              onClick={() => setActiveTab('specs')}
+            >
+              Характеристики
+            </button>
+          </div>
 
-        <div className={styles.tabContent}>
-          {activeTab === 'specs' && (
-            <div className={styles.specsList}>
-              {displayOem && (
-                <div className={styles.specRow}>
-                  <span className={styles.specName}>OEM номер</span>
-                  <span className={styles.specValue}>{displayOem}</span>
-                </div>
-              )}
-              {displayBrand && (
-                <div className={styles.specRow}>
-                  <span className={styles.specName}>Производитель</span>
-                  <span className={styles.specValue}>{displayBrand}</span>
-                </div>
-              )}
-              {product.description && (
-                <div style={{ whiteSpace: 'pre-wrap', marginBottom: '20px', lineHeight: '1.6', color: 'var(--color-navy)' }}>
-                  {product.description}
-                </div>
-              )}
-              {product.specs && Object.keys(product.specs).length > 0 && (
-                Object.entries(product.specs).map(([key, value]) => (
-                  <div key={key} className={styles.specRow}>
-                    <span className={styles.specName}>{key}</span>
-                    <span className={styles.specValue}>{value}</span>
+          <div className={styles.tabContent}>
+            {activeTab === 'specs' && (
+              <div className={styles.specsList}>
+                {displayOem && (
+                  <div className={styles.specRow}>
+                    <span className={styles.specName}>OEM номер</span>
+                    <span className={styles.specValue}>{displayOem}</span>
                   </div>
-                ))
-              )}
-              {!product.description && (!product.specs || Object.keys(product.specs).length === 0) && (
-                <p>Характеристики не указаны</p>
-              )}
-            </div>
-          )}
+                )}
+                {displayBrand && (
+                  <div className={styles.specRow}>
+                    <span className={styles.specName}>Производитель</span>
+                    <span className={styles.specValue}>{displayBrand}</span>
+                  </div>
+                )}
+                {product.description && (
+                  <div style={{ whiteSpace: 'pre-wrap', marginBottom: '20px', lineHeight: '1.6', color: 'var(--color-navy)' }}>
+                    {product.description}
+                  </div>
+                )}
+                {product.specs && Object.keys(product.specs).length > 0 && (
+                  Object.entries(product.specs).map(([key, value]) => (
+                    <div key={key} className={styles.specRow}>
+                      <span className={styles.specName}>{key}</span>
+                      <span className={styles.specValue}>{value}</span>
+                    </div>
+                  ))
+                )}
+                {!product.description && (!product.specs || Object.keys(product.specs).length === 0) && (
+                  <p>Характеристики не указаны</p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
