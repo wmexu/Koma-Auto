@@ -265,8 +265,14 @@
   transition: background-color 0.2s;
 }
 
-.submitBtn:hover {
+.submitBtn:hover:not(:disabled) {
   background-color: #c92a38;
+}
+
+.submitBtn:disabled {
+  background-color: #a0aec0;
+  cursor: not-allowed;
+  opacity: 0.8;
 }
 
 .disclaimer {

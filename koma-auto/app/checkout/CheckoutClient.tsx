@@ -1,12 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Script from 'next/script';
 import Link from 'next/link';
 import { CheckCircle, Shield } from 'lucide-react';
 import { useCartStore } from '../../store/useCartStore';
 import { useToastStore } from '../../store/useToastStore';
 import styles from './Checkout.module.css';
+
+declare global {
+  interface Window {
+    halyk?: {
+      pay: (params: any) => void;
+      showPaymentWidget: (params: any, callBack: (res: { success: boolean }) => void) => void;
+    };
+  }
+}
 
 const CITIES_LIST = [
   "Актау", "Актобе", "Актюбинск", "Алматы", "Аркалык", "Астана", "Атбасар", "Атырау",
@@ -35,11 +45,21 @@ const sortedLetters = Object.keys(groupedCities).sort();
 
 export default function CheckoutClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { items, getTotalPrice, clearCart } = useCartStore();
   const { addToast } = useToastStore();
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<{name?: string}>({});
   const [isCityModalOpen, setIsCityModalOpen] = useState(false);
+
+  useEffect(() => {
+    const status = searchParams.get('status');
+    const error = searchParams.get('error');
+    if (status === 'fail' || error) {
+      addToast('Оплата не была завершена или отклонена банком. Пожалуйста, попробуйте еще раз.', 'error');
+    }
+  }, [searchParams, addToast]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -99,8 +119,8 @@ export default function CheckoutClient() {
   // Adjust payment methods based on delivery
   useEffect(() => {
     if (formData.deliveryMethod === 'pickup') {
-      if (formData.paymentMethod !== 'card_receipt' && formData.paymentMethod !== 'cash') {
-        setFormData(prev => ({ ...prev, paymentMethod: 'card_receipt' }));
+      if (formData.paymentMethod !== 'card_receipt' && formData.paymentMethod !== 'cash' && formData.paymentMethod !== 'online') {
+        setFormData(prev => ({ ...prev, paymentMethod: 'online' }));
       }
     } else {
       if (formData.paymentMethod !== 'online') {
@@ -124,7 +144,7 @@ export default function CheckoutClient() {
     return '';
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!agreements.offer || !agreements.privacy || !agreements.refund) {
@@ -132,8 +152,84 @@ export default function CheckoutClient() {
       return;
     }
 
-    addToast('Сервис временно недоступен, повторите позже', 'error');
-    return;
+    const nameError = validateFullName(formData.name);
+    if (nameError) {
+      setErrors({ name: nameError });
+      addToast(nameError, 'error');
+      return;
+    }
+
+    if (!formData.phone || formData.phone.trim().length < 8) {
+      addToast('Пожалуйста, укажите контактный номер телефона', 'error');
+      return;
+    }
+
+    if (formData.deliveryMethod === 'courier') {
+      if (!formData.city) {
+        addToast('Пожалуйста, выберите населенный пункт', 'error');
+        return;
+      }
+      if (!formData.street || !formData.house || !formData.apartment) {
+        addToast('Пожалуйста, укажите полный адрес доставки (улицу, дом, квартиру)', 'error');
+        return;
+      }
+    }
+
+    if (formData.paymentMethod === 'online') {
+      setIsSubmitting(true);
+      try {
+        const res = await fetch('/api/epay/create-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: finalPrice,
+            name: formData.name,
+            phone: formData.phone,
+            email: formData.email,
+            origin: window.location.origin,
+            deliveryMethod: formData.deliveryMethod,
+            city: formData.city,
+            comment: formData.comment,
+            items: items.map((item) => ({
+              id: item.id,
+              name: item.name,
+              price: item.price,
+              quantity: item.quantity,
+            })),
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Ошибка при обращении к платёжной системе');
+        }
+
+        // Save order invoice to sessionStorage
+        try {
+          sessionStorage.setItem('lastEpayInvoiceId', data.invoiceId);
+        } catch (e) {
+          // ignore
+        }
+
+        // Redirect to Halyk ePay
+        if (typeof window !== 'undefined' && window.halyk && typeof window.halyk.pay === 'function') {
+          window.halyk.pay(data.paymentObject);
+        } else if (data.paymentUrl) {
+          window.location.href = data.paymentUrl;
+        } else {
+          throw new Error('Не удалось сформировать платёжную ссылку');
+        }
+      } catch (err: any) {
+        console.error('Payment error:', err);
+        addToast(err?.message || 'Ошибка подключения к Halyk ePay', 'error');
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // For offline/cash payment upon pickup
+    setIsSuccess(true);
+    clearCart();
   };
 
   if (isSuccess) {
@@ -326,6 +422,19 @@ export default function CheckoutClient() {
                     <input
                       type="radio"
                       name="paymentMethod"
+                      value="online"
+                      checked={formData.paymentMethod === 'online'}
+                      onChange={handleChange}
+                    />
+                    <div className={styles.radioContent}>
+                      <span className={styles.radioTitle}>Halyk QR, Kaspi, или картой онлайн</span>
+                      <span className={styles.radioDesc}>Оплата на сайте через защищенный платёжный шлюз ePay</span>
+                    </div>
+                  </label>
+                  <label className={styles.radioCard}>
+                    <input
+                      type="radio"
+                      name="paymentMethod"
                       value="card_receipt"
                       checked={formData.paymentMethod === 'card_receipt'}
                       onChange={handleChange}
@@ -358,6 +467,7 @@ export default function CheckoutClient() {
                   />
                   <div className={styles.radioContent}>
                     <span className={styles.radioTitle}>Halyk QR, Kaspi, или картой онлайн</span>
+                    <span className={styles.radioDesc}>Оплата на сайте через защищенный платёжный шлюз ePay</span>
                   </div>
                 </label>
               )}
@@ -366,7 +476,7 @@ export default function CheckoutClient() {
             {formData.paymentMethod === 'online' && (
               <div className={styles.securityText}>
                 <Shield size={16} color="var(--color-success)" style={{ minWidth: '16px' }} />
-                <span>Оплата производится через защищенный платежный шлюз Halyk ePay/Kaspi Pay с поддержкой технологии 3D Secure</span>
+                <span>Оплата производится через защищенный платежный шлюз Halyk ePay с поддержкой технологии 3D Secure</span>
               </div>
             )}
           </div>
@@ -437,12 +547,13 @@ export default function CheckoutClient() {
               </label>
             </div>
 
-            <button type="submit" className={styles.submitBtn}>
-              Перейти к оплате
+            <button type="submit" className={styles.submitBtn} disabled={isSubmitting}>
+              {isSubmitting ? 'Подключение к Halyk ePay...' : 'Перейти к оплате'}
             </button>
           </div>
         </div>
       </form>
+      <Script src="https://epay.homebank.kz/payform/payment-api.js" strategy="afterInteractive" />
     </div>
   );
 }
