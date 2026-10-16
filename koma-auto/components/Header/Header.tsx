@@ -1,20 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
-import { Search, ShoppingCart, Menu, User, Store } from 'lucide-react';
+import { useRouter, usePathname } from 'next/navigation';
+import { Menu, ShoppingCart, User, Store } from 'lucide-react';
 import { useCartStore } from '../../store/useCartStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { auth, db } from '../../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
+import GooeyInput from '../ui/GooeyInput';
 import styles from './Header.module.css';
 
 export default function Header() {
   const [searchQuery, setSearchQuery] = useState('');
   const router = useRouter();
+  const pathname = usePathname();
 
   const cartItemsCount = useCartStore((state) => state.getTotalItems());
   const { user, setUser, setUserProfile, isLoading: isAuthLoading, setLoading: setAuthLoading } = useAuthStore();
@@ -23,11 +25,26 @@ export default function Header() {
 
   useEffect(() => {
     setIsMounted(true);
-    
+
+    // Initial search sync from sessionStorage
+    const saved = sessionStorage.getItem('koma_search');
+    if (saved) {
+      setSearchQuery(saved);
+    }
+
+    // Listen for custom search events from catalog or reset buttons
+    const handleGlobalSearch = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (typeof customEvent.detail === 'string') {
+        setSearchQuery(customEvent.detail);
+      }
+    };
+    window.addEventListener('koma_header_search', handleGlobalSearch);
+
     // Listen for Firebase Auth state changes
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      
+
       if (currentUser) {
         try {
           const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
@@ -37,30 +54,42 @@ export default function Header() {
             setUserProfile(null);
           }
         } catch (error) {
-          console.error("Error fetching user profile:", error);
+          console.error('Error fetching user profile:', error);
           setUserProfile(null);
         }
       } else {
         setUserProfile(null);
       }
-      
+
       setAuthLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      window.removeEventListener('koma_header_search', handleGlobalSearch);
+      unsubscribe();
+    };
   }, [setUser, setAuthLoading]);
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      sessionStorage.setItem('koma_search', searchQuery);
-      if (window.location.pathname === '/catalog') {
-        window.dispatchEvent(new CustomEvent('koma_header_search', { detail: searchQuery }));
-      } else {
-        router.push('/catalog');
-      }
+  // Handle immediate catalog redirection on search click
+  const handleSearchClick = useCallback(() => {
+    if (pathname !== '/catalog') {
+      router.push('/catalog');
     }
-  };
+  }, [pathname, router]);
+
+  // Handle real-time value changes
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    sessionStorage.setItem('koma_search', value);
+
+    // Broadcast search query to catalog in real-time
+    window.dispatchEvent(new CustomEvent('koma_header_search', { detail: value }));
+
+    // If user is not yet on catalog page, immediately redirect
+    if (pathname !== '/catalog') {
+      router.push('/catalog');
+    }
+  }, [pathname, router]);
 
   return (
     <header className={styles.header}>
@@ -69,10 +98,10 @@ export default function Header() {
         {/* Logo */}
         <Link href="/" className={styles.logoWrapper}>
           <Image 
-            src="/img/LogoKomaKZ.png" 
+            src="/img/KomaAuto.svg" 
             alt="koma.com.kz Auto Parts" 
-            width={120} 
-            height={40} 
+            width={125} 
+            height={51} 
             className={styles.logoImage}
             priority
           />
@@ -83,28 +112,27 @@ export default function Header() {
           <button 
             className={styles.catalogBtn}
             onClick={() => router.push('/catalog')}
+            aria-label="Открыть каталог"
           >
             <Menu size={20} />
-            Каталог
+            <span>Каталог</span>
           </button>
-          <form onSubmit={handleSearch} className={styles.searchForm}>
-            <input
-              type="text"
-              placeholder="Введите название или номер запчасти..."
+
+          <div className={styles.searchWrap}>
+            <GooeyInput
+              placeholder="Поиск по названию или OEM номеру детали..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={styles.searchInput}
+              onValueChange={handleSearchChange}
+              onSearchClick={handleSearchClick}
             />
-            <button type="submit" className={styles.searchBtn}>
-              <Search size={20} color="#888" />
-            </button>
-          </form>
+          </div>
         </div>
 
         {/* Mobile Catalog Button */}
         <button 
           className={styles.mobileSearchBtn}
           onClick={() => router.push('/catalog')}
+          aria-label="Каталог"
         >
           <Store size={24} color="var(--color-navy)" />
         </button>
@@ -124,7 +152,7 @@ export default function Header() {
         </Link>
 
         {/* Cart Block */}
-        <Link href="/cart" className={styles.cartBtn}>
+        <Link href="/cart" className={styles.cartBtn} aria-label="Корзина">
           <ShoppingCart size={20} color="#fff" />
           {isMounted && cartItemsCount > 0 && <span className={styles.badge}>{cartItemsCount}</span>}
         </Link>

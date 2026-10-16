@@ -81,7 +81,11 @@
 
 .title {
   font-size: 24px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   margin-bottom: 8px;
   font-weight: 700;
 }
@@ -110,10 +114,13 @@
   text-align: left;
   font-size: 17px;
   font-weight: 600;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
-  background: transparent;
   transition: all 0.3s ease;
   position: relative;
   overflow: hidden;
@@ -122,8 +129,7 @@
 /* Hover effect: shine and lift */
 .modelBtn:hover {
   transform: translateY(-2px);
-  color: var(--color-navy);
-  text-shadow: 0 0 8px rgba(2, 9, 55, 0.3);
+  text-shadow: none;
 }
 
 .modelBtn::after {

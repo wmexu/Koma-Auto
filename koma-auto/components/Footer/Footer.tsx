@@ -10,10 +10,10 @@ export default function Footer() {
         <div className={styles.column}>
           <Link href="/" className={styles.logoWrapper}>
             <Image
-              src="/img/LogoKomaKZ.png"
+              src="/img/KomaAuto.svg"
               alt="koma.com.kz Auto Parts"
-              width={150}
-              height={50}
+              width={140}
+              height={57}
               className={styles.logoImage}
             />
           </Link>

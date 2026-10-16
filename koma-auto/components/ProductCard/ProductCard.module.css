@@ -135,7 +135,10 @@
 
 .brand {
   font-weight: 600;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .title {
@@ -166,7 +169,10 @@
 .price {
   font-size: 18px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .oldPrice {
@@ -177,7 +183,8 @@
 }
 
 .cartBtn {
-  background-color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  box-shadow: var(--btn-top-left-light);
   color: var(--color-white);
   width: 40px;
   height: 40px;
@@ -185,16 +192,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s, transform 0.2s;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .cartBtn:hover:not(.disabled) {
-  background-color: #041058;
+  background: var(--color-navy-gradient-hover);
+  box-shadow: var(--btn-top-left-light), 0 4px 12px rgba(6, 15, 72, 0.25);
   transform: translateY(-2px);
 }
 
+.cartBtn:active:not(.disabled) {
+  transform: translateY(0) scale(0.96);
+}
+
 .cartBtn.disabled {
-  background-color: #ccc;
+  background: #ccc;
+  box-shadow: none;
   cursor: not-allowed;
 }
 

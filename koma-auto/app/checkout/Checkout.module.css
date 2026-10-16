@@ -4,7 +4,10 @@
 
 .title {
   font-size: 32px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 32px;
 }
 
@@ -25,7 +28,10 @@
 
 .successState h1 {
   font-size: 32px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin: 24px 0 16px;
 }
 
@@ -38,7 +44,10 @@
 
 .emptyState h2 {
   font-size: 24px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 32px;
 }
 
@@ -76,7 +85,10 @@
 
 .section h2 {
   font-size: 20px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 24px;
   border-bottom: 1px solid var(--color-light-gray);
   padding-bottom: 16px;
@@ -200,7 +212,11 @@
 
 .summaryBox h3 {
   font-size: 20px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   margin-bottom: 24px;
 }
 
@@ -250,7 +266,10 @@
 .totalValue {
   font-size: 28px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .submitBtn {
@@ -323,7 +342,11 @@
 }
 
 .checkboxLabel a {
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   text-decoration: underline;
 }
 
@@ -386,7 +409,11 @@
 .cityLetter {
   font-weight: 700;
   font-size: 16px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   margin-bottom: 4px;
 }
 

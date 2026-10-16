@@ -18,7 +18,10 @@
 
 .title {
   font-size: 32px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .topSearch {
@@ -113,7 +116,11 @@
 
 .filterTitle {
   font-size: 16px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   margin-bottom: 16px;
   font-weight: 600;
 }
@@ -170,7 +177,11 @@
 .checkboxText {
   font-size: 14px;
   font-weight: 500;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
 }
 
 .checkboxLabel input[type="checkbox"] {
@@ -207,7 +218,11 @@
 
 .emptyState h3 {
   font-size: 24px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   margin-bottom: 12px;
 }
 
@@ -338,7 +353,11 @@
 
   .sidebarHeader h3 {
     font-size: 20px;
-    color: var(--color-navy);
+    background: var(--color-navy-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
   }
 
   .closeBtn {

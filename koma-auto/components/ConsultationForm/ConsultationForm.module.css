@@ -11,7 +11,10 @@
 
 .title {
   font-size: 24px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 12px;
   font-weight: 700;
 }
@@ -41,7 +44,11 @@
 .label {
   font-size: 14px;
   font-weight: 600;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
 }
 
 .input {

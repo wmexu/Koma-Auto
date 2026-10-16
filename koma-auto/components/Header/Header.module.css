@@ -1,23 +1,29 @@
 .header {
   background-color: var(--color-white);
-  padding: 16px 0;
-  border-bottom: 1px solid var(--color-light-gray);
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
   position: sticky;
   top: 0;
   z-index: 50;
+  backdrop-filter: blur(8px);
 }
 
 .container {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 20px;
 }
 
 .logoWrapper {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.logoWrapper:hover {
+  transform: scale(1.02);
 }
 
 .logoImage {
@@ -27,88 +33,118 @@
 /* Catalog & Search Block */
 .searchBlock {
   flex: 1;
-  max-width: 650px;
+  max-width: 860px;
   display: flex;
-  align-items: stretch;
-  height: 48px;
-  background-color: #f0f2f5;
-  border-radius: 24px;
-  overflow: hidden;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
 }
 
 .catalogBtn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  background-color: var(--color-navy);
+  background: var(--color-navy-gradient);
   color: var(--color-white);
-  padding: 0 24px;
-  font-weight: 500;
+  padding: 0 22px;
+  height: 44px;
+  font-weight: 600;
   font-size: 15px;
   border-radius: 24px;
-  transition: opacity 0.2s;
+  cursor: pointer;
+  box-shadow: none;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), background 0.4s ease;
+  flex-shrink: 0;
+  transform-origin: center;
+  user-select: none;
+}
+
+.catalogBtn svg,
+.catalogBtn span {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  transform: translateZ(0);
 }
 
 .catalogBtn:hover {
-  opacity: 0.9;
+  background: var(--color-navy-gradient-hover);
+  transform: scale(1.03) translateZ(0);
+  box-shadow: none;
 }
 
-.searchForm {
+.catalogBtn:active {
+  transform: scale(0.98) translateZ(0);
+  transition-duration: 0.15s;
+}
+
+.searchWrap {
   flex: 1;
-  display: flex;
-  padding-left: 16px;
-  padding-right: 16px;
-}
-
-.searchInput {
-  flex: 1;
-  background: transparent;
-  border: none;
-  padding: 0 20px;
-  font-size: 14px;
-  color: var(--color-dark-gray);
-  outline: none;
-}
-
-.searchInput::placeholder {
-  color: #888;
-}
-
-.searchBtn {
-  background: transparent;
+  min-width: 0;
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
 }
 
 /* User Block */
 .userBlock {
   display: flex;
   align-items: center;
-  background-color: #f0f2f5;
+  background-color: #f0f3f8;
+  border: 1px solid rgba(147, 197, 253, 0.35);
+  box-shadow: none;
   border-radius: 24px;
-  height: 48px;
-  padding-right: 24px;
+  height: 44px;
+  padding-right: 20px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.userBlock:hover {
+  border-color: rgba(30, 58, 138, 0.35);
+  box-shadow: none;
+}
+
+.userBlock:active {
+  transform: scale(0.98);
+  box-shadow: none;
 }
 
 .userIconWrapper {
-  width: 48px;
-  height: 48px;
-  background-color: var(--color-navy);
+  width: 44px;
+  height: 44px;
+  background: var(--color-navy-gradient);
+  box-shadow: none;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.userBlock:hover .userIconWrapper {
+  transform: scale(1.04);
+  box-shadow: none;
+}
+
+.userBlock:active .userIconWrapper {
+  box-shadow: none;
 }
 
 .userText {
-  color: #888;
+  color: #64748b;
   font-size: 14px;
   font-weight: 500;
-  margin-left: 16px;
+  margin-left: 12px;
   text-decoration: none;
   transition: color 0.2s;
+  white-space: nowrap;
 }
 
 .userText:hover {
@@ -118,19 +154,27 @@
 /* Cart Block */
 .cartBtn {
   position: relative;
-  width: 48px;
-  height: 48px;
-  background-color: var(--color-navy);
+  width: 44px;
+  height: 44px;
+  background: var(--color-navy-gradient);
+  box-shadow: none;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: transform 0.2s;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease;
 }
 
 .cartBtn:hover {
   transform: scale(1.05);
+  background: var(--color-navy-gradient-hover);
+  box-shadow: none;
+}
+
+.cartBtn:active {
+  transform: scale(0.96);
+  box-shadow: none;
 }
 
 .badge {
@@ -139,7 +183,7 @@
   right: -4px;
   background-color: var(--color-danger);
   color: var(--color-white);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   width: 20px;
   height: 20px;
@@ -148,6 +192,7 @@
   align-items: center;
   justify-content: center;
   border: 2px solid var(--color-white);
+  box-shadow: 0 2px 6px rgba(255, 0, 59, 0.35);
 }
 
 @media (max-width: 1024px) {
@@ -158,6 +203,8 @@
   .userBlock {
     background-color: transparent;
     padding-right: 0;
+    border: none;
+    box-shadow: none;
   }
 }
 
@@ -167,8 +214,8 @@
   border: none;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
 }
 
 @media (max-width: 768px) {

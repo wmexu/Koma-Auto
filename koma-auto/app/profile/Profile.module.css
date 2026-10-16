@@ -21,7 +21,10 @@
 .title {
   font-size: 24px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 24px;
   text-align: center;
 }
@@ -48,7 +51,11 @@
 }
 
 .activeTab {
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   border-bottom: 2px solid var(--color-navy);
 }
 
@@ -67,7 +74,11 @@
 .label {
   font-size: 14px;
   font-weight: 500;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
 }
 
 .input {
@@ -286,7 +297,10 @@
 .modalTitle {
   font-size: 22px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 12px;
 }
 
@@ -355,7 +369,10 @@
 .dashboardTitle {
   font-size: 28px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .dashboardSubtitle {
@@ -411,7 +428,10 @@
 .infoCardTitle {
   font-size: 18px;
   font-weight: 600;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 20px;
   display: flex;
   align-items: center;
@@ -440,7 +460,11 @@
 
 .infoValue {
   font-size: 16px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   font-weight: 500;
   display: flex;
   align-items: center;

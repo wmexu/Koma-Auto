@@ -7,7 +7,10 @@
 
 .carBrandsTitle {
   font-size: 30px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 24px;
   font-weight: 700;
 }

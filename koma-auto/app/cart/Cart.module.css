@@ -16,7 +16,11 @@
 
 .emptyState h2 {
   font-size: 32px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   margin-bottom: 16px;
 }
 
@@ -49,7 +53,10 @@
 
 .title {
   font-size: 32px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .headerActions {
@@ -138,7 +145,10 @@
 .itemName {
   font-size: 16px;
   font-weight: 600;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 8px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -204,7 +214,10 @@
 .itemPrice {
   font-weight: 700;
   font-size: 18px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   min-width: 120px;
   text-align: right;
 }
@@ -257,7 +270,10 @@
 
 .summary h3 {
   font-size: 20px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 24px;
 }
 
@@ -338,7 +354,10 @@
 .totalPrice {
   font-size: 24px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .checkoutBtn {
@@ -424,7 +443,11 @@
 
 .favoritesTitle {
   font-size: 28px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   margin-bottom: 32px;
 }
 
@@ -626,5 +649,9 @@
 .pageInfo {
   font-size: 16px;
   font-weight: 600;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
 }

@@ -30,7 +30,11 @@
 }
 
 .title {
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   font-size: 18px;
   font-weight: 700;
   margin-bottom: 20px;
@@ -44,8 +48,13 @@
 }
 
 .list a {
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   font-size: 14px;
+  display: inline-block;
   transition: opacity 0.2s;
 }
 
@@ -64,18 +73,23 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  color: var(--color-navy);
   font-size: 14px;
   line-height: 1.4;
 }
 
 .contactIcon {
+  color: var(--color-navy);
   flex-shrink: 0;
   margin-top: 2px;
 }
 
-.contactList a {
-  color: var(--color-navy);
+.contactList a,
+.contactList span {
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   transition: opacity 0.2s;
 }
 

@@ -39,7 +39,10 @@
 .orderNumber {
   font-size: 17px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .orderDate {
@@ -160,7 +163,10 @@
 .totalAmount {
   font-size: 19px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .actionsGroup {
@@ -275,10 +281,17 @@
 .modalHeaderTitle {
   font-size: 20px;
   font-weight: 700;
-  color: var(--color-navy);
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.modalHeaderTitle > span:first-child {
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
 }
 
 .closeIconBtn {
@@ -310,7 +323,10 @@
 .modalSectionTitle {
   font-size: 15px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin-bottom: 12px;
   display: flex;
   align-items: center;
@@ -390,7 +406,10 @@
 .itemName {
   font-size: 14px;
   font-weight: 600;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   line-height: 1.35;
 }
 
@@ -411,7 +430,10 @@
 .itemSubtotal {
   font-size: 15px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .itemQuantityPrice {
@@ -445,7 +467,10 @@
   border-top: 1px dashed #cbd5e1;
   font-size: 17px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 /* Alert Boxes in Modal */
@@ -503,7 +528,11 @@
 .receiptLogo {
   font-size: 22px;
   font-weight: 800;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   letter-spacing: 0.5px;
 }
 
@@ -549,7 +578,11 @@
   justify-content: space-between;
   font-size: 18px;
   font-weight: 800;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   border-top: 2px dashed #cbd5e1;
   padding-top: 14px;
   margin-top: 10px;

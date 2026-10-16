@@ -179,7 +179,10 @@
 
 .brand {
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .title {
@@ -226,7 +229,10 @@
 .price {
   font-size: 36px;
   font-weight: 700;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .oldPrice {
@@ -287,22 +293,29 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background-color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  box-shadow: var(--btn-top-left-light), 0 4px 14px rgba(6, 15, 72, 0.2);
   color: var(--color-white);
   height: 52px;
   border-radius: var(--radius-sm);
   font-weight: 700;
   font-size: 16px;
-  transition: background-color 0.2s, transform 0.2s;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .addToCartBtn:hover:not(.disabled) {
-  background-color: #041058;
+  background: var(--color-navy-gradient-hover);
+  box-shadow: var(--btn-top-left-light), 0 6px 20px rgba(6, 15, 72, 0.3);
   transform: translateY(-2px);
 }
 
+.addToCartBtn:active:not(.disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
 .addToCartBtn.disabled {
-  background-color: #ccc;
+  background: #ccc;
+  box-shadow: none;
   cursor: not-allowed;
 }
 
@@ -384,7 +397,11 @@
 }
 
 .activeTab {
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
 }
 
 .activeTab::after {
@@ -439,7 +456,11 @@
 
 .similarTitle {
   font-size: 28px;
-  color: var(--color-navy);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   margin-bottom: 32px;
 }
 
@@ -524,7 +545,11 @@
 .brandPickerTitle {
   font-size: 15px;
   font-weight: 600;
-  color: var(--color-navy, #060F48);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   text-transform: none;
   letter-spacing: 0;
 }
@@ -579,7 +604,11 @@
 .brandOptionName {
   font-size: 15px;
   font-weight: 600;
-  color: var(--color-navy, #060F48);
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
   line-height: 1.2;
 }
 
