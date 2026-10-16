@@ -5,6 +5,7 @@ import ToastProvider from "../components/ui/ToastProvider";
 import Header from "../components/Header/Header";
 import Footer from "../components/Footer/Footer";
 import SyncProvider from "../components/SyncProvider/SyncProvider";
+import { Analytics } from "@vercel/analytics/next";
 
 const geistSans = localFont({
   src: "../Geist/Geist-VariableFont_wght.ttf",
@@ -32,6 +33,7 @@ export default function RootLayout({
         <Footer />
         <ToastProvider />
         <SyncProvider />
+        <Analytics />
       </body>
     </html>
   );
