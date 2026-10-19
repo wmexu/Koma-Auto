@@ -437,6 +437,20 @@
   color: var(--color-dark-gray);
 }
 
+.specDescription {
+  padding-top: 14px;
+  margin-bottom: 20px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: var(--color-navy);
+}
+
+.specsEmpty {
+  padding-top: 14px;
+  color: #64748b;
+  font-size: 14px;
+}
+
 .compList {
   list-style: disc;
   padding-left: 20px;
@@ -514,20 +528,41 @@
     font-size: 16px;
   }
   .actions {
+    display: flex;
     flex-direction: row;
-    flex-wrap: wrap;
-    gap: 12px;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 28px;
   }
   .quantity {
-    flex: 0 0 120px;
+    flex: 0 0 96px;
+    min-width: 96px;
+    height: 48px;
+  }
+  .quantity button {
+    width: 32px;
+    font-size: 18px;
+  }
+  .quantity input {
+    width: 32px;
+    font-size: 15px;
   }
   .addToCartBtn {
     flex: 1;
-    min-width: 150px;
+    min-width: 0;
+    height: 48px;
+    font-size: 15px;
+    padding: 0 10px;
+    white-space: nowrap;
+    gap: 6px;
   }
   .favoriteBtn {
-    flex: 0 0 52px;
-    width: 52px;
+    flex: 0 0 48px;
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    padding: 0;
   }
 }
 

@@ -474,7 +474,7 @@ export default function ProductDetails({ id }: { id: string }) {
                   </div>
                 )}
                 {product.description && (
-                  <div style={{ whiteSpace: 'pre-wrap', marginBottom: '20px', lineHeight: '1.6', color: 'var(--color-navy)' }}>
+                  <div className={styles.specDescription}>
                     {product.description}
                   </div>
                 )}
@@ -487,7 +487,7 @@ export default function ProductDetails({ id }: { id: string }) {
                   ))
                 )}
                 {!product.description && (!product.specs || Object.keys(product.specs).length === 0) && (
-                  <p>Характеристики не указаны</p>
+                  <p className={styles.specsEmpty}>Характеристики не указаны</p>
                 )}
               </div>
             )}

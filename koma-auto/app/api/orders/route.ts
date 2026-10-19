@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { Order, OrderStatus } from '@/lib/order-types';
-import { syncOrderToMoySklad } from '@/lib/moysklad-order';
+import { createMoySkladOrder, notifyMoySkladOrderPaid } from '@/lib/moysklad-order';
 
 export async function POST(request: Request) {
   try {
@@ -25,12 +25,12 @@ export async function POST(request: Request) {
       console.warn('Firestore order save error (continuing):', fbErr);
     }
 
-    // 2. Safe synchronization with MoySklad
+    // 2. Create Order in MoySklad (status "Новый", without notification until paid)
     let moySkladResult = null;
     try {
-      moySkladResult = await syncOrderToMoySklad(order);
+      moySkladResult = await createMoySkladOrder(order);
     } catch (msErr) {
-      console.error('MoySklad sync exception:', msErr);
+      console.error('MoySklad order creation exception:', msErr);
     }
 
     return NextResponse.json({
@@ -94,11 +94,23 @@ export async function PATCH(request: Request) {
       const orderRef = doc(db, 'orders', orderId);
       const snap = await getDoc(orderRef);
       if (snap.exists()) {
-        await updateDoc(orderRef, { status });
         const data = snap.data() as Order;
-        if (data.userId) {
-          const userOrderRef = doc(db, 'users', data.userId, 'orders', orderId);
-          await updateDoc(userOrderRef, { status }).catch(() => {});
+        const updatedOrder: Order = { ...data, status };
+
+        if (status === 'paid' && !data.notificationSent) {
+          await updateDoc(orderRef, { status: 'paid', notificationSent: true });
+          if (data.userId) {
+            const userOrderRef = doc(db, 'users', data.userId, 'orders', orderId);
+            await updateDoc(userOrderRef, { status: 'paid', notificationSent: true }).catch(() => {});
+          }
+          // Send push notifications (MoySklad Task + Telegram)
+          await notifyMoySkladOrderPaid(updatedOrder);
+        } else {
+          await updateDoc(orderRef, { status });
+          if (data.userId) {
+            const userOrderRef = doc(db, 'users', data.userId, 'orders', orderId);
+            await updateDoc(userOrderRef, { status }).catch(() => {});
+          }
         }
       }
     } catch (fbErr) {

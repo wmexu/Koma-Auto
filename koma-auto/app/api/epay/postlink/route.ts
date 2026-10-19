@@ -36,10 +36,12 @@ export async function POST(request: Request) {
             ...orderData,
             status: 'paid',
             receiptUrl: `https://epay.homebank.kz/receipt/${invoiceId}`,
+            notificationSent: true,
           };
           await updateDoc(orderRef, {
             status: 'paid',
             receiptUrl: updatedOrder.receiptUrl,
+            notificationSent: true,
           });
 
           if (orderData.userId) {
@@ -47,11 +49,14 @@ export async function POST(request: Request) {
             await updateDoc(userOrderRef, {
               status: 'paid',
               receiptUrl: updatedOrder.receiptUrl,
+              notificationSent: true,
             }).catch(() => {});
           }
 
-          // Sync to MoySklad if enabled
-          await syncOrderToMoySklad(updatedOrder);
+          // Send push notifications only if not already notified
+          if (!orderData.notificationSent) {
+            await syncOrderToMoySklad(updatedOrder);
+          }
         }
       } catch (fbErr) {
         console.error('Error updating order on postlink payment success:', fbErr);

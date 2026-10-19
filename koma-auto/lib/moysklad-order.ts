@@ -1,4 +1,5 @@
 import { Order } from './order-types';
+import { sendOrderPushNotification } from './notifications';
 
 const API_URL = process.env.MOYSKLAD_API_URL || 'https://api.moysklad.ru/api/remap/1.2';
 const TOKEN = process.env.MOYSKLAD_TOKEN;
@@ -76,13 +77,13 @@ async function findOrCreateCounterparty(order: Order): Promise<{ href: string; t
 }
 
 /**
- * Syncs order to MoySklad (creates CustomerOrder and assigns Task notification to employee)
+ * Creates CustomerOrder in MoySklad in "Новый" status without sending push notification.
+ * Triggered as soon as customer reaches payment page.
  */
-export async function syncOrderToMoySklad(order: Order): Promise<{
+export async function createMoySkladOrder(order: Order): Promise<{
   success: boolean;
   mode: 'live' | 'safe-dry-run' | 'test-order-skipped';
   moySkladOrderId?: string;
-  moySkladTaskId?: string;
   error?: string;
 }> {
   const isEnabled = process.env.MOYSKLAD_SYNC_ENABLED === 'true';
@@ -96,11 +97,9 @@ export async function syncOrderToMoySklad(order: Order): Promise<{
     };
   }
 
-  // SAFETY CHECK: During active office hours or development testing,
-  // do not send live requests unless MOYSKLAD_SYNC_ENABLED is explicitly true.
   if (!isEnabled) {
     console.log(
-      `[MoySklad SAFE-MODE] Sync is disabled (MOYSKLAD_SYNC_ENABLED !== 'true'). Order #${order.id} will not trigger live notifications to active office staff.`
+      `[MoySklad SAFE-MODE] Sync disabled (MOYSKLAD_SYNC_ENABLED !== 'true'). Order #${order.id} registered safely.`
     );
     return {
       success: true,
@@ -115,18 +114,21 @@ export async function syncOrderToMoySklad(order: Order): Promise<{
   }
 
   try {
-    // 1. Get or create counterparty
     const counterpartyMeta = await findOrCreateCounterparty(order);
 
-    // 2. Prepare order description
     const deliveryTypeStr =
       order.deliveryMethod === 'courier' ? 'Курьерская доставка' : 'Самовывоз из магазина (Car City)';
     const paymentStatusStr =
       order.status === 'paid' ? 'ОПЛАЧЕНО (Halyk ePay)' : 'НЕ ОПЛАЧЕНО (Ожидает оплаты)';
 
+    const userAccountStr = order.userAccountDetails
+      ? `Зарегистрирован на сайте (UID: ${order.userAccountDetails.uid}, Email: ${order.userAccountDetails.email || '—'})`
+      : 'Гостевой заказ (без авторизации)';
+
     const description = `=== ЗАКАЗ ИЗ ИНТЕРНЕТ-МАГАЗИНА KOMA.COM.KZ ===
 Номер заказа: №${order.id}
 Статус оплаты: ${paymentStatusStr}
+Аккаунт на сайте: ${userAccountStr}
 Способ получения: ${deliveryTypeStr}
 Адрес: ${order.address}
 Получатель: ${order.customer.name}
@@ -138,13 +140,11 @@ Email: ${order.customer.email || 'Не указан'}
 Стоимость доставки: ${order.deliveryCost > 0 ? `${order.deliveryCost.toLocaleString('ru-RU')} ₸` : 'Бесплатно'}
 ИТОГО К ОПЛАТЕ: ${order.amount.toLocaleString('ru-RU')} ₸`;
 
-    // 3. Format positions
     const positions = order.items.map((item) => {
-      // Check if id is a UUID
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
       return {
         quantity: item.quantity,
-        price: Math.round(item.price * 100), // in tiyn / kopecks
+        price: Math.round(item.price * 100),
         assortment: {
           meta: {
             href: isUuid
@@ -157,10 +157,6 @@ Email: ${order.customer.email || 'Не указан'}
       };
     });
 
-    const isPaid = order.status === 'paid';
-    const stateHref = isPaid ? STATE_CONFIRMED_HREF : STATE_NEW_HREF;
-
-    // 4. Create CustomerOrder in MoySklad
     const orderPayload = {
       name: `№${order.id}`,
       description,
@@ -183,7 +179,7 @@ Email: ${order.customer.email || 'Не указан'}
       },
       state: {
         meta: {
-          href: stateHref,
+          href: STATE_NEW_HREF,
           type: 'state',
           mediaType: 'application/json',
         },
@@ -204,54 +200,145 @@ Email: ${order.customer.email || 'Не указан'}
     }
 
     const orderData = await orderRes.json();
-    const createdOrderId = orderData.id;
+    return {
+      success: true,
+      mode: 'live',
+      moySkladOrderId: orderData.id,
+    };
+  } catch (error: any) {
+    console.error('[MoySklad] Error creating order:', error);
+    return { success: false, mode: 'live', error: error?.message || 'Unknown error' };
+  }
+}
 
-    // 5. Create Task for Employee notification (Push notification in MoySklad app)
-    let createdTaskId: string | undefined;
+/**
+ * Marks order as paid in MoySklad and sends push notification (MoySklad Task + Telegram).
+ * Triggered ONLY once online payment is confirmed.
+ */
+export async function notifyMoySkladOrderPaid(order: Order): Promise<{
+  success: boolean;
+  moySkladTaskId?: string;
+  pushChannels: string[];
+  error?: string;
+}> {
+  const isEnabled = process.env.MOYSKLAD_SYNC_ENABLED === 'true';
+
+  // 1. Send external push notifications (Telegram / Webhook)
+  let pushChannels: string[] = [];
+  try {
+    const pushResult = await sendOrderPushNotification(order);
+    pushChannels = pushResult.channels;
+  } catch (pushErr) {
+    console.error('[Notification] Error dispatching push:', pushErr);
+  }
+
+  if (order.isTestOrder) {
+    console.log(`[MoySklad] Test order #${order.id} paid. Push notification sent.`);
+    return { success: true, pushChannels };
+  }
+
+  if (!isEnabled || !TOKEN) {
+    console.log(`[MoySklad SAFE-MODE] Paid push sent via: ${pushChannels.join(', ') || 'none'}. MoySklad task skipped.`);
+    return { success: true, pushChannels };
+  }
+
+  let createdTaskId: string | undefined;
+
+  try {
+    // 2. Find and update CustomerOrder state to "Подтвержден"
+    let msOrderMeta: any = null;
     try {
-      const taskDescription = `🛒 Заказ №${order.id} на ${order.amount.toLocaleString('ru-RU')} ₸!
-Получатель: ${order.customer.name}, тел: ${order.customer.phone}
-Способ: ${deliveryTypeStr}
-Статус: ${paymentStatusStr}`;
+      const searchRes = await fetch(
+        `${API_URL}/entity/customerorder?filter=name=№${encodeURIComponent(order.id)}&limit=1`,
+        { headers: getHeaders() }
+      );
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        if (searchData.rows && searchData.rows.length > 0) {
+          const msOrder = searchData.rows[0];
+          msOrderMeta = msOrder.meta;
 
-      const taskPayload = {
-        description: taskDescription,
-        assignee: {
-          meta: {
-            href: EMPLOYEE_HREF,
-            type: 'employee',
-            mediaType: 'application/json',
-          },
-        },
-        operation: {
-          meta: orderData.meta,
-        },
-      };
-
-      const taskRes = await fetch(`${API_URL}/entity/task`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(taskPayload),
-      });
-
-      if (taskRes.ok) {
-        const taskData = await taskRes.json();
-        createdTaskId = taskData.id;
-      } else {
-        console.warn('[MoySklad] Failed to create task notification:', await taskRes.text());
+          // Update state to confirmed (paid)
+          await fetch(msOrder.meta.href, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify({
+              state: {
+                meta: {
+                  href: STATE_CONFIRMED_HREF,
+                  type: 'state',
+                  mediaType: 'application/json',
+                },
+              },
+            }),
+          });
+        }
       }
-    } catch (taskErr) {
-      console.warn('[MoySklad] Task creation exception:', taskErr);
+    } catch (e) {
+      console.warn('[MoySklad] Could not update order state to confirmed:', e);
+    }
+
+    // 3. Create Task in MoySklad for Employee (triggers native push notification in MoySklad mobile app)
+    const deliveryTypeStr =
+      order.deliveryMethod === 'courier' ? 'Курьерская доставка' : 'Самовывоз (Car City)';
+
+    const userAccountStr = order.userAccountDetails
+      ? `Аккаунт: ${order.userAccountDetails.email || order.userAccountDetails.uid}`
+      : 'Гостевой заказ';
+
+    const taskDescription = `ОПЛАЧЕН заказ №${order.id} на ${order.amount.toLocaleString('ru-RU')} ₸!
+Клиент: ${order.customer.name}, тел: ${order.customer.phone}
+${userAccountStr}
+Способ: ${deliveryTypeStr}
+Адрес: ${order.address}`;
+
+    const taskPayload: any = {
+      description: taskDescription,
+      assignee: {
+        meta: {
+          href: EMPLOYEE_HREF,
+          type: 'employee',
+          mediaType: 'application/json',
+        },
+      },
+    };
+
+    if (msOrderMeta) {
+      taskPayload.operation = { meta: msOrderMeta };
+    }
+
+    const taskRes = await fetch(`${API_URL}/entity/task`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(taskPayload),
+    });
+
+    if (taskRes.ok) {
+      const taskData = await taskRes.json();
+      createdTaskId = taskData.id;
+      pushChannels.push('moysklad_task');
+      console.log(`[MoySklad] Employee task push notification created for order #${order.id}`);
+    } else {
+      console.warn('[MoySklad] Failed to create employee task notification:', await taskRes.text());
     }
 
     return {
       success: true,
-      mode: 'live',
-      moySkladOrderId: createdOrderId,
       moySkladTaskId: createdTaskId,
+      pushChannels,
     };
   } catch (error: any) {
-    console.error('[MoySklad] Error syncing order:', error);
-    return { success: false, mode: 'live', error: error?.message || 'Unknown error' };
+    console.error('[MoySklad] Error notifying order paid:', error);
+    return { success: false, pushChannels, error: error?.message };
   }
+}
+
+/**
+ * Backward compatible synchronization entry point
+ */
+export async function syncOrderToMoySklad(order: Order) {
+  if (order.status === 'paid') {
+    return notifyMoySkladOrderPaid(order);
+  }
+  return createMoySkladOrder(order);
 }

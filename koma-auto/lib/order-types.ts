@@ -7,6 +7,8 @@ export interface OrderItem {
   quantity: number;
   image?: string;
   article?: string;
+  oem?: string;
+  brand?: string;
 }
 
 export interface OrderCustomer {
@@ -14,6 +16,13 @@ export interface OrderCustomer {
   phone: string;
   email?: string;
   comment?: string;
+}
+
+export interface UserAccountDetails {
+  uid: string;
+  email?: string | null;
+  displayName?: string | null;
+  phone?: string | null;
 }
 
 export interface Order {
@@ -33,11 +42,13 @@ export interface Order {
   paymentUrl?: string; // Halyk ePay direct link
   receiptUrl?: string;
   userId?: string | null;
+  userAccountDetails?: UserAccountDetails | null;
   items: OrderItem[];
   moySkladOrderId?: string;
   moySkladTaskId?: string;
   isTestOrder?: boolean;
   promoCode?: string;
+  notificationSent?: boolean;
 }
 
 /**

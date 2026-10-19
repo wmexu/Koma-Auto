@@ -955,13 +955,6 @@ export default function ProfileClient() {
           Войти через Google
         </button>
 
-        <div style={{ marginTop: '28px', width: '100%', borderTop: '1px solid #eef2f6', paddingTop: '20px' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--color-navy)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Package size={17} />
-            Заказы на этом устройстве
-          </h3>
-          <OrdersHistory userId={null} />
-        </div>
 
       </div>
     </div>

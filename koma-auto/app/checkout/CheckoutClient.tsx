@@ -337,9 +337,19 @@ export default function CheckoutClient() {
             price: item.price,
             quantity: item.quantity,
             image: item.image || (item.images && item.images[0]) || '',
-            article: item.article || '',
+            article: item.article || item.oem || '',
+            oem: item.oem || item.article || '',
+            brand: item.brand || '',
           })),
           userId: user?.uid || null,
+          userAccountDetails: user
+            ? {
+                uid: user.uid,
+                email: user.email || formData.email || null,
+                displayName: user.displayName || formData.name || null,
+                phone: user.phoneNumber || formData.phone || null,
+              }
+            : null,
           isTestOrder: isTestMode,
           promoCode: appliedPromo?.code || undefined,
         };
