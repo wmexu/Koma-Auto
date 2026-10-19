@@ -6,6 +6,7 @@ import {
   groupProductsByOem,
   PODVAL_STORE_URL,
 } from '@/lib/moysklad';
+import { isBrandBlacklisted } from '@/lib/brand-utils';
 import { products as fallbackProducts } from '@/data/products';
 
 export const dynamic = 'force-dynamic';
@@ -46,11 +47,18 @@ export async function GET(request: Request) {
       mapMoySkladToProduct(msProduct)
     );
 
-    // Filter out products with 0 price
-    mappedProducts = mappedProducts.filter((p) => p.price > 0);
+    // Filter out products with price below 500 and blacklisted brands
+    mappedProducts = mappedProducts.filter(
+      (p) => p.price >= 500 && !isBrandBlacklisted(p.brand)
+    );
 
     // Group products that share the same OEM code into 1 single card!
-    const groupedProducts = groupProductsByOem(mappedProducts);
+    const groupedProducts = groupProductsByOem(mappedProducts).filter(
+      (p) =>
+        p.price >= 500 &&
+        (p.minPrice === undefined || p.minPrice >= 500) &&
+        !isBrandBlacklisted(p.brand)
+    );
 
     const rawCount = productsRes.rows?.length || 0;
     const hasMore = rawCount >= limit;

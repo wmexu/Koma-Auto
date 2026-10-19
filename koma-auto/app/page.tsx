@@ -13,16 +13,19 @@ export const revalidate = 3600; // Revalidate every hour to shuffle featured pro
 
 const FEATURED_PRODUCT_IDS = [
   '055306c7-4e95-11f1-0a80-17ce000b2820', // Амортизатор задний Chevrolet
-  '0560c932-4e95-11f1-0a80-17ce000b2828', // Амортизатор задний Chevrolet
-  '056c806b-4e95-11f1-0a80-17ce000b2830', // Амортизатор задний Chevrolet
-  '05f6cd65-4e97-11f1-0a80-17ce000d8d3e', // Моторчик (насос) омывателя Hyundai/Kia
   '01d1bd94-4e95-11f1-0a80-17ce000b2613', // Датчик кислородный (лямбдазонд) Hyundai/Kia
+  '010a27ae-4e95-11f1-0a80-17ce000b25c1', // Фильтр воздушный Hyundai/Kia
+  '02bd811c-4e95-11f1-0a80-17ce000b265a', // Стартер Hyundai/Kia
+  '05f6cd65-4e97-11f1-0a80-17ce000d8d3e', // Моторчик (насос) омывателя Hyundai/Kia
+  '0554b0f2-4e96-11f1-0a80-17ce000c555e', // Генератор Hyundai/Kia
 ];
 
 export default async function Home() {
   let sliderProducts: Product[] = [];
   try {
-    sliderProducts = await getProductsByIds(FEATURED_PRODUCT_IDS);
+    sliderProducts = (await getProductsByIds(FEATURED_PRODUCT_IDS)).filter(
+      (p) => p.price >= 500 && (p.minPrice === undefined || p.minPrice >= 500)
+    );
   } catch (error) {
     console.error("Failed to fetch products for slider:", error);
   }

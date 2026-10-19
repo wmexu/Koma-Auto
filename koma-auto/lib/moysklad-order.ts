@@ -80,12 +80,21 @@ async function findOrCreateCounterparty(order: Order): Promise<{ href: string; t
  */
 export async function syncOrderToMoySklad(order: Order): Promise<{
   success: boolean;
-  mode: 'live' | 'safe-dry-run';
+  mode: 'live' | 'safe-dry-run' | 'test-order-skipped';
   moySkladOrderId?: string;
   moySkladTaskId?: string;
   error?: string;
 }> {
   const isEnabled = process.env.MOYSKLAD_SYNC_ENABLED === 'true';
+
+  if (order.isTestOrder) {
+    console.log(`[MoySklad] Test order #${order.id} detected. Skipping warehouse dispatch.`);
+    return {
+      success: true,
+      mode: 'test-order-skipped',
+      moySkladOrderId: `test-order-${order.id}`,
+    };
+  }
 
   // SAFETY CHECK: During active office hours or development testing,
   // do not send live requests unless MOYSKLAD_SYNC_ENABLED is explicitly true.

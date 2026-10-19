@@ -343,6 +343,73 @@
   transform: scale(0.96);
 }
 
+.testModeBanner {
+  background-color: #fef2f2;
+  border: 1.5px solid #ef4444;
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-top: 16px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: #7f1d1d;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.testModeBannerHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #b91c1c;
+}
+
+.testModeBannerText {
+  margin: 0;
+  line-height: 1.4;
+  color: #991b1b;
+}
+
+.testModeBannerLegal {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #991b1b;
+  background: #fee2e2;
+  padding: 8px;
+  border-radius: 4px;
+  border-left: 3px solid #ef4444;
+}
+
+.testModeRemoveBtn {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid #ef4444;
+  color: #b91c1c;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: all 0.2s;
+}
+
+.testModeRemoveBtn:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.discountRow {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  color: #16a34a;
+  font-weight: 600;
+}
+
 .totalRow {
   border-top: 1px solid var(--color-light-gray);
   padding-top: 16px;

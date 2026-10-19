@@ -92,98 +92,38 @@ export function extractOemCode(code?: string, article?: string, name?: string): 
   return raw.toUpperCase();
 }
 
-/**
- * Brand matching rules mapped to clean names and quality tiers
- * Tier 100: Original (Hyundai, Kia, GM Genuine)
- * Tier 85: Premium OEM / Tier-1 (Gates, Mobis, Mando, CTR, Iljin, Valeo, Bosch, Elring, etc.)
- * Tier 65: Known Korean Aftermarket (Korparts, Hi-Q, Parts-Mall, Car-Dex, AMD, etc.)
- * Tier 45: Budget / Other (UzDW, Korwheel, Oscca, China, etc.)
- */
-const BRAND_RULES: Array<{ match: RegExp; brand: string; tier: number }> = [
-  // 1. Original Tier (100)
-  { match: /^(hyundai|genesis|kia|hy motors|genuine parts|oem)/i, brand: 'Hyundai', tier: 100 },
-  { match: /^(gm|gm china|gm org|gmq|chevrolet|daewoo genuine)/i, brand: 'GM Genuine', tier: 100 },
+import {
+  CANONICAL_BRANDS,
+  RAW_TO_CANONICAL_BRAND,
+  findCanonicalBrand,
+  getBrandTier,
+  isBrandBlacklisted,
+  BLACKLISTED_BRANDS,
+} from './manager-brands';
 
-  // 2. Premium OEM Tier (85-80)
-  { match: /^gates/i, brand: 'Gates', tier: 85 },
-  { match: /^(mobis|kobis|mobiparts)/i, brand: 'Mobis', tier: 85 },
-  { match: /^mando/i, brand: 'Mando', tier: 80 },
-  { match: /^ctr/i, brand: 'CTR', tier: 80 },
-  { match: /^iljin/i, brand: 'Iljin', tier: 80 },
-  { match: /^(valeo|phc valeo)/i, brand: 'Valeo', tier: 80 },
-  { match: /^bosch/i, brand: 'Bosch', tier: 80 },
-  { match: /^mahle/i, brand: 'Mahle', tier: 80 },
-  { match: /^(elring|erling|erliing)/i, brand: 'Elring', tier: 80 },
-  { match: /^victor reinz/i, brand: 'Victor Reinz', tier: 80 },
-  { match: /^(hanon|hvcc|hcc|doowon)/i, brand: 'Hanon', tier: 80 },
-  { match: /^(skf|fag|ina|koyo|nsk|kbc)/i, brand: 'SKF / INA / FAG', tier: 80 },
-  { match: /^delphi/i, brand: 'Delphi', tier: 80 },
-  { match: /^(ngk|denso)/i, brand: 'NGK / Denso', tier: 80 },
-
-  // 3. Known Korean Aftermarket (65-55)
-  { match: /^(korparts|kaparts|korpatrs|karparts|kex|kap geniun)/i, brand: 'Korparts', tier: 65 },
-  { match: /^(hi-q korea|sangsin korea|hi-q \(korea\))/i, brand: 'Hi-Q Korea', tier: 65 },
-  { match: /^partsmall|^parts\-mall/i, brand: 'Parts-Mall', tier: 60 },
-  { match: /^cardex|^car\-dex/i, brand: 'Car-Dex', tier: 60 },
-  { match: /^onnuri/i, brand: 'Onnuri', tier: 60 },
-  { match: /^besf1ts/i, brand: 'Besf1ts', tier: 60 },
-  { match: /^amd/i, brand: 'AMD', tier: 60 },
-  { match: /^(dong yang piston|piston)/i, brand: 'Dong Yang Piston', tier: 60 },
-  { match: /^dongil/i, brand: 'Dongil', tier: 60 },
-  { match: /^gmb/i, brand: 'GMB', tier: 60 },
-  { match: /^(yuilfilter|mj filter|ysf filter|i filtr)/i, brand: 'Yuil Filter', tier: 60 },
-  { match: /^(dyc|dyf fan)/i, brand: 'DYC', tier: 60 },
-  { match: /^kfm/i, brand: 'KFM', tier: 60 },
-  { match: /^hanse/i, brand: 'Hanse', tier: 60 },
-  { match: /^seoul/i, brand: 'Seoul Gasket', tier: 60 },
-  { match: /^thc/i, brand: 'THC', tier: 60 },
-  { match: /^phg/i, brand: 'PHG', tier: 60 },
-  { match: /^yulim/i, brand: 'Yulim', tier: 60 },
-  { match: /^shin han/i, brand: 'Shinhan', tier: 60 },
-  { match: /^shin hwa/i, brand: 'Shinhwa', tier: 60 },
-  { match: /^geung young/i, brand: 'Geung Young', tier: 60 },
-  { match: /^rhee jin/i, brand: 'Rhee Jin', tier: 60 },
-  { match: /^kowoo/i, brand: 'Kowoo', tier: 60 },
-  { match: /^stellox/i, brand: 'Stellox', tier: 55 },
-  { match: /^nsp/i, brand: 'NSP', tier: 55 },
-  { match: /^patron/i, brand: 'Patron', tier: 55 },
-  { match: /^febest/i, brand: 'Febest', tier: 55 },
-  { match: /^kashiyama/i, brand: 'Kashiyama', tier: 55 },
-
-  // 4. Budget / China / Uzbekistan / Other (45-35)
-  // If Hi-Q is not specifically Hi-Q Korea, user specified it belongs in low/budget tier
-  { match: /^(hi-q|super-q|superq|yes-q|sangsin)/i, brand: 'Hi-Q', tier: 45 },
-  { match: /^(uzdw|uz\-daewoo|uz daewoo|uzbek)/i, brand: 'UzDW', tier: 45 },
-  { match: /^(korwheel|kerwheel|baikor)/i, brand: 'Korwheel', tier: 45 },
-  { match: /^oscca/i, brand: 'Oscca', tier: 40 },
-  { match: /^daydo/i, brand: 'Daydo', tier: 40 },
-  { match: /^motech/i, brand: 'Motech', tier: 40 },
-  { match: /^meillor/i, brand: 'Meillor', tier: 40 },
-  { match: /^trt/i, brand: 'TRT', tier: 40 },
-  { match: /^sib/i, brand: 'SIB', tier: 40 },
-  { match: /^atc/i, brand: 'ATC', tier: 40 },
-  { match: /^uxclent/i, brand: 'Uxclent', tier: 40 },
-  { match: /^carstation/i, brand: 'Carstation', tier: 40 },
-  { match: /^saul/i, brand: 'Saul', tier: 40 },
-  { match: /^(china|kpr|китай)/i, brand: 'China', tier: 35 },
-  { match: /^(korea|корея)/i, brand: 'Korea', tier: 50 },
-  { match: /^4u/i, brand: '4U', tier: 40 },
-];
+export {
+  CANONICAL_BRANDS,
+  RAW_TO_CANONICAL_BRAND,
+  findCanonicalBrand,
+  getBrandTier,
+  isBrandBlacklisted,
+  BLACKLISTED_BRANDS,
+};
 
 /**
  * Fallback code suffix rules when supplier name is missing or internal trash
  */
 const CODE_SUFFIX_RULES: Array<{ sfx: RegExp; brand: string; tier: number }> = [
   { sfx: /org$/i, brand: 'Hyundai', tier: 100 },
-  { sfx: /gm$/i, brand: 'GM Genuine', tier: 100 },
+  { sfx: /gm$/i, brand: 'GM', tier: 55 },
   { sfx: /mob$/i, brand: 'Mobis', tier: 85 },
   { sfx: /mdo$|m$/i, brand: 'Mando', tier: 80 },
-  { sfx: /kex$|kp$|kap$/i, brand: 'Korparts', tier: 65 },
-  { sfx: /sq$|hq$/i, brand: 'Hi-Q', tier: 45 },
-  { sfx: /ps$|mp$/i, brand: 'Parts-Mall', tier: 60 },
-  { sfx: /car$/i, brand: 'Car-Dex', tier: 60 },
-  { sfx: /kw$/i, brand: 'Korwheel', tier: 45 },
-  { sfx: /uz$|buz$/i, brand: 'UzDW', tier: 45 },
+  { sfx: /kex$|kp$|kap$/i, brand: 'KorParts', tier: 70 },
+  { sfx: /sq$|hq$/i, brand: 'Hi-Q', tier: 70 },
+  { sfx: /ps$|mp$/i, brand: 'PartSmall', tier: 70 },
+  { sfx: /car$/i, brand: 'Cardex', tier: 70 },
+  { sfx: /kw$/i, brand: 'KorWheel', tier: 40 },
+  { sfx: /uz$|buz$/i, brand: 'UzDW', tier: 40 },
   { sfx: /os$/i, brand: 'Oscca', tier: 40 },
   { sfx: /aydo$/i, brand: 'Daydo', tier: 40 },
   { sfx: /tn$|trt$/i, brand: 'TRT', tier: 40 },
@@ -191,21 +131,28 @@ const CODE_SUFFIX_RULES: Array<{ sfx: RegExp; brand: string; tier: number }> = [
   { sfx: /ux$/i, brand: 'Uxclent', tier: 40 },
   { sfx: /cs$/i, brand: 'Carstation', tier: 40 },
   { sfx: /saul$/i, brand: 'Saul', tier: 40 },
-  { sfx: /mj$|ysf$/i, brand: 'Yuil Filter', tier: 60 },
-  { sfx: /dyc$|dy$/i, brand: 'DYC', tier: 60 },
-  { sfx: /ch$/i, brand: 'China', tier: 35 },
+  { sfx: /mj$|ysf$/i, brand: 'Yuilfilter', tier: 70 },
+  { sfx: /dyc$|dy$/i, brand: 'DYC Korea', tier: 70 },
+  { sfx: /ch$/i, brand: 'China', tier: 40 },
 ];
 
 /**
  * Normalizes any messy supplier or code into a clean brand name and tier
+ * using the manager's canonical brand dictionary and branch mappings.
  */
 export function normalizeBrand(supplierName?: string, code?: string): BrandInfo {
   const cleanSupplier = (supplierName || '').trim();
 
-  // 1. Check known brand rules
-  for (const rule of BRAND_RULES) {
-    if (rule.match.test(cleanSupplier)) {
-      return { brand: rule.brand, tier: rule.tier };
+  // If supplier is blacklisted (e.g. Genuine Parts), treat as unbranded
+  if (isBrandBlacklisted(cleanSupplier)) {
+    return { brand: 'Корея', tier: 30 };
+  }
+
+  // 1. Direct lookup in manager's canonical brands dictionary
+  if (cleanSupplier) {
+    const canonical = findCanonicalBrand(cleanSupplier);
+    if (canonical && !isBrandBlacklisted(canonical)) {
+      return { brand: canonical, tier: getBrandTier(canonical) };
     }
   }
 
@@ -218,7 +165,23 @@ export function normalizeBrand(supplierName?: string, code?: string): BrandInfo 
     }
   }
 
-  // 3. Filter out stalls (e.g. '3-150', '2-164a') and human orderers/mechanics
+  // 3. Fallback: check if supplier name starts with a known brand (NEVER promote to Tier 100 via fallback)
+  if (cleanSupplier) {
+    for (const [rawKey, canonical] of Object.entries(RAW_TO_CANONICAL_BRAND)) {
+      // Only match if exact prefix match, length >= 4, and NOT an OEM Tier 100 brand
+      if (
+        canonical !== 'Hyundai' &&
+        canonical !== 'Genesis' &&
+        canonical !== 'KIA' &&
+        rawKey.length >= 4 &&
+        cleanSupplier.toLowerCase().startsWith(rawKey + ' ')
+      ) {
+        return { brand: canonical, tier: getBrandTier(canonical) };
+      }
+    }
+  }
+
+  // 4. Filter out stalls (e.g. '3-150', '2-164a') and human orderers/mechanics
   const isTrash =
     !cleanSupplier ||
     /^[0-9]\-[0-9]+|^[0-9]+$/i.test(cleanSupplier) ||
@@ -229,7 +192,7 @@ export function normalizeBrand(supplierName?: string, code?: string): BrandInfo 
     cleanSupplier.toLowerCase().includes('карсити');
 
   if (!isTrash) {
-    return { brand: cleanSupplier, tier: 40 };
+    return { brand: cleanSupplier, tier: getBrandTier(cleanSupplier) };
   }
 
   return { brand: 'Корея', tier: 30 };

@@ -1,6 +1,11 @@
 import { MoySkladListResponse, MoySkladProduct, MoySkladProductFolder } from './moysklad-types';
 import { Product, ProductVariant } from '../data/products';
-import { extractOemCode, normalizeBrand, sortProductVariants } from './brand-utils';
+import {
+  extractOemCode,
+  normalizeBrand,
+  sortProductVariants,
+  isBrandBlacklisted,
+} from './brand-utils';
 
 const API_URL = process.env.MOYSKLAD_API_URL || 'https://api.moysklad.ru/api/remap/1.2';
 const TOKEN = process.env.MOYSKLAD_TOKEN;
@@ -87,13 +92,15 @@ export async function getProducts(
     PODVAL_STORE_URL
   )}`;
 
-  // If search matches OEM alphanumeric pattern, try filter=code~=... or search
+  // In MoySklad /entity/assortment, the 'search' parameter is ignored by the API!
+  // Instead, filtering is done via filter=code~... (OEM/code) or filter=name~... (name contains)
   if (cleanSearch) {
-    const isOemLike = /^[0-9a-zA-Z]{3,}$/.test(cleanSearch.replace(/[\s\-\.]/g, ''));
+    const cleanOem = cleanSearch.replace(/[\s\-\.]/g, '');
+    const isOemLike = /^[0-9a-zA-Z]{4,}$/.test(cleanOem) && /\d/.test(cleanOem);
     if (isOemLike) {
-      filters.push(`code~=${encodeURIComponent(cleanSearch.replace(/[\s\-\.]/g, ''))}`);
+      filters.push(`code~${encodeURIComponent(cleanOem)}`);
     } else {
-      url += `&search=${encodeURIComponent(cleanSearch)}`;
+      filters.push(`name~${encodeURIComponent(cleanSearch)}`);
     }
   }
 
@@ -102,13 +109,27 @@ export async function getProducts(
   }
 
   try {
-    return await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(url);
+    const res = await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(url);
+    // If OEM code search returned 0 items, retry with name~
+    if ((!res.rows || res.rows.length === 0) && cleanSearch) {
+      const cleanOem = cleanSearch.replace(/[\s\-\.]/g, '');
+      const isOemLike = /^[0-9a-zA-Z]{4,}$/.test(cleanOem) && /\d/.test(cleanOem);
+      if (isOemLike) {
+        const retryFilters = filters.filter((f) => !f.startsWith('code~'));
+        retryFilters.push(`name~${encodeURIComponent(cleanSearch)}`);
+        const retryUrl = `/entity/assortment?limit=${limit}&offset=${offset}&expand=images,productFolder,supplier&stockStore=${encodeURIComponent(
+          PODVAL_STORE_URL
+        )}&filter=${retryFilters.join(';')}`;
+        return await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(retryUrl);
+      }
+    }
+    return res;
   } catch (err) {
-    // If filter=code~ failed or returned error, fallback to general search
+    // If filter failed, fallback to name~ search
     if (cleanSearch) {
       const fallbackUrl = `/entity/assortment?limit=${limit}&offset=${offset}&expand=images,productFolder,supplier&stockStore=${encodeURIComponent(
         PODVAL_STORE_URL
-      )}&search=${encodeURIComponent(cleanSearch)}`;
+      )}&filter=name~${encodeURIComponent(cleanSearch)}`;
       return await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(fallbackUrl);
     }
     throw err;
@@ -147,24 +168,17 @@ export async function getProductVariantsByOem(oem: string): Promise<MoySkladProd
   const cleanOem = oem.replace(/[\s\-\.]/g, '');
   try {
     const res = await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(
-      `/entity/assortment?filter=code~=${encodeURIComponent(cleanOem)}&expand=images,supplier&stockStore=${encodeURIComponent(
+      `/entity/assortment?filter=code~${encodeURIComponent(cleanOem)}&expand=images,supplier&stockStore=${encodeURIComponent(
         PODVAL_STORE_URL
       )}&limit=100`
     );
-    return res.rows || [];
+    const rows = res.rows || [];
+    return rows.filter((r) => {
+      const p = r.salePrices?.[0]?.value ? r.salePrices[0].value / 100 : 0;
+      return p >= 500;
+    });
   } catch (e) {
-    // Fallback to search
-    try {
-      const fallbackRes = await fetchMoySklad<MoySkladListResponse<MoySkladProduct>>(
-        `/entity/assortment?search=${encodeURIComponent(cleanOem)}&expand=images,supplier&stockStore=${encodeURIComponent(
-          PODVAL_STORE_URL
-        )}&limit=50`
-      );
-      return fallbackRes.rows || [];
-    } catch (err) {
-      console.error('Error fetching variants by OEM:', err);
-      return [];
-    }
+    return [];
   }
 }
 
@@ -184,7 +198,11 @@ export async function getProductsByIds(ids: string[]): Promise<Product[]> {
         )}`
       );
       if (res.rows) {
-        allProducts.push(...res.rows.map(mapMoySkladToProduct));
+        allProducts.push(
+          ...res.rows
+            .map(mapMoySkladToProduct)
+            .filter((p) => p.price >= 500 && (p.minPrice ?? p.price) >= 500 && !isBrandBlacklisted(p.brand))
+        );
       }
     } catch (e) {
       console.error('Error fetching batch products chunk:', e);
@@ -295,6 +313,8 @@ export function groupProductsByOem(products: Product[]): Product[] {
   const groups = new Map<string, Product[]>();
 
   products.forEach((p) => {
+    if (p.price < 500 && (p.minPrice === undefined || p.minPrice < 500)) return;
+    if (isBrandBlacklisted(p.brand)) return;
     const key = (p.oem || p.article || p.id).toUpperCase().replace(/[\s\-\.]/g, '');
     if (!groups.has(key)) {
       groups.set(key, []);
@@ -305,19 +325,20 @@ export function groupProductsByOem(products: Product[]): Product[] {
   const groupedList: Product[] = [];
 
   for (const [oemKey, items] of groups.entries()) {
-    // Collect all variants
+    // Collect all variants with price >= 500
     const allVariants: ProductVariant[] = [];
     items.forEach((item) => {
       if (item.variants && item.variants.length > 0) {
-        allVariants.push(...item.variants);
-      } else {
+        allVariants.push(...item.variants.filter((v) => v.price >= 500 && !isBrandBlacklisted(v.brand)));
+      } else if (item.price >= 500 && !isBrandBlacklisted(item.brand)) {
         const brandInfo = normalizeBrand(item.brand, item.article);
+        if (isBrandBlacklisted(brandInfo.brand)) return;
         allVariants.push({
           id: item.id,
           name: item.name,
           code: item.article,
           oem: item.oem || item.article,
-          brand: item.brand,
+          brand: brandInfo.brand,
           tier: brandInfo.tier,
           price: item.price,
           oldPrice: item.oldPrice,
@@ -329,9 +350,12 @@ export function groupProductsByOem(products: Product[]): Product[] {
       }
     });
 
+    if (allVariants.length === 0) continue;
+
     // Deduplicate variants by brand (if duplicate supplier entries exist, pick in-stock or cheaper)
     const uniqueVariantsMap = new Map<string, ProductVariant>();
     allVariants.forEach((v) => {
+      if (isBrandBlacklisted(v.brand)) return;
       const existing = uniqueVariantsMap.get(v.brand);
       if (!existing) {
         uniqueVariantsMap.set(v.brand, v);
@@ -339,7 +363,7 @@ export function groupProductsByOem(products: Product[]): Product[] {
         // Prefer in-stock, then lower price
         if (!existing.inStock && v.inStock) {
           uniqueVariantsMap.set(v.brand, v);
-        } else if (existing.inStock === v.inStock && v.price < existing.price && v.price > 0) {
+        } else if (existing.inStock === v.inStock && v.price < existing.price && v.price >= 500) {
           uniqueVariantsMap.set(v.brand, v);
         }
       }
@@ -349,9 +373,14 @@ export function groupProductsByOem(products: Product[]): Product[] {
 
     // The primary variant (top tier with stock, or top tier)
     const primary = sortedVariants[0] || allVariants[0];
-    const prices = sortedVariants.map((v) => v.price).filter((p) => p > 0);
-    const minPrice = prices.length > 0 ? Math.min(...prices) : primary.price;
-    const maxPrice = prices.length > 0 ? Math.max(...prices) : primary.price;
+    if (!primary || primary.price < 500) continue;
+
+    const prices = sortedVariants.map((v) => v.price).filter((p) => p >= 500);
+    if (prices.length === 0) continue;
+
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    if (minPrice < 500) continue;
     const hasAnyStock = sortedVariants.some((v) => v.inStock);
 
     // Pick best image available across all variants

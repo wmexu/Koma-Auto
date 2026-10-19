@@ -36,6 +36,8 @@ export interface Order {
   items: OrderItem[];
   moySkladOrderId?: string;
   moySkladTaskId?: string;
+  isTestOrder?: boolean;
+  promoCode?: string;
 }
 
 /**

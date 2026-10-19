@@ -113,12 +113,15 @@ export default function CatalogClient() {
       const data = await res.json();
       
       if (data.products) {
+        const cleanList = data.products.filter(
+          (p: Product) => p.price >= 500 && (p.minPrice === undefined || p.minPrice >= 500)
+        );
         setProducts(prev => {
-          if (currentOffset === 0) return data.products;
+          if (currentOffset === 0) return cleanList;
           
           // Avoid duplicates if API returns overlapping items
           const existingIds = new Set(prev.map(p => p.id));
-          const newProducts = data.products.filter((p: Product) => !existingIds.has(p.id));
+          const newProducts = cleanList.filter((p: Product) => !existingIds.has(p.id));
           return [...prev, ...newProducts];
         });
         

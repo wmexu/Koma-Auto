@@ -11,9 +11,15 @@ import {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { amount, name, phone, email, origin, deliveryMethod, city, comment, items } = body;
+    const { amount, name, phone, email, origin, deliveryMethod, city, comment, items, promoCode } = body;
 
-    if (!amount || amount <= 0) {
+    const testPromoCode = (process.env.TEST_ORDER_PROMO_CODE || '').trim();
+    const isTestOrder = Boolean(testPromoCode && promoCode && typeof promoCode === 'string' && promoCode.trim() === testPromoCode);
+
+    // If test order, force amount = 1 KZT (the absolute minimum required by Halyk ePay)
+    const effectiveAmount = isTestOrder ? 1 : Math.round(amount);
+
+    if (!effectiveAmount || effectiveAmount <= 0) {
       return NextResponse.json({ error: 'Сумма заказа должна быть больше нуля' }, { status: 400 });
     }
 
@@ -46,7 +52,7 @@ export async function POST(request: Request) {
     // 1. Fetch token from Halyk ePay
     const tokenData = await getEpayToken({
       invoiceId,
-      amount: Math.round(amount),
+      amount: effectiveAmount,
       secretHash,
       postLink,
       failurePostLink: postLink,
@@ -55,7 +61,9 @@ export async function POST(request: Request) {
     const latinName = transliterate(name || 'Customer');
     const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
 
-    const description = `Оплата заказа №${invoiceId} в koma.com.kz`.substring(0, 120);
+    const description = isTestOrder
+      ? `[ТЕСТ] Проверка ePay №${invoiceId}`.substring(0, 120)
+      : `Оплата заказа №${invoiceId} в koma.com.kz`.substring(0, 120);
 
     // 2. Assemble payment object according to Halyk ePay specification
     const paymentObject: EpayPaymentObject = {
@@ -69,7 +77,7 @@ export async function POST(request: Request) {
       language: 'rus',
       description,
       terminal,
-      amount: Math.round(amount),
+      amount: effectiveAmount,
       currency: 'KZT',
       phone: cleanPhone || undefined,
       name: latinName || undefined,

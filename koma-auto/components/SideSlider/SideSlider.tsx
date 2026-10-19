@@ -21,7 +21,11 @@ export default function SideSlider({ products }: SideSliderProps) {
     }
   };
 
-  if (!products || products.length === 0) {
+  const validProducts = (products || []).filter(
+    (p) => p.price >= 500 && (p.minPrice === undefined || p.minPrice >= 500)
+  );
+
+  if (validProducts.length === 0) {
     return null; // Fallback handled by parent if necessary
   }
 
@@ -40,7 +44,7 @@ export default function SideSlider({ products }: SideSliderProps) {
       </div>
 
       <div className={styles.scrollArea} ref={scrollRef}>
-        {products.map((product) => (
+        {validProducts.map((product) => (
           <div key={product.id} className={styles.slideItem}>
             <SideSliderCard product={product} />
           </div>

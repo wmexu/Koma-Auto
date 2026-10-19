@@ -109,10 +109,10 @@ export default function SyncProvider() {
 
           const finalCart = combinedCartIds.map(id => {
             const p = getFullProduct(id);
-            return p ? { ...p, quantity: cartMap.get(id)! } : null;
+            return (p && p.price >= 500) ? { ...p, quantity: cartMap.get(id)! } : null;
           }).filter(Boolean) as any[];
 
-          const finalFavs = combinedFavIds.map(id => getFullProduct(id)).filter(Boolean) as any[];
+          const finalFavs = combinedFavIds.map(id => getFullProduct(id)).filter((p): p is Product => Boolean(p && p.price >= 500));
 
           // Prevent subscriber loop
           isSyncing.current = true;

@@ -8,11 +8,12 @@ import styles from './Favorites.module.css';
 
 export default function FavoritesClient() {
   const { items } = useFavoritesStore();
+  const validItems = items.filter(item => item && item.price >= 500);
   const [page, setPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
   const headerRef = useRef<HTMLHeadingElement>(null);
 
-  const totalPages = Math.ceil(items.length / ITEMS_PER_PAGE) || 1;
+  const totalPages = Math.ceil(validItems.length / ITEMS_PER_PAGE) || 1;
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
@@ -23,11 +24,11 @@ export default function FavoritesClient() {
     if (page > totalPages) {
       setPage(totalPages);
     }
-  }, [items.length, totalPages, page]);
+  }, [validItems.length, totalPages, page]);
 
-  const currentItems = items.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+  const currentItems = validItems.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
-  if (items.length === 0) {
+  if (validItems.length === 0) {
     return (
       <div className={`container ${styles.emptyState}`}>
         <h2>В избранном пока ничего нет</h2>
@@ -43,7 +44,7 @@ export default function FavoritesClient() {
     <div className={`container ${styles.favoritesPage}`}>
       <div className={styles.header}>
         <h1 className={styles.title} ref={headerRef}>Избранное</h1>
-        <span className={styles.count}>{items.length} товаров</span>
+        <span className={styles.count}>{validItems.length} товаров</span>
       </div>
 
       <div className={styles.productsGrid}>

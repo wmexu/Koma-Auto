@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Trash2, ArrowRight, Heart, Grid2x2, Rows3 } from 'lucide-react';
+import { Trash2, ArrowRight, Heart, Grid2x2, Rows3, AlertTriangle } from 'lucide-react';
 import { useCartStore } from '../../store/useCartStore';
 import { useFavoritesStore } from '../../store/useFavoritesStore';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -24,6 +24,72 @@ export default function CartClient() {
 
   const [cartPage, setCartPage] = useState(1);
   const [favPage, setFavPage] = useState(1);
+  
+  const [promoCodeInput, setPromoCodeInput] = useState('');
+  const [isApplyingPromo, setIsApplyingPromo] = useState(false);
+  const [appliedPromo, setAppliedPromo] = useState<{
+    code: string;
+    isTestMode: boolean;
+    title: string;
+    disclaimer: string;
+    targetPrice: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const savedPromo = sessionStorage.getItem('koma_test_promocode');
+    if (savedPromo) {
+      fetch('/api/promocode/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: savedPromo }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.valid && data.isTestMode) {
+            setAppliedPromo(data);
+          } else {
+            sessionStorage.removeItem('koma_test_promocode');
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  const handleApplyPromo = async () => {
+    const code = promoCodeInput.trim();
+    if (!code) {
+      addToast('Введите промокод', 'error');
+      return;
+    }
+    setIsApplyingPromo(true);
+    try {
+      const res = await fetch('/api/promocode/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.valid) {
+        addToast(data.error || 'Промокод недействителен', 'error');
+        return;
+      }
+
+      setAppliedPromo(data);
+      sessionStorage.setItem('koma_test_promocode', code);
+      setPromoCodeInput('');
+      addToast('Тестовый режим успешно активирован! Сумма заказа: 1 ₸', 'success');
+    } catch (e: any) {
+      addToast('Ошибка при проверке промокода', 'error');
+    } finally {
+      setIsApplyingPromo(false);
+    }
+  };
+
+  const handleRemovePromo = () => {
+    setAppliedPromo(null);
+    sessionStorage.removeItem('koma_test_promocode');
+    addToast('Тестовый режим отключен', 'info');
+  };
   
   const CART_ITEMS_PER_PAGE = 6;
   const FAV_ITEMS_PER_PAGE = 10;
@@ -59,28 +125,31 @@ export default function CartClient() {
     localStorage.setItem('favGridColumns', cols.toString());
   };
 
-  const totalPrice = getTotalPrice();
+  const validItems = items.filter(item => item && item.price >= 500);
+  const validFavoriteItems = favoriteItems.filter(item => item && item.price >= 500);
+
+  const totalPrice = validItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
   // Handle items deletion logic to adjust pages
-  const cartTotalPages = Math.ceil(items.length / CART_ITEMS_PER_PAGE) || 1;
-  const favTotalPages = Math.ceil(favoriteItems.length / FAV_ITEMS_PER_PAGE) || 1;
+  const cartTotalPages = Math.ceil(validItems.length / CART_ITEMS_PER_PAGE) || 1;
+  const favTotalPages = Math.ceil(validFavoriteItems.length / FAV_ITEMS_PER_PAGE) || 1;
 
   useEffect(() => {
     if (cartPage > cartTotalPages) {
       setCartPage(cartTotalPages);
     }
-  }, [items.length, cartTotalPages, cartPage]);
+  }, [validItems.length, cartTotalPages, cartPage]);
 
   useEffect(() => {
     if (favPage > favTotalPages) {
       setFavPage(favTotalPages);
     }
-  }, [favoriteItems.length, favTotalPages, favPage]);
+  }, [validFavoriteItems.length, favTotalPages, favPage]);
 
-  const currentCartItems = items.slice((cartPage - 1) * CART_ITEMS_PER_PAGE, cartPage * CART_ITEMS_PER_PAGE);
-  const currentFavItems = favoriteItems.slice((favPage - 1) * FAV_ITEMS_PER_PAGE, favPage * FAV_ITEMS_PER_PAGE);
+  const currentCartItems = validItems.slice((cartPage - 1) * CART_ITEMS_PER_PAGE, cartPage * CART_ITEMS_PER_PAGE);
+  const currentFavItems = validFavoriteItems.slice((favPage - 1) * FAV_ITEMS_PER_PAGE, favPage * FAV_ITEMS_PER_PAGE);
 
-  if (items.length === 0) {
+  if (validItems.length === 0) {
     return (
       <div className={`container ${styles.emptyState}`}>
         <h2>Корзина пуста</h2>
@@ -89,7 +158,7 @@ export default function CartClient() {
           Перейти в каталог
         </Link>
         
-        {favoriteItems.length > 0 && (
+        {validFavoriteItems.length > 0 && (
           <div className={styles.favoritesSectionEmpty}>
             <div className={styles.favoritesHeader}>
               <h2 className={styles.favoritesTitle}>Ваши избранные товары</h2>
@@ -244,18 +313,66 @@ export default function CartClient() {
         <div className={styles.summary}>
           <h3>Итого</h3>
           <div className={styles.summaryRow}>
-            <span>Товары ({items.length})</span>
+            <span>Товары ({validItems.length})</span>
             <span>{totalPrice.toLocaleString()} ₸</span>
           </div>
+
+          {appliedPromo?.isTestMode && (
+            <div className={styles.discountRow}>
+              <span>Скидка (Тест-режим)</span>
+              <span>-{(totalPrice - 1).toLocaleString()} ₸</span>
+            </div>
+          )}
           
-          <div className={styles.promoCode}>
-            <input type="text" placeholder="Промокод" />
-            <button>Применить</button>
-          </div>
+          {!appliedPromo?.isTestMode ? (
+            <div className={styles.promoCode}>
+              <input
+                type="text"
+                placeholder="Промокод"
+                value={promoCodeInput}
+                onChange={(e) => setPromoCodeInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleApplyPromo();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleApplyPromo}
+                disabled={isApplyingPromo}
+              >
+                {isApplyingPromo ? 'Проверка...' : 'Применить'}
+              </button>
+            </div>
+          ) : (
+            <div className={styles.testModeBanner}>
+              <div className={styles.testModeBannerHeader}>
+                <AlertTriangle size={18} />
+                <span>РЕЖИМ ТЕСТИРОВАНИЯ (1 ₸)</span>
+              </div>
+              <p className={styles.testModeBannerText}>
+                Активирован режим технического тестирования платформы. Сумма заказа снижена до 1 ₸ для верификации соединения с платёжным шлюзом ePay.
+              </p>
+              <div className={styles.testModeBannerLegal}>
+                <strong>Юридическое примечание:</strong> Настоящий заказ является демонстрационным техническим тестом и <u>не порождает обязательств</u> Продавца по передаче, комплектации или доставке товаров согласно ст. 447, 449 Гражданского кодекса Республики Казахстан.
+              </div>
+              <button
+                type="button"
+                onClick={handleRemovePromo}
+                className={styles.testModeRemoveBtn}
+              >
+                Отменить тест-режим
+              </button>
+            </div>
+          )}
 
           <div className={`${styles.summaryRow} ${styles.totalRow}`}>
             <span>К оплате</span>
-            <span className={styles.totalPrice}>{totalPrice.toLocaleString()} ₸</span>
+            <span className={styles.totalPrice}>
+              {(appliedPromo?.isTestMode ? 1 : totalPrice).toLocaleString()} ₸
+            </span>
           </div>
 
           <button 
@@ -273,7 +390,7 @@ export default function CartClient() {
         </div>
       </div>
       
-      {favoriteItems.length > 0 && (
+      {validFavoriteItems.length > 0 && (
         <div className={styles.favoritesSection}>
           <div className={styles.favoritesHeader}>
             <h2 className={styles.favoritesTitle} ref={favHeaderRef}>Ваши избранные товары</h2>

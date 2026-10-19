@@ -14,6 +14,7 @@ export const useFavoritesStore = create<FavoritesState>()(
     (set, get) => ({
       items: [],
       toggleFavorite: (product) => {
+        if (!product || product.price < 500) return;
         set((state) => {
           const isExist = state.items.some((item) => item.id === product.id);
           if (isExist) {
@@ -25,10 +26,15 @@ export const useFavoritesStore = create<FavoritesState>()(
       isFavorite: (productId) => {
         return get().items.some((item) => item.id === productId);
       },
-      setItems: (items) => set({ items }),
+      setItems: (items) => set({ items: items.filter((item) => item && item.price >= 500) }),
     }),
     {
       name: 'koma-favorites-storage',
+      merge: (persistedState: any, currentState) => ({
+        ...currentState,
+        ...persistedState,
+        items: (persistedState?.items || []).filter((item: Product) => item && item.price >= 500),
+      }),
     }
   )
 );

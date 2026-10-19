@@ -75,6 +75,23 @@ export default function SuccessClient() {
               {order.deliveryMethod === 'courier' ? 'Курьерская доставка' : 'Самовывоз'}
             </span>
           </div>
+          {order.isTestOrder && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <span style={{ fontSize: '14px', color: '#b91c1c' }}>Тип операции:</span>
+              <span
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#b91c1c',
+                  backgroundColor: '#fee2e2',
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                }}
+              >
+                Тестовый платеж
+              </span>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '14px', color: '#64748b' }}>Статус:</span>
             <span

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ShoppingCart, Heart, Box, Truck, CornerUpLeft, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ShoppingCart, Heart, Box, Truck, CornerUpLeft, Loader2, ChevronLeft, ChevronRight, Rows3, Grid2x2 } from 'lucide-react';
 import { Product, ProductVariant } from '../../../data/products';
 import { useCartStore } from '../../../store/useCartStore';
 import { useFavoritesStore } from '../../../store/useFavoritesStore';
@@ -16,6 +16,7 @@ export default function ProductDetails({ id }: { id: string }) {
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [mobileGridColumns, setMobileGridColumns] = useState<1 | 2>(2);
 
   const [activeTab, setActiveTab] = useState('specs');
   const [quantity, setQuantity] = useState(1);
@@ -30,6 +31,18 @@ export default function ProductDetails({ id }: { id: string }) {
   const addToast = useToastStore((state) => state.addToast);
 
   useEffect(() => {
+    const saved = localStorage.getItem('catalog_grid_pref');
+    if (saved === '1' || saved === '2') {
+      setMobileGridColumns(parseInt(saved, 10) as 1 | 2);
+    }
+  }, []);
+
+  const handleGridChange = (cols: 1 | 2) => {
+    setMobileGridColumns(cols);
+    localStorage.setItem('catalog_grid_pref', cols.toString());
+  };
+
+  useEffect(() => {
     const fetchProduct = async () => {
       try {
         setIsLoading(true);
@@ -41,13 +54,78 @@ export default function ProductDetails({ id }: { id: string }) {
           setSelectedVariantId(data.variants[0].id);
         }
         
-        if (data && data.category) {
-          const simRes = await fetch(`/api/products?category=${encodeURIComponent(data.category)}&limit=5`);
-          const simData = await simRes.json();
-          if (simData && simData.products) {
-             setSimilarProducts(simData.products.filter((p: Product) => p.id !== data.id).slice(0, 4));
+        // Fetch similar products intelligently:
+        let foundSimilar: Product[] = [];
+        const isCurrentShock = (data.name || '').toLowerCase().includes('амортизатор');
+
+        // 1. Try by category if category is valid and not 'other'
+        if (data && data.category && data.category !== 'other') {
+          try {
+            const simRes = await fetch(`/api/products?category=${encodeURIComponent(data.category)}&limit=10`);
+            const simData = await simRes.json();
+            if (simData && simData.products) {
+              foundSimilar = simData.products.filter(
+                (p: Product) => p.id !== data.id && p.oem !== data.oem && p.price >= 500
+              );
+            }
+          } catch (e) {
+            console.error('Failed to fetch similar by category:', e);
           }
         }
+
+        // 2. If fewer than 4 items, search by key terms from product name (e.g. "Фильтр", "Свечи", "Датчик")
+        if (foundSimilar.length < 4 && data.name) {
+          const cleanName = data.name.replace(/\b(Chevrolet|Hyundai|Kia|Daewoo|GM|UZ)\b/gi, '').trim();
+          const words = cleanName.split(/\s+/).filter((w: string) => w.length > 2 && !w.startsWith('(') && !w.endsWith(')'));
+          const searchKeyword = words.slice(0, 2).join(' ') || words[0] || '';
+
+          if (searchKeyword && searchKeyword.length >= 3) {
+            try {
+              const kwRes = await fetch(`/api/products?search=${encodeURIComponent(searchKeyword)}&limit=10`);
+              const kwData = await kwRes.json();
+              if (kwData && kwData.products) {
+                const kwProducts = kwData.products.filter(
+                  (p: Product) =>
+                    p.id !== data.id &&
+                    p.oem !== data.oem &&
+                    p.price >= 500 &&
+                    !foundSimilar.some((s) => s.id === p.id)
+                );
+                foundSimilar = [...foundSimilar, ...kwProducts];
+              }
+            } catch (e) {
+              console.error('Failed to fetch similar by keyword:', e);
+            }
+          }
+        }
+
+        // 3. If still fewer than 4, search by brand (e.g. "Hyundai" or "Chevrolet")
+        if (foundSimilar.length < 4 && data.brand) {
+          try {
+            const brandRes = await fetch(`/api/products?search=${encodeURIComponent(data.brand)}&limit=15`);
+            const brandData = await brandRes.json();
+            if (brandData && brandData.products) {
+              const brandProducts = brandData.products.filter(
+                (p: Product) =>
+                  p.id !== data.id &&
+                  p.oem !== data.oem &&
+                  p.price >= 500 &&
+                  !foundSimilar.some((s) => s.id === p.id) &&
+                  (isCurrentShock || !p.name.toLowerCase().includes('амортизатор'))
+              );
+              foundSimilar = [...foundSimilar, ...brandProducts];
+            }
+          } catch (e) {
+            console.error('Failed to fetch similar by brand:', e);
+          }
+        }
+
+        // Never show shock absorbers for a non-shock-absorber product
+        if (!isCurrentShock) {
+          foundSimilar = foundSimilar.filter((p) => !p.name.toLowerCase().includes('амортизатор'));
+        }
+
+        setSimilarProducts(foundSimilar.slice(0, 4));
       } catch (error) {
         console.error('Failed to fetch product:', error);
       } finally {
@@ -77,10 +155,30 @@ export default function ProductDetails({ id }: { id: string }) {
     );
   }
 
-  const activeVariant: ProductVariant | null =
+  const effectiveVariants: ProductVariant[] =
     product.variants && product.variants.length > 0
-      ? (product.variants.find((v) => v.id === selectedVariantId) || product.variants[0])
-      : null;
+      ? product.variants
+      : [
+          {
+            id: product.id,
+            name: product.name,
+            code: product.oem || product.article || '',
+            brand: product.brand || 'Hyundai',
+            tier: 1,
+            price: product.price,
+            oldPrice: product.oldPrice,
+            stock: product.inStock ? 1 : 0,
+            inStock: product.inStock,
+            images: product.images,
+            image: product.image,
+            article: product.oem || product.article,
+            oem: product.oem || product.article,
+            description: product.description,
+          },
+        ];
+
+  const activeVariant: ProductVariant =
+    effectiveVariants.find((v) => v.id === selectedVariantId) || effectiveVariants[0];
 
   const displayOem = activeVariant?.oem || product.oem || product.article || '';
   const currentPrice = activeVariant ? activeVariant.price : product.price;
@@ -263,15 +361,19 @@ export default function ProductDetails({ id }: { id: string }) {
             </div>
           </div>
 
-          {product.variants && product.variants.length > 1 && (
+          {effectiveVariants.length > 0 && (
             <div className={styles.brandPickerSection}>
               <div className={styles.brandPickerHeader}>
-                <span className={styles.brandPickerTitle}>Выберите производителя</span>
-                <span className={styles.brandPickerCount}>Вариантов: {product.variants.length}</span>
+                <span className={styles.brandPickerTitle}>
+                  {effectiveVariants.length > 1 ? 'Выберите производителя' : 'Производитель'}
+                </span>
+                <span className={styles.brandPickerCount}>
+                  {effectiveVariants.length > 1 ? `Вариантов: ${effectiveVariants.length}` : '1 вариант'}
+                </span>
               </div>
               <div className={styles.brandGrid}>
-                {product.variants.map((v) => {
-                  const isSelected = activeVariant ? v.id === activeVariant.id : false;
+                {effectiveVariants.map((v) => {
+                  const isSelected = activeVariant ? v.id === activeVariant.id : true;
                   return (
                     <button
                       key={v.id}
@@ -395,9 +497,29 @@ export default function ProductDetails({ id }: { id: string }) {
 
       {similarProducts.length > 0 && (
         <div className={styles.similar}>
-          <h2 className={styles.similarTitle}>Похожие товары</h2>
-          <div className={styles.similarGrid}>
-            {similarProducts.map(p => (
+          <div className={styles.similarHeader}>
+            <h2 className={styles.similarTitle}>Похожие товары</h2>
+            <div className={styles.gridToggle}>
+              <button
+                type="button"
+                className={`${styles.gridToggleBtn} ${mobileGridColumns === 1 ? styles.active : ''}`}
+                onClick={() => handleGridChange(1)}
+                aria-label="1 колонка"
+              >
+                <Rows3 size={20} />
+              </button>
+              <button
+                type="button"
+                className={`${styles.gridToggleBtn} ${mobileGridColumns === 2 ? styles.active : ''}`}
+                onClick={() => handleGridChange(2)}
+                aria-label="2 колонки"
+              >
+                <Grid2x2 size={20} />
+              </button>
+            </div>
+          </div>
+          <div className={`${styles.similarGrid} ${mobileGridColumns === 1 ? styles.grid1 : styles.grid2}`}>
+            {similarProducts.map((p) => (
               <ProductCard key={p.id} product={p} />
             ))}
           </div>

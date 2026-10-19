@@ -228,13 +228,17 @@
 .cardBottom {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   margin-top: auto;
+  gap: 8px;
+  flex-wrap: nowrap;
 }
 
 .cardPrices {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  flex: 1;
 }
 
 .cardOldPrice {
@@ -252,7 +256,8 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  line-height: 1;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .cartBtn {
@@ -261,6 +266,10 @@
   justify-content: center;
   width: 42px;
   height: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  aspect-ratio: 1 / 1;
+  flex-shrink: 0;
   border-radius: 8px;
   background: var(--color-navy-gradient);
   color: var(--color-white);
@@ -277,11 +286,13 @@
   user-select: none;
 }
 
-.cartBtn svg {
+.cartBtn svg,
+.cartIcon {
   display: inline-flex;
   align-items: center;
   line-height: 1;
   transform: translateZ(0);
+  flex-shrink: 0;
 }
 
 .cartBtn:hover:not(.disabled) {
@@ -300,4 +311,103 @@
   color: #94a3b8;
   cursor: not-allowed;
   transform: none;
+}
+
+@media (max-width: 640px) {
+  .sliderCard {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .cardImageWrapper {
+    width: 90px;
+    height: 90px;
+    min-width: 90px;
+    min-height: 90px;
+    max-width: 90px;
+    max-height: 90px;
+    padding: 6px;
+    border-radius: 8px;
+  }
+
+  .cardTitle {
+    font-size: 13px;
+    margin-bottom: 6px;
+    line-height: 1.25;
+  }
+
+  .cardArticle,
+  .cardBrand {
+    font-size: 11px;
+  }
+
+  .cardBottom {
+    gap: 6px;
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+
+  .cardPrice {
+    font-size: 15px;
+    white-space: nowrap;
+  }
+
+  .cardOldPrice {
+    font-size: 10px;
+  }
+
+  .cartBtn {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    max-width: 34px;
+    max-height: 34px;
+    aspect-ratio: 1 / 1;
+    flex-shrink: 0;
+    border-radius: 6px;
+  }
+
+  .cartBtn svg,
+  .cartIcon {
+    width: 16px !important;
+    height: 16px !important;
+  }
+}
+
+@media (max-width: 400px) {
+  .sliderCard {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .cardImageWrapper {
+    width: 80px;
+    height: 80px;
+    min-width: 80px;
+    min-height: 80px;
+    max-width: 80px;
+    max-height: 80px;
+    padding: 6px;
+  }
+
+  .cardPrice {
+    font-size: 14px;
+  }
+
+  .cartBtn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    max-width: 32px;
+    max-height: 32px;
+    border-radius: 6px;
+  }
+
+  .cartBtn svg,
+  .cartIcon {
+    width: 14px !important;
+    height: 14px !important;
+  }
 }

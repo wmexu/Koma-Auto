@@ -22,6 +22,7 @@ export const useCartStore = create<CartState>()(
     (set, get) => ({
       items: [],
       addItem: (product) => {
+        if (!product || product.price < 500) return;
         set((state) => {
           const existingItem = state.items.find((item) => item.id === product.id);
           if (existingItem) {
@@ -47,16 +48,21 @@ export const useCartStore = create<CartState>()(
         }));
       },
       clearCart: () => set({ items: [] }),
-      setItems: (items) => set({ items }),
+      setItems: (items) => set({ items: items.filter((item) => item && item.price >= 500) }),
       getTotalItems: () => {
-        return get().items.reduce((total, item) => total + item.quantity, 0);
+        return get().items.filter((i) => i.price >= 500).reduce((total, item) => total + item.quantity, 0);
       },
       getTotalPrice: () => {
-        return get().items.reduce((total, item) => total + item.price * item.quantity, 0);
+        return get().items.filter((i) => i.price >= 500).reduce((total, item) => total + item.price * item.quantity, 0);
       },
     }),
     {
       name: 'koma-cart-storage',
+      merge: (persistedState: any, currentState) => ({
+        ...currentState,
+        ...persistedState,
+        items: (persistedState?.items || []).filter((item: CartItem) => item && item.price >= 500),
+      }),
     }
   )
 );

@@ -251,6 +251,107 @@
   color: #666;
 }
 
+.discountRow {
+  display: flex;
+  justify-content: space-between;
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.promoCode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.promoCode input {
+  flex: 1;
+  min-width: 140px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+
+.promoCode button {
+  flex-grow: 1;
+  background-color: var(--color-navy);
+  color: var(--color-white);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  border: none;
+  transition: transform 0.2s, background-color 0.2s;
+}
+
+.promoCode button:hover {
+  background-color: #0c1a6b;
+}
+
+.promoCode button:active {
+  transform: scale(0.96);
+}
+
+.testModeBanner {
+  background-color: #fef2f2;
+  border: 1.5px solid #ef4444;
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: #7f1d1d;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.testModeBannerHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  color: #b91c1c;
+}
+
+.testModeBannerText {
+  margin: 0;
+  line-height: 1.4;
+  color: #991b1b;
+}
+
+.testModeBannerLegal {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #991b1b;
+  background: #fee2e2;
+  padding: 10px;
+  border-radius: 6px;
+  border-left: 3px solid #ef4444;
+}
+
+.testModeRemoveBtn {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid #ef4444;
+  color: #b91c1c;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.testModeRemoveBtn:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
 .totalRow {
   display: flex;
   justify-content: space-between;

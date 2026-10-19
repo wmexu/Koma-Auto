@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Script from 'next/script';
 import Link from 'next/link';
-import { CheckCircle, Shield, Package } from 'lucide-react';
+import { CheckCircle, Shield, Package, AlertTriangle } from 'lucide-react';
 import { useCartStore } from '../../store/useCartStore';
 import { useToastStore } from '../../store/useToastStore';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -57,6 +57,72 @@ export default function CheckoutClient() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<{name?: string}>({});
   const [isCityModalOpen, setIsCityModalOpen] = useState(false);
+
+  const [promoCodeInput, setPromoCodeInput] = useState('');
+  const [isApplyingPromo, setIsApplyingPromo] = useState(false);
+  const [appliedPromo, setAppliedPromo] = useState<{
+    code: string;
+    isTestMode: boolean;
+    title: string;
+    disclaimer: string;
+    targetPrice: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const savedPromo = sessionStorage.getItem('koma_test_promocode');
+    if (savedPromo) {
+      fetch('/api/promocode/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: savedPromo }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.valid && data.isTestMode) {
+            setAppliedPromo(data);
+          } else {
+            sessionStorage.removeItem('koma_test_promocode');
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  const handleApplyPromo = async () => {
+    const code = promoCodeInput.trim();
+    if (!code) {
+      addToast('Введите промокод', 'error');
+      return;
+    }
+    setIsApplyingPromo(true);
+    try {
+      const res = await fetch('/api/promocode/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.valid) {
+        addToast(data.error || 'Промокод недействителен', 'error');
+        return;
+      }
+
+      setAppliedPromo(data);
+      sessionStorage.setItem('koma_test_promocode', code);
+      setPromoCodeInput('');
+      addToast('Тестовый режим успешно активирован! Сумма заказа: 1 ₸', 'success');
+    } catch (e: any) {
+      addToast('Ошибка при проверке промокода', 'error');
+    } finally {
+      setIsApplyingPromo(false);
+    }
+  };
+
+  const handleRemovePromo = () => {
+    setAppliedPromo(null);
+    sessionStorage.removeItem('koma_test_promocode');
+    addToast('Тестовый режим отключен', 'info');
+  };
 
   useEffect(() => {
     const status = searchParams.get('status');
@@ -149,20 +215,18 @@ export default function CheckoutClient() {
     }
   }, [courierAvailable, formData.deliveryMethod]);
 
-  // Adjust payment methods based on delivery
+  // Enforce online payment only (immediate payment required)
   useEffect(() => {
-    if (formData.deliveryMethod === 'pickup') {
-      if (formData.paymentMethod !== 'card_receipt' && formData.paymentMethod !== 'cash' && formData.paymentMethod !== 'online') {
-        setFormData(prev => ({ ...prev, paymentMethod: 'online' }));
-      }
-    } else {
-      if (formData.paymentMethod !== 'online') {
-        setFormData(prev => ({ ...prev, paymentMethod: 'online' }));
-      }
+    if (formData.paymentMethod !== 'online') {
+      setFormData(prev => ({ ...prev, paymentMethod: 'online' }));
     }
-  }, [formData.deliveryMethod]);
+  }, [formData.paymentMethod]);
 
-  const finalPrice = formData.deliveryMethod === 'courier' ? totalPrice + deliveryCost : totalPrice;
+  const isTestMode = Boolean(appliedPromo?.isTestMode);
+  const calculatedDelivery = isTestMode ? 0 : deliveryCost;
+  const finalPrice = isTestMode
+    ? 1
+    : (formData.deliveryMethod === 'courier' ? totalPrice + deliveryCost : totalPrice);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -216,13 +280,16 @@ export default function CheckoutClient() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             amount: finalPrice,
+            promoCode: appliedPromo?.code || undefined,
             name: formData.name,
             phone: formData.phone,
             email: formData.email,
             origin: window.location.origin,
             deliveryMethod: formData.deliveryMethod,
             city: formData.city,
-            comment: formData.comment,
+            comment: isTestMode
+              ? `[ТЕСТОВЫЙ ЗАКАЗ] ${formData.comment || ''}`.trim()
+              : formData.comment,
             items: items.map((item) => ({
               id: item.id,
               name: item.name,
@@ -250,7 +317,7 @@ export default function CheckoutClient() {
           status: 'pending',
           amount: finalPrice,
           itemsPrice: totalPrice,
-          deliveryCost: deliveryCost,
+          deliveryCost: calculatedDelivery,
           deliveryMethod: formData.deliveryMethod as 'courier' | 'pickup',
           address: fullAddress,
           city: formData.city,
@@ -258,7 +325,9 @@ export default function CheckoutClient() {
             name: formData.name,
             phone: formData.phone,
             email: formData.email,
-            comment: formData.comment,
+            comment: isTestMode
+              ? `[ТЕСТОВЫЙ ЗАКАЗ] ${formData.comment || ''}`.trim()
+              : formData.comment,
           },
           paymentMethod: 'online',
           paymentUrl: data.paymentUrl,
@@ -271,6 +340,8 @@ export default function CheckoutClient() {
             article: item.article || '',
           })),
           userId: user?.uid || null,
+          isTestOrder: isTestMode,
+          promoCode: appliedPromo?.code || undefined,
         };
 
         // Persist order locally & to server API
@@ -312,7 +383,7 @@ export default function CheckoutClient() {
       status: 'pending',
       amount: finalPrice,
       itemsPrice: totalPrice,
-      deliveryCost: deliveryCost,
+      deliveryCost: calculatedDelivery,
       deliveryMethod: 'pickup',
       address: 'Самовывоз: г. Алматы, Car City 1 ярус Подвал',
       city: formData.city || 'Алматы',
@@ -320,7 +391,9 @@ export default function CheckoutClient() {
         name: formData.name,
         phone: formData.phone,
         email: formData.email,
-        comment: formData.comment,
+        comment: isTestMode
+          ? `[ТЕСТОВЫЙ ЗАКАЗ] ${formData.comment || ''}`.trim()
+          : formData.comment,
       },
       paymentMethod: formData.paymentMethod as 'cash' | 'card_receipt',
       items: items.map((item) => ({
@@ -332,6 +405,8 @@ export default function CheckoutClient() {
         article: item.article || '',
       })),
       userId: user?.uid || null,
+      isTestOrder: isTestMode,
+      promoCode: appliedPromo?.code || undefined,
     };
 
     await persistOrder(offlineOrder);
@@ -530,61 +605,19 @@ export default function CheckoutClient() {
           <div className={styles.section}>
             <h2>4. Способ оплаты</h2>
             <div className={styles.radioGroup}>
-              {formData.deliveryMethod === 'pickup' ? (
-                <>
-                  <label className={styles.radioCard}>
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value="online"
-                      checked={formData.paymentMethod === 'online'}
-                      onChange={handleChange}
-                    />
-                    <div className={styles.radioContent}>
-                      <span className={styles.radioTitle}>Halyk QR, Kaspi, или картой онлайн</span>
-                      <span className={styles.radioDesc}>Оплата на сайте через защищенный платёжный шлюз ePay</span>
-                    </div>
-                  </label>
-                  <label className={styles.radioCard}>
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value="card_receipt"
-                      checked={formData.paymentMethod === 'card_receipt'}
-                      onChange={handleChange}
-                    />
-                    <div className={styles.radioContent}>
-                      <span className={styles.radioTitle}>Halyk QR/Kaspi QR при получении со склада</span>
-                    </div>
-                  </label>
-                  <label className={styles.radioCard}>
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value="cash"
-                      checked={formData.paymentMethod === 'cash'}
-                      onChange={handleChange}
-                    />
-                    <div className={styles.radioContent}>
-                      <span className={styles.radioTitle}>Наличными при получении</span>
-                    </div>
-                  </label>
-                </>
-              ) : (
-                <label className={styles.radioCard}>
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    value="online"
-                    checked={formData.paymentMethod === 'online'}
-                    onChange={handleChange}
-                  />
-                  <div className={styles.radioContent}>
-                    <span className={styles.radioTitle}>Halyk QR, Kaspi, или картой онлайн</span>
-                    <span className={styles.radioDesc}>Оплата на сайте через защищенный платёжный шлюз ePay</span>
-                  </div>
-                </label>
-              )}
+              <label className={styles.radioCard}>
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  value="online"
+                  checked={true}
+                  readOnly
+                />
+                <div className={styles.radioContent}>
+                  <span className={styles.radioTitle}>Halyk QR, Kaspi, или картой онлайн</span>
+                  <span className={styles.radioDesc}>Оплата сразу при заказе через защищенный платёжный шлюз ePay</span>
+                </div>
+              </label>
             </div>
             
             {formData.paymentMethod === 'online' && (
@@ -613,10 +646,16 @@ export default function CheckoutClient() {
                 <span>Товары</span>
                 <span>{totalPrice.toLocaleString()} ₸</span>
               </div>
+              {isTestMode && (
+                <div className={styles.discountRow}>
+                  <span>Скидка (Тест-режим)</span>
+                  <span>-{(totalPrice - 1).toLocaleString()} ₸</span>
+                </div>
+              )}
               {formData.deliveryMethod === 'courier' ? (
                 <div className={styles.calcRow}>
                   <span>Доставка</span>
-                  <span>{normalizedCity === '' ? '-' : (deliveryCost === 0 ? 'Бесплатно' : `${deliveryCost.toLocaleString()} ₸`)}</span>
+                  <span>{isTestMode ? '0 ₸ (Тест)' : (normalizedCity === '' ? '-' : (deliveryCost === 0 ? 'Бесплатно' : `${deliveryCost.toLocaleString()} ₸`))}</span>
                 </div>
               ) : (
                 <div className={styles.calcRow}>
@@ -625,6 +664,50 @@ export default function CheckoutClient() {
                 </div>
               )}
             </div>
+
+            {!isTestMode ? (
+              <div className={styles.promoCode}>
+                <input
+                  type="text"
+                  placeholder="Промокод"
+                  value={promoCodeInput}
+                  onChange={(e) => setPromoCodeInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleApplyPromo();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleApplyPromo}
+                  disabled={isApplyingPromo}
+                >
+                  {isApplyingPromo ? '...' : 'Применить'}
+                </button>
+              </div>
+            ) : (
+              <div className={styles.testModeBanner}>
+                <div className={styles.testModeBannerHeader}>
+                  <AlertTriangle size={18} />
+                  <span>РЕЖИМ ТЕСТИРОВАНИЯ (1 ₸)</span>
+                </div>
+                <p className={styles.testModeBannerText}>
+                  Активирован режим технического тестирования платформы. Сумма заказа снижена до 1 ₸ для верификации шлюза Halyk ePay.
+                </p>
+                <div className={styles.testModeBannerLegal}>
+                  <strong>Юридическое примечание:</strong> Настоящий заказ носит исключительно проверочный характер и <u>не порождает обязательств Продавца</u> по передаче, комплектации или доставке товаров согласно ст. 447, 449 Гражданского кодекса Республики Казахстан. Ввод данного служебного кода подтверждает согласие с данными условиями.
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemovePromo}
+                  className={styles.testModeRemoveBtn}
+                >
+                  Отменить тест-режим
+                </button>
+              </div>
+            )}
 
             <div className={styles.totalRow}>
               <span>Итого к оплате</span>

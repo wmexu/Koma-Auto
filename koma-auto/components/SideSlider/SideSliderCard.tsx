@@ -56,7 +56,7 @@ export default function SideSliderCard({ product }: { product: Product }) {
             disabled={!product.inStock}
             title={product.inStock ? 'В корзину' : 'Нет в наличии'}
           >
-            <ShoppingCart size={18} />
+            <ShoppingCart size={18} className={styles.cartIcon} />
           </button>
         </div>
       </div>

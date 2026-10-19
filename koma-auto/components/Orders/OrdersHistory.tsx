@@ -76,15 +76,47 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
     }
   };
 
-  // Remaining time helper
-  const getRemainingTime = (order: Order) => {
+  // Remaining time helper (handles days, hours, and minutes)
+  const getRemainingTimeData = (order: Order) => {
     if (!order.expiresAt) return null;
     const expiresMs = new Date(order.expiresAt).getTime();
     const diff = expiresMs - currentTime;
     if (diff <= 0) return null;
-    const mins = Math.floor(diff / 60000);
-    const secs = Math.floor((diff % 60000) / 1000);
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+
+    const totalSeconds = Math.floor(diff / 1000);
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const totalHours = Math.floor(totalMinutes / 60);
+    const days = Math.floor(totalHours / 24);
+
+    if (days >= 1) {
+      if (days % 10 === 1 && days % 100 !== 11) {
+        return { text: `${days} день`, prefix: 'остался' };
+      } else if ([2, 3, 4].includes(days % 10) && ![12, 13, 14].includes(days % 100)) {
+        return { text: `${days} дня`, prefix: 'осталось' };
+      } else {
+        return { text: `${days} дней`, prefix: 'осталось' };
+      }
+    }
+
+    if (totalHours >= 1) {
+      const remainingMinutes = totalMinutes % 60;
+      let hourStr = '';
+      if (totalHours % 10 === 1 && totalHours % 100 !== 11) {
+        hourStr = `${totalHours} час`;
+      } else if ([2, 3, 4].includes(totalHours % 10) && ![12, 13, 14].includes(totalHours % 100)) {
+        hourStr = `${totalHours} часа`;
+      } else {
+        hourStr = `${totalHours} часов`;
+      }
+
+      if (remainingMinutes > 0) {
+        return { text: `${hourStr} ${remainingMinutes} мин.`, prefix: 'осталось' };
+      }
+      return { text: hourStr, prefix: 'осталось' };
+    }
+
+    const secs = totalSeconds % 60;
+    return { text: `${totalMinutes}:${secs < 10 ? '0' : ''}${secs}`, prefix: 'осталось' };
   };
 
   if (isLoading) {
@@ -120,7 +152,7 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
     <div className={styles.ordersContainer}>
       {orders.map((order) => {
         const effectiveStatus = getEffectiveOrderStatus(order);
-        const remaining = effectiveStatus === 'pending' ? getRemainingTime(order) : null;
+        const remData = effectiveStatus === 'pending' ? getRemainingTimeData(order) : null;
         const totalItemsCount = order.items.reduce((acc, i) => acc + i.quantity, 0);
 
         return (
@@ -145,7 +177,7 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
                 {effectiveStatus === 'pending' && (
                   <span className={`${styles.statusBadge} ${styles.statusPending}`}>
                     <Clock size={15} />
-                    <span>Не оплачен {remaining ? `(осталось ${remaining})` : ''}</span>
+                    <span>Не оплачен {remData ? `(${remData.prefix} ${remData.text})` : ''}</span>
                   </span>
                 )}
                 {effectiveStatus === 'declined' && (
@@ -265,19 +297,24 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
             {/* Modal Body */}
             <div className={styles.modalBody}>
               {/* Payment Timer Notice for pending orders */}
-              {getEffectiveOrderStatus(selectedOrder) === 'pending' && (
-                <div className={styles.timerNoticeBox}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Clock size={18} />
-                    <span>Сессия оплаты активна 20 минут с момента оформления</span>
-                  </div>
-                  {getRemainingTime(selectedOrder) && (
-                    <div className={styles.timerCountdown}>
-                      Осталось: {getRemainingTime(selectedOrder)}
+              {getEffectiveOrderStatus(selectedOrder) === 'pending' && (() => {
+                const modalRem = getRemainingTimeData(selectedOrder);
+                const isLongExpiry = selectedOrder.expiresAt && selectedOrder.createdAt &&
+                  (new Date(selectedOrder.expiresAt).getTime() - new Date(selectedOrder.createdAt).getTime() > 3600000);
+                return (
+                  <div className={styles.timerNoticeBox}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Clock size={18} />
+                      <span>{isLongExpiry ? 'Срок резерва заказа' : 'Сессия онлайн-оплаты активна 20 минут с момента оформления'}</span>
                     </div>
-                  )}
-                </div>
-              )}
+                    {modalRem && (
+                      <div className={styles.timerCountdown}>
+                        {modalRem.prefix === 'остался' ? 'Остался' : 'Осталось'}: {modalRem.text}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {getEffectiveOrderStatus(selectedOrder) === 'declined' && (
                 <div

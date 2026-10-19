@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getProduct, mapMoySkladToProduct, getProductVariantsByOem } from '@/lib/moysklad';
-import { products as fallbackProducts, ProductVariant } from '@/data/products';
-import { sortProductVariants, normalizeBrand } from '@/lib/brand-utils';
+import {
+  sortProductVariants,
+  normalizeBrand,
+  isBrandBlacklisted,
+  ProductVariant,
+} from '@/lib/brand-utils';
+import { products as fallbackProducts } from '@/data/products';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,53 +24,63 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       try {
         const rawVariants = await getProductVariantsByOem(oem);
         if (rawVariants && rawVariants.length > 0) {
-          const variantsList: ProductVariant[] = rawVariants.map((ms) => {
-            const mapped = mapMoySkladToProduct(ms);
-            const brandInfo = normalizeBrand(ms.supplier?.name, ms.code);
-            return {
-              id: ms.id,
-              moySkladId: ms.id,
-              name: ms.name,
-              code: ms.code || '',
-              oem,
-              brand: brandInfo.brand,
-              tier: brandInfo.tier,
-              price: mapped.price,
-              oldPrice: mapped.oldPrice,
-              stock: ms.stock || 0,
-              inStock: (ms.stock || 0) > 0,
-              image: mapped.image,
-              images: mapped.images,
-              article: oem,
-              description: ms.description || mapped.description,
-            };
-          });
+          const variantsList: ProductVariant[] = rawVariants
+            .filter((ms) => !isBrandBlacklisted(ms.supplier?.name) && !isBrandBlacklisted(ms.name))
+            .map((ms) => {
+              const mapped = mapMoySkladToProduct(ms);
+              const brandInfo = normalizeBrand(ms.supplier?.name, ms.code);
+              return {
+                id: ms.id,
+                moySkladId: ms.id,
+                name: ms.name,
+                code: ms.code || '',
+                oem,
+                brand: brandInfo.brand,
+                tier: brandInfo.tier,
+                price: mapped.price,
+                oldPrice: mapped.oldPrice,
+                stock: ms.stock || 0,
+                inStock: (ms.stock || 0) > 0,
+                image: mapped.image,
+                images: mapped.images,
+                article: oem,
+                description: ms.description || mapped.description,
+              };
+            })
+            .filter((v) => !isBrandBlacklisted(v.brand) && v.price >= 500);
 
-          // Ensure current product is included in variants list
-          if (!variantsList.some((v) => v.id === mappedProduct.id)) {
+          // Ensure current product is included in variants list if not blacklisted and price >= 500
+          if (
+            !isBrandBlacklisted(mappedProduct.brand) &&
+            mappedProduct.price >= 500 &&
+            !variantsList.some((v) => v.id === mappedProduct.id)
+          ) {
             const curBrand = normalizeBrand(productRes.supplier?.name, productRes.code);
-            variantsList.push({
-              id: mappedProduct.id,
-              moySkladId: mappedProduct.id,
-              name: mappedProduct.name,
-              code: productRes.code || '',
-              oem,
-              brand: curBrand.brand,
-              tier: curBrand.tier,
-              price: mappedProduct.price,
-              oldPrice: mappedProduct.oldPrice,
-              stock: productRes.stock || 0,
-              inStock: (productRes.stock || 0) > 0,
-              image: mappedProduct.image,
-              images: mappedProduct.images,
-              article: oem,
-              description: mappedProduct.description,
-            });
+            if (!isBrandBlacklisted(curBrand.brand)) {
+              variantsList.push({
+                id: mappedProduct.id,
+                moySkladId: mappedProduct.id,
+                name: mappedProduct.name,
+                code: productRes.code || '',
+                oem,
+                brand: curBrand.brand,
+                tier: curBrand.tier,
+                price: mappedProduct.price,
+                oldPrice: mappedProduct.oldPrice,
+                stock: productRes.stock || 0,
+                inStock: (productRes.stock || 0) > 0,
+                image: mappedProduct.image,
+                images: mappedProduct.images,
+                article: oem,
+                description: mappedProduct.description,
+              });
+            }
           }
 
           // Deduplicate variants by brand (keep in-stock or lower price)
           const brandMap = new Map<string, ProductVariant>();
           variantsList.forEach((v) => {
+            if (isBrandBlacklisted(v.brand)) return;
             const existing = brandMap.get(v.brand);
             if (!existing) {
               brandMap.set(v.brand, v);
@@ -78,18 +93,27 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
             }
           });
 
-          const sortedVariants = sortProductVariants(Array.from(brandMap.values()));
+          const sortedVariants = sortProductVariants(Array.from(brandMap.values())).filter(
+            (v) => v.price >= 500 && !isBrandBlacklisted(v.brand)
+          );
           mappedProduct.variants = sortedVariants;
           mappedProduct.availableBrandsCount = sortedVariants.length;
 
           // Default to first variant (which is highest tier in-stock)
           if (sortedVariants.length > 0) {
             mappedProduct.brand = sortedVariants[0].brand;
+            if (mappedProduct.price < 500) {
+              mappedProduct.price = sortedVariants[0].price;
+            }
           }
         }
       } catch (varErr) {
         console.warn('Failed to load variants for OEM:', oem, varErr);
       }
+    }
+
+    if (mappedProduct.price < 500 && (!mappedProduct.variants || mappedProduct.variants.length === 0)) {
+      return NextResponse.json({ error: 'Product not available' }, { status: 404 });
     }
 
     return NextResponse.json(mappedProduct);
