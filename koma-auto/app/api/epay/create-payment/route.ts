@@ -7,17 +7,18 @@ import {
   transliterate,
   EpayPaymentObject,
 } from '@/lib/epay';
+import { getTestPromoConfig } from '@/lib/promocode';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { amount, name, phone, email, origin, deliveryMethod, city, comment, items, promoCode } = body;
 
-    const testPromoCode = (process.env.TEST_ORDER_PROMO_CODE || '').trim();
-    const isTestOrder = Boolean(testPromoCode && promoCode && typeof promoCode === 'string' && promoCode.trim() === testPromoCode);
+    const testPromo = getTestPromoConfig(promoCode);
+    const isTestOrder = Boolean(testPromo);
 
-    // If test order, force amount = 1 KZT (the absolute minimum required by Halyk ePay)
-    const effectiveAmount = isTestOrder ? 1 : Math.round(amount);
+    // If test order, force amount to test promo target price (10, 50, or 100 KZT)
+    const effectiveAmount = testPromo ? testPromo.targetPrice : Math.round(amount);
 
     if (!effectiveAmount || effectiveAmount <= 0) {
       return NextResponse.json({ error: 'Сумма заказа должна быть больше нуля' }, { status: 400 });

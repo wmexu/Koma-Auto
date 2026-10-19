@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getTestPromoConfig, getTestPromoDisclaimer } from '@/lib/promocode';
 
 export async function POST(request: Request) {
   try {
@@ -9,16 +10,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ valid: false, error: 'Введите промокод' }, { status: 400 });
     }
 
-    const testPromoCode = (process.env.TEST_ORDER_PROMO_CODE || '').trim();
+    const testPromo = getTestPromoConfig(code);
 
-    if (testPromoCode && code === testPromoCode) {
+    if (testPromo) {
       return NextResponse.json({
         valid: true,
         isTestMode: true,
-        targetPrice: 1,
-        code: testPromoCode,
-        title: 'Служебный тестовый режим (1 ₸)',
-        disclaimer: 'ВНИМАНИЕ: АКТИВИРОВАН РЕЖИМ ТЕХНИЧЕСКОГО ТЕСТИРОВАНИЯ. Сумма заказа снижена до 1 ₸ для верификации соединения с процессингом Halyk ePay. Данный заказ носит исключительно демонстрационно-технический характер, не является публичной офертой и не создает обязательств по передаче товаров (ст. 447, 449 ГК РК).'
+        targetPrice: testPromo.targetPrice,
+        code,
+        title: testPromo.title,
+        disclaimer: getTestPromoDisclaimer(testPromo.targetPrice),
       });
     }
 

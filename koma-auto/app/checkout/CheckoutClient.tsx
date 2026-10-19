@@ -223,9 +223,10 @@ export default function CheckoutClient() {
   }, [formData.paymentMethod]);
 
   const isTestMode = Boolean(appliedPromo?.isTestMode);
+  const testPrice = appliedPromo?.targetPrice ?? 10;
   const calculatedDelivery = isTestMode ? 0 : deliveryCost;
   const finalPrice = isTestMode
-    ? 1
+    ? testPrice
     : (formData.deliveryMethod === 'courier' ? totalPrice + deliveryCost : totalPrice);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -659,7 +660,7 @@ export default function CheckoutClient() {
               {isTestMode && (
                 <div className={styles.discountRow}>
                   <span>Скидка (Тест-режим)</span>
-                  <span>-{(totalPrice - 1).toLocaleString()} ₸</span>
+                  <span>-{(totalPrice - testPrice).toLocaleString()} ₸</span>
                 </div>
               )}
               {formData.deliveryMethod === 'courier' ? (
@@ -701,10 +702,10 @@ export default function CheckoutClient() {
               <div className={styles.testModeBanner}>
                 <div className={styles.testModeBannerHeader}>
                   <AlertTriangle size={18} />
-                  <span>РЕЖИМ ТЕСТИРОВАНИЯ (1 ₸)</span>
+                  <span>{appliedPromo?.title || `РЕЖИМ ТЕСТИРОВАНИЯ (${testPrice} ₸)`}</span>
                 </div>
                 <p className={styles.testModeBannerText}>
-                  Активирован режим технического тестирования платформы. Сумма заказа снижена до 1 ₸ для верификации шлюза Halyk ePay.
+                  Активирован режим технического тестирования платформы. Сумма заказа снижена до {testPrice} ₸ для верификации шлюза Halyk ePay.
                 </p>
                 <div className={styles.testModeBannerLegal}>
                   <strong>Юридическое примечание:</strong> Настоящий заказ носит исключительно проверочный характер и <u>не порождает обязательств Продавца</u> по передаче, комплектации или доставке товаров согласно ст. 447, 449 Гражданского кодекса Республики Казахстан. Ввод данного служебного кода подтверждает согласие с данными условиями.

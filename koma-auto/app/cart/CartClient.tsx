@@ -320,7 +320,7 @@ export default function CartClient() {
           {appliedPromo?.isTestMode && (
             <div className={styles.discountRow}>
               <span>Скидка (Тест-режим)</span>
-              <span>-{(totalPrice - 1).toLocaleString()} ₸</span>
+              <span>-{(totalPrice - (appliedPromo.targetPrice || 10)).toLocaleString()} ₸</span>
             </div>
           )}
           
@@ -350,10 +350,10 @@ export default function CartClient() {
             <div className={styles.testModeBanner}>
               <div className={styles.testModeBannerHeader}>
                 <AlertTriangle size={18} />
-                <span>РЕЖИМ ТЕСТИРОВАНИЯ (1 ₸)</span>
+                <span>{appliedPromo.title || `РЕЖИМ ТЕСТИРОВАНИЯ (${appliedPromo.targetPrice || 10} ₸)`}</span>
               </div>
               <p className={styles.testModeBannerText}>
-                Активирован режим технического тестирования платформы. Сумма заказа снижена до 1 ₸ для верификации соединения с платёжным шлюзом ePay.
+                Активирован режим технического тестирования платформы. Сумма заказа снижена до {appliedPromo.targetPrice || 10} ₸ для верификации соединения с платёжным шлюзом ePay.
               </p>
               <div className={styles.testModeBannerLegal}>
                 <strong>Юридическое примечание:</strong> Настоящий заказ является демонстрационным техническим тестом и <u>не порождает обязательств</u> Продавца по передаче, комплектации или доставке товаров согласно ст. 447, 449 Гражданского кодекса Республики Казахстан.
@@ -371,7 +371,7 @@ export default function CartClient() {
           <div className={`${styles.summaryRow} ${styles.totalRow}`}>
             <span>К оплате</span>
             <span className={styles.totalPrice}>
-              {(appliedPromo?.isTestMode ? 1 : totalPrice).toLocaleString()} ₸
+              {(appliedPromo?.isTestMode ? (appliedPromo.targetPrice || 10) : totalPrice).toLocaleString()} ₸
             </span>
           </div>
 
