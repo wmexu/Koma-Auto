@@ -17,6 +17,13 @@ export async function POST(request: Request) {
     const testPromo = getTestPromoConfig(promoCode);
     const isTestOrder = Boolean(testPromo);
 
+    if (!isTestOrder) {
+      return NextResponse.json(
+        { error: 'Платежная система на сайте временно приостановлена' },
+        { status: 403 }
+      );
+    }
+
     // If test order, force amount to test promo target price (10, 50, or 100 KZT)
     const effectiveAmount = testPromo ? testPromo.targetPrice : Math.round(amount);
 

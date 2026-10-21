@@ -77,7 +77,7 @@ export default function CartClient() {
       setAppliedPromo(data);
       sessionStorage.setItem('koma_test_promocode', code);
       setPromoCodeInput('');
-      addToast('Тестовый режим успешно активирован! Сумма заказа: 1 ₸', 'success');
+      addToast(`Тестовый режим успешно активирован! Сумма заказа: ${data.targetPrice || 10} ₸`, 'success');
     } catch (e: any) {
       addToast('Ошибка при проверке промокода', 'error');
     } finally {
@@ -378,6 +378,10 @@ export default function CartClient() {
           <button 
             className={styles.checkoutBtn} 
             onClick={() => {
+              if (!appliedPromo?.isTestMode) {
+                addToast('Платежная система на сайте временно приостановлена', 'error');
+                return;
+              }
               if (!user) {
                 addToast('Чтобы заказывать товары, зарегистрируйтесь/войдите в аккаунт.', 'error');
               } else {

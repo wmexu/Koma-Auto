@@ -82,11 +82,16 @@ export default function CheckoutClient() {
             setAppliedPromo(data);
           } else {
             sessionStorage.removeItem('koma_test_promocode');
+            addToast('Платежная система на сайте временно приостановлена', 'error');
+            router.replace('/cart');
           }
         })
         .catch(() => {});
+    } else {
+      addToast('Платежная система на сайте временно приостановлена', 'error');
+      router.replace('/cart');
     }
-  }, []);
+  }, [router, addToast]);
 
   const handleApplyPromo = async () => {
     const code = promoCodeInput.trim();
@@ -110,7 +115,7 @@ export default function CheckoutClient() {
       setAppliedPromo(data);
       sessionStorage.setItem('koma_test_promocode', code);
       setPromoCodeInput('');
-      addToast('Тестовый режим успешно активирован! Сумма заказа: 1 ₸', 'success');
+      addToast(`Тестовый режим успешно активирован! Сумма заказа: ${data.targetPrice || 10} ₸`, 'success');
     } catch (e: any) {
       addToast('Ошибка при проверке промокода', 'error');
     } finally {
@@ -274,6 +279,10 @@ export default function CheckoutClient() {
     }
 
     if (formData.paymentMethod === 'online') {
+      if (!isTestMode) {
+        addToast('Платежная система на сайте временно приостановлена', 'error');
+        return;
+      }
       setIsSubmitting(true);
       try {
         const res = await fetch('/api/epay/create-payment', {
@@ -289,7 +298,7 @@ export default function CheckoutClient() {
             deliveryMethod: formData.deliveryMethod,
             city: formData.city,
             comment: isTestMode
-              ? `[ТЕСТОВЫЙ ЗАКАЗ] ${formData.comment || ''}`.trim()
+              ? 'ТЕСТОВЫЙ ЗАКАЗ. ИГНОРИРУЙТЕ'
               : formData.comment,
             items: items.map((item) => ({
               id: item.id,
@@ -327,7 +336,7 @@ export default function CheckoutClient() {
             phone: formData.phone,
             email: formData.email,
             comment: isTestMode
-              ? `[ТЕСТОВЫЙ ЗАКАЗ] ${formData.comment || ''}`.trim()
+              ? 'ТЕСТОВЫЙ ЗАКАЗ. ИГНОРИРУЙТЕ'
               : formData.comment,
           },
           paymentMethod: 'online',
@@ -403,7 +412,7 @@ export default function CheckoutClient() {
         phone: formData.phone,
         email: formData.email,
         comment: isTestMode
-          ? `[ТЕСТОВЫЙ ЗАКАЗ] ${formData.comment || ''}`.trim()
+          ? 'ТЕСТОВЫЙ ЗАКАЗ. ИГНОРИРУЙТЕ'
           : formData.comment,
       },
       paymentMethod: formData.paymentMethod as 'cash' | 'card_receipt',

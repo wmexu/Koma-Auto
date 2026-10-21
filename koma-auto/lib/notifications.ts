@@ -14,24 +14,28 @@ export function formatOrderReport(order: Order): string {
     ? `Зарегистрирован на сайте (UID: ${order.userAccountDetails.uid}${order.userAccountDetails.email ? `, Email: ${order.userAccountDetails.email}` : ''})`
     : 'Гостевой заказ (без авторизации)';
 
-  const itemsList = order.items
-    .map((item, idx) => {
-      const oem = item.oem || item.article || '—';
-      const article = item.article || item.oem || '—';
-      const brand = item.brand || '—';
-      const meta = ` [OEM: ${oem}, Артикул: ${article}, Бренд: ${brand}]`;
-      const lineTotal = item.quantity * item.price;
-      return `${idx + 1}. ${item.name}${meta}\n   ${item.quantity} шт. × ${item.price.toLocaleString('ru-RU')} ₸ = ${lineTotal.toLocaleString('ru-RU')} ₸`;
-    })
-    .join('\n');
+  const itemsList = order.items && order.items.length > 0
+    ? order.items
+        .map((item, idx) => {
+          const oem = item.oem || item.article || '—';
+          const article = item.article || item.oem || '—';
+          const brand = item.brand || '—';
+          const meta = ` [OEM: ${oem}, Артикул: ${article}, Бренд: ${brand}]`;
+          const lineTotal = item.quantity * item.price;
+          return `${idx + 1}. ${item.name}${meta}\n   ${item.quantity} шт. × ${item.price.toLocaleString('ru-RU')} ₸ = ${lineTotal.toLocaleString('ru-RU')} ₸`;
+        })
+        .join('\n')
+    : '1. Автозапчасти по заказу\n   1 шт. × ' + order.amount.toLocaleString('ru-RU') + ' ₸ = ' + order.amount.toLocaleString('ru-RU') + ' ₸';
 
-  const testBanner = order.isTestOrder ? 'ТЕСТОВЫЙ ПЛАТЕЖ\n' : '';
   const deliveryCostStr = order.deliveryCost > 0
     ? `${order.deliveryCost.toLocaleString('ru-RU')} ₸`
     : 'Бесплатно';
   const receiptUrl = order.receiptUrl || `https://epay.homebank.kz/receipt/${order.id}`;
+  const statusLabel = order.status === 'paid' ? 'Оплачено' : 'Ожидает оплаты';
+  const commentStr = order.isTestOrder ? 'ТЕСТОВЫЙ ЗАКАЗ. ИГНОРИРУЙТЕ' : (order.customer.comment || 'Нет');
+  const totalLabel = order.status === 'paid' ? 'ИТОГО ОПЛАЧЕНО' : 'ИТОГО К ОПЛАТЕ';
 
-  return `${testBanner}ЗАКАЗ №${order.id}: Оплачено
+  return `ЗАКАЗ №${order.id}: ${statusLabel}
 
 Клиент:
 • Имя в заказе: ${order.customer.name}
@@ -43,15 +47,15 @@ export function formatOrderReport(order: Order): string {
 • Способ: ${deliveryLabel}
 • Адрес: ${order.address}
 • Город: ${order.city || '—'}
-• Комментарий: ${order.customer.comment || 'Нет'}
+• Комментарий: ${commentStr}
 
-Состав заказа: (${order.items.length} поз.)
+Состав заказа: (${order.items?.length || 1} поз.)
 ${itemsList}
 
 Суммирование
 • Сумма товаров: ${order.itemsPrice.toLocaleString('ru-RU')} ₸
 • Доставка: ${deliveryCostStr}
-${order.promoCode ? `• Промокод: ${order.promoCode}\n` : ''}• ИТОГО ОПЛАЧЕНО: ${order.amount.toLocaleString('ru-RU')} ₸
+${order.promoCode ? `• Промокод: ${order.promoCode}\n` : ''}• ${totalLabel}: ${order.amount.toLocaleString('ru-RU')} ₸
 • Платежный шлюз: Halyk ePay
 • Чек ePay: ${receiptUrl}
 Дата и время: ${new Date(order.createdAt).toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' })}`;

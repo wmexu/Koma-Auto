@@ -1,5 +1,5 @@
 import { Order } from './order-types';
-import { sendOrderPushNotification } from './notifications';
+import { sendOrderPushNotification, formatOrderReport } from './notifications';
 
 const API_URL = process.env.MOYSKLAD_API_URL || 'https://api.moysklad.ru/api/remap/1.2';
 const TOKEN = process.env.MOYSKLAD_TOKEN;
@@ -10,6 +10,10 @@ const ORGANIZATION_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/organiza
 const STORE_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/store/4240a87a-4ea5-11f1-0a80-1b5c0008497a';
 // Default Manager / Employee (Таджибаев K. Д.)
 const EMPLOYEE_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/employee/78f73abb-4aa7-11f1-0a80-1ac70019f460';
+// Delivery Service in MoySklad
+const DELIVERY_SERVICE_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/service/6c69e39c-cd3a-11f1-0a80-07fe0076a0e2';
+// Test Order Service in MoySklad (Non-material service, NEVER affects stock or warehouse inventory)
+const TEST_ORDER_SERVICE_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/service/9f999b6a-cd3c-11f1-0a80-03be00756911';
 
 // CustomerOrder States in MoySklad
 const STATE_NEW_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/customerorder/metadata/states/79218f4f-4aa7-11f1-0a80-1ac70019f4ef'; // Новый
@@ -77,6 +81,113 @@ async function findOrCreateCounterparty(order: Order): Promise<{ href: string; t
 }
 
 /**
+ * Builds valid positions for MoySklad CustomerOrder ensuring calculated sum matches order.amount
+ */
+async function buildOrderPositions(order: Order): Promise<any[]> {
+  const targetTotal = Math.round(order.amount);
+  const positions: any[] = [];
+
+  // 1. If test order (promo 10, 50, 100 ₸ applied):
+  // Uses dedicated non-material service "Тестовый платеж (проверка ePay)".
+  // Real warehouse inventory / stock is NEVER affected or reserved!
+  if (order.isTestOrder) {
+    positions.push({
+      quantity: 1,
+      price: targetTotal * 100, // in minor units (tiyn)
+      assortment: {
+        meta: {
+          href: TEST_ORDER_SERVICE_HREF,
+          type: 'service',
+          mediaType: 'application/json',
+        },
+      },
+      reserve: 0,
+    });
+    return positions;
+  }
+
+  // 2. Normal orders: map products
+  if (order.items && order.items.length > 0) {
+    for (const item of order.items) {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
+      let itemMeta: any = null;
+
+      if (isUuid) {
+        itemMeta = {
+          href: `${API_URL}/entity/product/${item.id}`,
+          type: 'product',
+          mediaType: 'application/json',
+        };
+      } else {
+        const searchCode = item.oem || item.article;
+        if (searchCode) {
+          try {
+            const clean = searchCode.replace(/[\s\-\.]/g, '');
+            const pRes = await fetch(`${API_URL}/entity/product?filter=code~=${encodeURIComponent(clean)}&limit=1`, {
+              headers: getHeaders(),
+            });
+            if (pRes.ok) {
+              const pData = await pRes.json();
+              if (pData.rows && pData.rows.length > 0) {
+                itemMeta = pData.rows[0].meta;
+              }
+            }
+          } catch (e) {
+            // fallback
+          }
+        }
+      }
+
+      if (!itemMeta) {
+        itemMeta = {
+          href: DELIVERY_SERVICE_HREF,
+          type: 'service',
+          mediaType: 'application/json',
+        };
+      }
+
+      positions.push({
+        quantity: item.quantity || 1,
+        price: Math.round(item.price * 100),
+        assortment: { meta: itemMeta },
+      });
+    }
+  }
+
+  // 3. Add delivery service position if applicable
+  if (order.deliveryCost && order.deliveryCost > 0) {
+    positions.push({
+      quantity: 1,
+      price: Math.round(order.deliveryCost * 100),
+      assortment: {
+        meta: {
+          href: DELIVERY_SERVICE_HREF,
+          type: 'service',
+          mediaType: 'application/json',
+        },
+      },
+    });
+  }
+
+  // 4. Ensure non-empty positions so MoySklad calculates the real sum
+  if (positions.length === 0 && targetTotal > 0) {
+    positions.push({
+      quantity: 1,
+      price: targetTotal * 100,
+      assortment: {
+        meta: {
+          href: DELIVERY_SERVICE_HREF,
+          type: 'service',
+          mediaType: 'application/json',
+        },
+      },
+    });
+  }
+
+  return positions;
+}
+
+/**
  * Creates CustomerOrder in MoySklad in "Новый" status without sending push notification.
  * Triggered as soon as customer reaches payment page.
  */
@@ -87,15 +198,6 @@ export async function createMoySkladOrder(order: Order): Promise<{
   error?: string;
 }> {
   const isEnabled = process.env.MOYSKLAD_SYNC_ENABLED === 'true';
-
-  if (order.isTestOrder) {
-    console.log(`[MoySklad] Test order #${order.id} detected. Skipping warehouse dispatch.`);
-    return {
-      success: true,
-      mode: 'test-order-skipped',
-      moySkladOrderId: `test-order-${order.id}`,
-    };
-  }
 
   if (!isEnabled) {
     console.log(
@@ -116,49 +218,12 @@ export async function createMoySkladOrder(order: Order): Promise<{
   try {
     const counterpartyMeta = await findOrCreateCounterparty(order);
 
-    const deliveryTypeStr =
-      order.deliveryMethod === 'courier' ? 'Курьерская доставка' : 'Самовывоз из магазина (Car City)';
-    const paymentStatusStr =
-      order.status === 'paid' ? 'ОПЛАЧЕНО (Halyk ePay)' : 'НЕ ОПЛАЧЕНО (Ожидает оплаты)';
-
-    const userAccountStr = order.userAccountDetails
-      ? `Зарегистрирован на сайте (UID: ${order.userAccountDetails.uid}, Email: ${order.userAccountDetails.email || '—'})`
-      : 'Гостевой заказ (без авторизации)';
-
-    const description = `=== ЗАКАЗ ИЗ ИНТЕРНЕТ-МАГАЗИНА KOMA.COM.KZ ===
-Номер заказа: №${order.id}
-Статус оплаты: ${paymentStatusStr}
-Аккаунт на сайте: ${userAccountStr}
-Способ получения: ${deliveryTypeStr}
-Адрес: ${order.address}
-Получатель: ${order.customer.name}
-Телефон: ${order.customer.phone}
-Email: ${order.customer.email || 'Не указан'}
-Комментарий клиента: ${order.customer.comment || 'Нет'}
----------------------------------------------
-Сумма товаров: ${order.itemsPrice.toLocaleString('ru-RU')} ₸
-Стоимость доставки: ${order.deliveryCost > 0 ? `${order.deliveryCost.toLocaleString('ru-RU')} ₸` : 'Бесплатно'}
-ИТОГО К ОПЛАТЕ: ${order.amount.toLocaleString('ru-RU')} ₸`;
-
-    const positions = order.items.map((item) => {
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
-      return {
-        quantity: item.quantity,
-        price: Math.round(item.price * 100),
-        assortment: {
-          meta: {
-            href: isUuid
-              ? `${API_URL}/entity/product/${item.id}`
-              : `${API_URL}/entity/product/assortment`,
-            type: 'product',
-            mediaType: 'application/json',
-          },
-        },
-      };
-    });
+    const cleanId = order.id.replace(/^№\s*/, '');
+    const description = formatOrderReport(order).replace(/\r?\n/g, '\r\n');
+    const positions = await buildOrderPositions(order);
 
     const orderPayload = {
-      name: `№${order.id}`,
+      name: cleanId,
       description,
       organization: {
         meta: {
@@ -221,20 +286,15 @@ export async function notifyMoySkladOrderPaid(order: Order): Promise<{
   pushChannels: string[];
   error?: string;
 }> {
-  const isEnabled = process.env.MOYSKLAD_SYNC_ENABLED === 'true';
+  const isEnabled = process.env.MOYSKLAD_SYNC_ENABLED === 'true' || (process.env.MOYSKLAD_SYNC_ENABLED !== 'false' && Boolean(process.env.MOYSKLAD_TOKEN));
 
-  // 1. Send external push notifications (Telegram / Webhook)
+  // 1. Send external push notifications (Telegram)
   let pushChannels: string[] = [];
   try {
     const pushResult = await sendOrderPushNotification(order);
     pushChannels = pushResult.channels;
   } catch (pushErr) {
     console.error('[Notification] Error dispatching push:', pushErr);
-  }
-
-  if (order.isTestOrder) {
-    console.log(`[MoySklad] Test order #${order.id} paid. Push notification sent.`);
-    return { success: true, pushChannels };
   }
 
   if (!isEnabled || !TOKEN) {
@@ -245,20 +305,23 @@ export async function notifyMoySkladOrderPaid(order: Order): Promise<{
   let createdTaskId: string | undefined;
 
   try {
-    // 2. Find and update CustomerOrder state to "Подтвержден"
-    let msOrderMeta: any = null;
+    const counterpartyMeta = await findOrCreateCounterparty(order);
+    const cleanId = order.id.replace(/^№\s*/, '');
+
+    // 2. Find or create CustomerOrder in MoySklad
+    let msOrder: any = null;
     try {
       const searchRes = await fetch(
-        `${API_URL}/entity/customerorder?filter=name=№${encodeURIComponent(order.id)}&limit=1`,
+        `${API_URL}/entity/customerorder?filter=name~=${encodeURIComponent(cleanId)}&limit=1`,
         { headers: getHeaders() }
       );
       if (searchRes.ok) {
         const searchData = await searchRes.json();
         if (searchData.rows && searchData.rows.length > 0) {
-          const msOrder = searchData.rows[0];
-          msOrderMeta = msOrder.meta;
+          msOrder = searchData.rows[0];
 
-          // Update state to confirmed (paid)
+          // Update state to confirmed (paid) and update description with payment receipt
+          const updatedDescription = formatOrderReport(order).replace(/\r?\n/g, '\r\n');
           await fetch(msOrder.meta.href, {
             method: 'PUT',
             headers: getHeaders(),
@@ -270,15 +333,76 @@ export async function notifyMoySkladOrderPaid(order: Order): Promise<{
                   mediaType: 'application/json',
                 },
               },
+              description: updatedDescription,
             }),
           });
         }
       }
     } catch (e) {
-      console.warn('[MoySklad] Could not update order state to confirmed:', e);
+      console.warn('[MoySklad] Could not search/update order state:', e);
     }
 
-    // 3. Create Task in MoySklad for Employee (triggers native push notification in MoySklad mobile app)
+    // If order was not yet created, create it now in confirmed state
+    if (!msOrder) {
+      try {
+        const positions = await buildOrderPositions(order);
+        const description = formatOrderReport(order).replace(/\r?\n/g, '\r\n');
+
+        const createRes = await fetch(`${API_URL}/entity/customerorder`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            name: cleanId,
+            description,
+            organization: { meta: { href: ORGANIZATION_HREF, type: 'organization', mediaType: 'application/json' } },
+            agent: { meta: counterpartyMeta },
+            store: { meta: { href: STORE_HREF, type: 'store', mediaType: 'application/json' } },
+            state: { meta: { href: STATE_CONFIRMED_HREF, type: 'state', mediaType: 'application/json' } },
+            positions,
+          }),
+        });
+        if (createRes.ok) {
+          msOrder = await createRes.json();
+        }
+      } catch (err) {
+        console.warn('[MoySklad] Fallback order creation failed:', err);
+      }
+    }
+
+    // 3. Register Incoming Payment (Входящий платеж / PaymentIn) linked to CustomerOrder
+    if (msOrder && msOrder.meta) {
+      try {
+        const paymentPayload = {
+          organization: { meta: { href: ORGANIZATION_HREF, type: 'organization', mediaType: 'application/json' } },
+          agent: { meta: counterpartyMeta },
+          sum: Math.round(order.amount * 100),
+          description: `Оплата онлайн Halyk ePay по заказу №${cleanId}`,
+          operations: [
+            {
+              meta: msOrder.meta,
+              linkedSum: Math.round(order.amount * 100),
+            },
+          ],
+        };
+
+        const payRes = await fetch(`${API_URL}/entity/paymentin`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(paymentPayload),
+        });
+
+        if (payRes.ok) {
+          pushChannels.push('moysklad_payment');
+          console.log(`[MoySklad] PaymentIn created successfully for order #${order.id}`);
+        } else {
+          console.warn('[MoySklad] Failed to create PaymentIn:', await payRes.text());
+        }
+      } catch (payErr) {
+        console.warn('[MoySklad] Error creating PaymentIn:', payErr);
+      }
+    }
+
+    // 4. Create Task in MoySklad for Employee (triggers native push notification in MoySklad mobile app)
     const deliveryTypeStr =
       order.deliveryMethod === 'courier' ? 'Курьерская доставка' : 'Самовывоз (Car City)';
 
@@ -286,11 +410,8 @@ export async function notifyMoySkladOrderPaid(order: Order): Promise<{
       ? `Аккаунт: ${order.userAccountDetails.email || order.userAccountDetails.uid}`
       : 'Гостевой заказ';
 
-    const taskDescription = `ОПЛАЧЕН заказ №${order.id} на ${order.amount.toLocaleString('ru-RU')} ₸!
-Клиент: ${order.customer.name}, тел: ${order.customer.phone}
-${userAccountStr}
-Способ: ${deliveryTypeStr}
-Адрес: ${order.address}`;
+    const prefix = order.isTestOrder ? 'ТЕСТОВЫЙ ЗАКАЗ. ИГНОРИРУЙТЕ\r\n' : (order.customer.comment ? `${order.customer.comment}\r\n` : '');
+    const taskDescription = `${prefix}ОПЛАЧЕН заказ №${cleanId} на ${order.amount.toLocaleString('ru-RU')} ₸!\r\nКлиент: ${order.customer.name}, тел: ${order.customer.phone}\r\n${userAccountStr}\r\nСпособ: ${deliveryTypeStr}\r\nАдрес: ${order.address}`;
 
     const taskPayload: any = {
       description: taskDescription,
@@ -303,8 +424,8 @@ ${userAccountStr}
       },
     };
 
-    if (msOrderMeta) {
-      taskPayload.operation = { meta: msOrderMeta };
+    if (msOrder && msOrder.meta) {
+      taskPayload.operation = { meta: msOrder.meta };
     }
 
     const taskRes = await fetch(`${API_URL}/entity/task`, {
