@@ -238,8 +238,7 @@ async function run() {
           }
         }
         if (!image) {
-          image = `/api/images/placeholder?name=${encodeURIComponent(p.name)}&oem=${encodeURIComponent(cleanOem)}&brand=${encodeURIComponent(brand)}`;
-          images.push(image);
+          image = '';
         }
 
         const compat = extractCompatibility(p.name, p.code, cleanOem);

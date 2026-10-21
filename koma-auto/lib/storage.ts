@@ -58,7 +58,7 @@ export async function uploadAsset(
 export async function getAssetUrl(path: string, expiresInSeconds: number = 3600): Promise<string> {
   const client = getFilesClient();
   if (!client) {
-    return `/api/images/placeholder?id=${encodeURIComponent(path)}`;
+    return '';
   }
 
   try {

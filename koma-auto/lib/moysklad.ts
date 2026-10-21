@@ -6,7 +6,6 @@ import {
   sortProductVariants,
   isBrandBlacklisted,
 } from './brand-utils';
-import { extractVehicleCompatibility } from './vehicle-compatibility';
 
 const API_URL = process.env.MOYSKLAD_API_URL || 'https://api.moysklad.ru/api/remap/1.2';
 const TOKEN = process.env.MOYSKLAD_TOKEN;
@@ -257,24 +256,6 @@ export function mapMoySkladToProduct(msProduct: MoySkladProduct): Product {
       .filter((url) => url !== '');
   }
 
-  const placeholderUrl = `/api/images/placeholder?name=${encodeURIComponent(msProduct.name)}&oem=${encodeURIComponent(oem || msProduct.code || '')}&brand=${encodeURIComponent(brandInfo.brand)}&category=${encodeURIComponent(category)}`;
-
-  if (!image) {
-    image = placeholderUrl;
-  }
-  if (images.length === 0) {
-    images = [placeholderUrl];
-  }
-
-  const compatList = extractVehicleCompatibility({
-    name: msProduct.name,
-    code: msProduct.code,
-    article: msProduct.article,
-    oem,
-    brand: brandInfo.brand,
-  });
-  const compatibility = compatList.map((c) => `${c.make} ${c.model}${c.years ? ` (${c.years})` : ''}`);
-
   const specs: Record<string, string> = {};
   if (msProduct.attributes) {
     msProduct.attributes.forEach((attr) => {
@@ -302,7 +283,7 @@ export function mapMoySkladToProduct(msProduct: MoySkladProduct): Product {
     image,
     images,
     specs,
-    compatibility,
+    compatibility: [],
     description: msProduct.description || '',
     variants: [
       {

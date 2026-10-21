@@ -3,13 +3,94 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ShoppingCart, Heart, Box, Truck, CornerUpLeft, Loader2, ChevronLeft, ChevronRight, Rows3, Grid2x2, Car, CheckCircle2 } from 'lucide-react';
+import { ShoppingCart, Heart, Box, Truck, CornerUpLeft, Loader2, ChevronLeft, ChevronRight, Rows3, Grid2x2 } from 'lucide-react';
 import { Product, ProductVariant } from '../../../data/products';
 import { useCartStore } from '../../../store/useCartStore';
 import { useFavoritesStore } from '../../../store/useFavoritesStore';
 import { useToastStore } from '../../../store/useToastStore';
 import ProductCard from '../../../components/ProductCard/ProductCard';
 import styles from './ProductDetails.module.css';
+
+interface DromFitmentModel {
+  carName: string;
+  generations: Array<{ title: string; code?: string }>;
+}
+
+function formatDromCompatibility(compatibility?: string[]): {
+  models: DromFitmentModel[];
+  engines: string[];
+} {
+  if (!compatibility || compatibility.length === 0) {
+    return { models: [], engines: [] };
+  }
+
+  const modelMap = new Map<string, Array<{ title: string; code?: string }>>();
+  const engineSet = new Set<string>();
+
+  for (const raw of compatibility) {
+    if (!raw || typeof raw !== 'string') continue;
+    const str = raw.trim();
+    if (!str) continue;
+
+    if (str.toLowerCase().startsWith('для двигателей:') || str.toLowerCase().startsWith('двигатели:')) {
+      const engStr = str.split(':')[1] || '';
+      engStr.split(',').forEach((e) => {
+        const clean = e.trim();
+        if (clean) engineSet.add(clean);
+      });
+      continue;
+    }
+
+    let carName = '';
+    let genTitle = '';
+    let code = '';
+
+    if (str.includes('\n')) {
+      const lines = str.split('\n').map((l) => l.trim()).filter(Boolean);
+      carName = lines[0] || '';
+      genTitle = lines[1] || '';
+      code = lines[2] || '';
+    } else if (str.includes('|')) {
+      const parts = str.split('|').map((p) => p.trim());
+      carName = parts[0] || '';
+      genTitle = parts[1] || '';
+      code = parts[2] || '';
+    } else {
+      const match = str.match(/^([^(]+)(?:\(([^)]+)\))?(.*)$/);
+      if (match) {
+        carName = match[1].trim();
+        const paren = (match[2] || '').trim();
+        const rest = (match[3] || '').trim();
+        if (paren) {
+          genTitle = paren;
+        }
+        if (rest) {
+          code = rest;
+        }
+      } else {
+        carName = str;
+      }
+    }
+
+    if (!carName) continue;
+
+    if (!modelMap.has(carName)) {
+      modelMap.set(carName, []);
+    }
+
+    modelMap.get(carName)!.push({
+      title: genTitle,
+      code: code || undefined,
+    });
+  }
+
+  const models: DromFitmentModel[] = [];
+  modelMap.forEach((generations, carName) => {
+    models.push({ carName, generations });
+  });
+
+  return { models, engines: Array.from(engineSet) };
+}
 
 export default function ProductDetails({ id }: { id: string }) {
   const [product, setProduct] = useState<Product | null>(null);
@@ -242,6 +323,8 @@ export default function ProductDetails({ id }: { id: string }) {
   const nextImage = () => setCurrentImageIndex(prev => (prev === images.length - 1 ? 0 : prev + 1));
   const prevImage = () => setCurrentImageIndex(prev => (prev === 0 ? images.length - 1 : prev - 1));
 
+  const dromData = formatDromCompatibility(product.compatibility);
+
   const handleTouchStart = (e: React.TouchEvent) => {
     setTouchStart(e.targetTouches[0].clientX);
   };
@@ -361,30 +444,6 @@ export default function ProductDetails({ id }: { id: string }) {
             </div>
           </div>
 
-          {product.compatibility && product.compatibility.length > 0 && (
-            <div style={{
-              margin: '12px 0 16px',
-              padding: '12px 14px',
-              backgroundColor: '#f0fdf4',
-              border: '1px solid #bbf7d0',
-              borderRadius: '10px',
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '10px'
-            }}>
-              <Car size={18} color="#15803d" style={{ flexShrink: 0, marginTop: '2px' }} />
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: '#166534', marginBottom: '2px' }}>
-                  Применяемость к автомобилям:
-                </div>
-                <div style={{ fontSize: '12px', color: '#14532d', lineHeight: 1.4 }}>
-                  {product.compatibility.slice(0, 3).join(', ')}
-                  {product.compatibility.length > 3 && ` и еще ${product.compatibility.length - 3} мод.`}
-                </div>
-              </div>
-            </div>
-          )}
-
           {effectiveVariants.length > 0 && (
             <div className={styles.brandPickerSection}>
               <div className={styles.brandPickerHeader}>
@@ -480,12 +539,6 @@ export default function ProductDetails({ id }: { id: string }) {
             >
               Характеристики
             </button>
-            <button
-              className={`${styles.tabBtn} ${activeTab === 'compatibility' ? styles.activeTab : ''}`}
-              onClick={() => setActiveTab('compatibility')}
-            >
-              Применяемость к авто {product.compatibility?.length ? `(${product.compatibility.length})` : ''}
-            </button>
           </div>
 
           <div className={styles.tabContent}>
@@ -519,27 +572,30 @@ export default function ProductDetails({ id }: { id: string }) {
                 {!product.description && (!product.specs || Object.keys(product.specs).length === 0) && (
                   <p className={styles.specsEmpty}>Характеристики не указаны</p>
                 )}
-              </div>
-            )}
 
-            {activeTab === 'compatibility' && (
-              <div className={styles.specsList}>
-                {product.compatibility && product.compatibility.length > 0 ? (
-                  product.compatibility.map((carStr, idx) => (
-                    <div key={idx} className={styles.specRow} style={{ alignItems: 'center' }}>
-                      <span className={styles.specName} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <CheckCircle2 size={16} color="#16a34a" />
-                        <span>Модель #{idx + 1}</span>
-                      </span>
-                      <span className={styles.specValue} style={{ fontWeight: 600, color: 'var(--color-navy)' }}>
-                        {carStr}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <p className={styles.specsEmpty}>
-                    Для точной проверки совместимости по VIN-коду свяжитесь с нашим менеджером в WhatsApp
-                  </p>
+                {dromData.models.length > 0 && (
+                  <div className={styles.dromCompatibility}>
+                    <h3 className={styles.dromTitle}>Подходит</h3>
+                    {dromData.models.map((model, idx) => (
+                      <div key={idx} className={styles.dromGroup}>
+                        <div className={styles.dromCarName}>{model.carName}</div>
+                        <div className={styles.dromGenerations}>
+                          {model.generations.map((gen, gIdx) => (
+                            <div key={gIdx} className={styles.dromGenItem}>
+                              {gen.title && <div className={styles.dromGenTitle}>{gen.title}</div>}
+                              {gen.code && <div className={styles.dromGenCode}>{gen.code}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {dromData.engines.length > 0 && (
+                      <div className={styles.dromEnginesRow}>
+                        <div className={styles.dromEnginesLabel}>Для двигателей</div>
+                        <div className={styles.dromEnginesValue}>{dromData.engines.join(', ')}</div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}
