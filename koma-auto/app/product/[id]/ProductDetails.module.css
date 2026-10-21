@@ -572,6 +572,39 @@
   }
 }
 
+.managerConsultation {
+  padding-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.managerPrefix {
+  color: #64748b;
+}
+
+.managerLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-navy);
+  font-weight: 500;
+  text-decoration: none;
+  transition: opacity 0.2s;
+  cursor: pointer;
+}
+
+.managerLink:hover {
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
+.managerArrow {
+  flex-shrink: 0;
+  color: var(--color-navy);
+}
+
 .similarHeader {
   display: flex;
   justify-content: space-between;

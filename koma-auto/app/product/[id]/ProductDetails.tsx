@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ShoppingCart, Heart, Box, Truck, CornerUpLeft, Loader2, ChevronLeft, ChevronRight, Rows3, Grid2x2 } from 'lucide-react';
+import { ShoppingCart, Heart, Box, Truck, CornerUpLeft, Loader2, ChevronLeft, ChevronRight, Rows3, Grid2x2, ArrowRight } from 'lucide-react';
 import { Product, ProductVariant } from '../../../data/products';
 import { useCartStore } from '../../../store/useCartStore';
 import { useFavoritesStore } from '../../../store/useFavoritesStore';
@@ -573,7 +573,7 @@ export default function ProductDetails({ id }: { id: string }) {
                   <p className={styles.specsEmpty}>Характеристики не указаны</p>
                 )}
 
-                {dromData.models.length > 0 && (
+                {dromData.models.length > 0 ? (
                   <div className={styles.dromCompatibility}>
                     <h3 className={styles.dromTitle}>Подходит</h3>
                     {dromData.models.map((model, idx) => (
@@ -595,6 +595,21 @@ export default function ProductDetails({ id }: { id: string }) {
                         <div className={styles.dromEnginesValue}>{dromData.engines.join(', ')}</div>
                       </div>
                     )}
+                  </div>
+                ) : (
+                  <div className={styles.managerConsultation}>
+                    <span className={styles.managerPrefix}>Применяемость:</span>
+                    <a
+                      href={`https://wa.me/77079194462?text=${encodeURIComponent(
+                        `Здравствуйте! Подскажите, пожалуйста, подходит ли деталь ${product.name} (OEM: ${displayOem || product.article}) на мой автомобиль? VIN: `
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.managerLink}
+                    >
+                      <span>Связаться с менеджером</span>
+                      <ArrowRight size={14} className={styles.managerArrow} />
+                    </a>
                   </div>
                 )}
               </div>
