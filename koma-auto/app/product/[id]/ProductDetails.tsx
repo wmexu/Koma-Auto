@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ShoppingCart, Heart, Box, Truck, CornerUpLeft, Loader2, ChevronLeft, ChevronRight, Rows3, Grid2x2 } from 'lucide-react';
+import { ShoppingCart, Heart, Box, Truck, CornerUpLeft, Loader2, ChevronLeft, ChevronRight, Rows3, Grid2x2, Car, CheckCircle2 } from 'lucide-react';
 import { Product, ProductVariant } from '../../../data/products';
 import { useCartStore } from '../../../store/useCartStore';
 import { useFavoritesStore } from '../../../store/useFavoritesStore';
@@ -361,6 +361,30 @@ export default function ProductDetails({ id }: { id: string }) {
             </div>
           </div>
 
+          {product.compatibility && product.compatibility.length > 0 && (
+            <div style={{
+              margin: '12px 0 16px',
+              padding: '12px 14px',
+              backgroundColor: '#f0fdf4',
+              border: '1px solid #bbf7d0',
+              borderRadius: '10px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px'
+            }}>
+              <Car size={18} color="#15803d" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: '#166534', marginBottom: '2px' }}>
+                  Применяемость к автомобилям:
+                </div>
+                <div style={{ fontSize: '12px', color: '#14532d', lineHeight: 1.4 }}>
+                  {product.compatibility.slice(0, 3).join(', ')}
+                  {product.compatibility.length > 3 && ` и еще ${product.compatibility.length - 3} мод.`}
+                </div>
+              </div>
+            </div>
+          )}
+
           {effectiveVariants.length > 0 && (
             <div className={styles.brandPickerSection}>
               <div className={styles.brandPickerHeader}>
@@ -456,6 +480,12 @@ export default function ProductDetails({ id }: { id: string }) {
             >
               Характеристики
             </button>
+            <button
+              className={`${styles.tabBtn} ${activeTab === 'compatibility' ? styles.activeTab : ''}`}
+              onClick={() => setActiveTab('compatibility')}
+            >
+              Применяемость к авто {product.compatibility?.length ? `(${product.compatibility.length})` : ''}
+            </button>
           </div>
 
           <div className={styles.tabContent}>
@@ -488,6 +518,28 @@ export default function ProductDetails({ id }: { id: string }) {
                 )}
                 {!product.description && (!product.specs || Object.keys(product.specs).length === 0) && (
                   <p className={styles.specsEmpty}>Характеристики не указаны</p>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'compatibility' && (
+              <div className={styles.specsList}>
+                {product.compatibility && product.compatibility.length > 0 ? (
+                  product.compatibility.map((carStr, idx) => (
+                    <div key={idx} className={styles.specRow} style={{ alignItems: 'center' }}>
+                      <span className={styles.specName} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <CheckCircle2 size={16} color="#16a34a" />
+                        <span>Модель #{idx + 1}</span>
+                      </span>
+                      <span className={styles.specValue} style={{ fontWeight: 600, color: 'var(--color-navy)' }}>
+                        {carStr}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <p className={styles.specsEmpty}>
+                    Для точной проверки совместимости по VIN-коду свяжитесь с нашим менеджером в WhatsApp
+                  </p>
                 )}
               </div>
             )}

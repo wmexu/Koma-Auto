@@ -98,6 +98,49 @@ export async function findEpayTransactionByInvoiceId(
 }
 
 /**
+ * Verifies with Halyk ePay whether a transaction for invoiceId was actually charged/paid.
+ * Protects against spoofed postlinks and client-side status tampering.
+ */
+export async function verifyEpayPayment(invoiceId: string): Promise<{
+  paid: boolean;
+  amount?: number;
+  transactionId?: string;
+  cardMask?: string;
+  name?: string;
+  phone?: string;
+  email?: string;
+}> {
+  const cleanId = invoiceId.replace(/^№\s*/, '').trim();
+
+  try {
+    const token = await getRefundAuthToken();
+    const info = await findEpayTransactionByInvoiceId(cleanId, token);
+    const rawTx = info.raw?.transaction;
+
+    const isPaid =
+      info.raw?.resultCode === '100' &&
+      Boolean(info.id) &&
+      (info.status === 'CHARGE' ||
+        info.status === 'APPROVED' ||
+        info.status === 'SUCCESS' ||
+        (info.amount !== undefined && info.amount > 0));
+
+    return {
+      paid: Boolean(isPaid),
+      amount: info.amount,
+      transactionId: info.id,
+      cardMask: rawTx?.cardMask,
+      name: rawTx?.name,
+      phone: rawTx?.phone,
+      email: rawTx?.email,
+    };
+  } catch (err) {
+    console.error(`[ePay Verify] Failed to verify payment for ${cleanId}:`, err);
+    return { paid: false };
+  }
+}
+
+/**
  * Initiates automatic refund in Halyk ePay
  */
 export async function refundEpayPayment(params: {

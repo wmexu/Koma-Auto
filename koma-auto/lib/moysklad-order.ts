@@ -1,3 +1,7 @@
+import dns from 'node:dns';
+if (typeof dns.setDefaultResultOrder === 'function') {
+  try { dns.setDefaultResultOrder('ipv4first'); } catch {}
+}
 import { Order } from './order-types';
 import { sendOrderPushNotification, formatOrderReport } from './notifications';
 

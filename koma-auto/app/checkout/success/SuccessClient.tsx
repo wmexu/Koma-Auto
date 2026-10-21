@@ -30,7 +30,7 @@ export default function SuccessClient() {
       fetch('/api/orders', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, status: 'paid' }),
+        body: JSON.stringify({ orderId, status: 'paid', order: loaded || undefined }),
       }).catch((e) => console.error('Error updating order status in API:', e));
     }
   }, [orderId, clearCart]);

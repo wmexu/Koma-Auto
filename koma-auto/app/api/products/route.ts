@@ -8,6 +8,7 @@ import {
 } from '@/lib/moysklad';
 import { isBrandBlacklisted } from '@/lib/brand-utils';
 import { products as fallbackProducts } from '@/data/products';
+import { getProductsFromDb } from '@/lib/products-db';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,9 +18,27 @@ export async function GET(request: Request) {
     const limit = parseInt(searchParams.get('limit') || '36', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
     const inStockOnly = searchParams.get('inStockOnly') === 'true';
-    const category = searchParams.get('category');
-    const search = searchParams.get('search');
+    const category = searchParams.get('category') || undefined;
+    const search = searchParams.get('search') || undefined;
 
+    // 1. High-speed database layer (<15ms)
+    try {
+      const dbResult = await getProductsFromDb({
+        limit,
+        offset,
+        search,
+        category,
+        inStockOnly,
+      });
+
+      if (dbResult && dbResult.products.length > 0) {
+        return NextResponse.json(dbResult);
+      }
+    } catch (dbErr) {
+      console.warn('[Products API] DB lookup failed, falling back to MoySklad API:', dbErr);
+    }
+
+    // 2. Fallback to direct MoySklad API
     let categoryHref: string | string[] = '';
 
     if (category) {

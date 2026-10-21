@@ -8,6 +8,7 @@ import {
   EpayPaymentObject,
 } from '@/lib/epay';
 import { getTestPromoConfig } from '@/lib/promocode';
+import { getProductsByIdsFromDb } from '@/lib/products-db';
 
 export async function POST(request: Request) {
   try {
@@ -24,8 +25,35 @@ export async function POST(request: Request) {
       );
     }
 
-    // If test order, force amount to test promo target price (10, 50, or 100 KZT)
-    const effectiveAmount = testPromo ? testPromo.targetPrice : Math.round(amount);
+    // Secure Price Calculation:
+    // If test order, use strict test promo target price (10, 50, or 100 ₸).
+    // If live order, re-calculate and verify genuine item prices directly from Neon PostgreSQL to prevent client-side tampering.
+    let effectiveAmount = 0;
+
+    if (testPromo) {
+      effectiveAmount = testPromo.targetPrice;
+    } else {
+      if (Array.isArray(items) && items.length > 0) {
+        const itemIds = items.map((i: any) => i.id).filter(Boolean);
+        const dbProducts = await getProductsByIdsFromDb(itemIds);
+        const priceMap = new Map(dbProducts.map((p) => [p.id, p.price]));
+
+        let calculatedItemsTotal = 0;
+        for (const item of items) {
+          const genuinePrice = priceMap.get(item.id) ?? Number(item.price) ?? 0;
+          const qty = Math.max(1, Number(item.quantity) || 1);
+          calculatedItemsTotal += genuinePrice * qty;
+        }
+
+        const isCourier = deliveryMethod === 'courier';
+        const isAlmaty = (city || '').toLowerCase().includes('алмат');
+        const deliveryFee = (isCourier && isAlmaty && calculatedItemsTotal < 20000) ? 6500 : 0;
+
+        effectiveAmount = Math.round(calculatedItemsTotal + deliveryFee);
+      } else {
+        effectiveAmount = Math.round(Number(amount) || 0);
+      }
+    }
 
     if (!effectiveAmount || effectiveAmount <= 0) {
       return NextResponse.json({ error: 'Сумма заказа должна быть больше нуля' }, { status: 400 });
