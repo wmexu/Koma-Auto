@@ -183,11 +183,31 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
                 {effectiveStatus === 'declined' && (
                   <span className={`${styles.statusBadge} ${styles.statusDeclined}`}>
                     <XCircle size={15} />
-                    <span>Отклонен</span>
+                    <span>{order.cancelledBy === 'admin' ? 'Отменен магазином' : 'Отклонен'}</span>
                   </span>
                 )}
               </div>
             </div>
+
+            {/* Admin cancellation banner on order card */}
+            {effectiveStatus === 'declined' && (order.cancellationReason || order.refundMessage) && (
+              <div className={styles.cancellationBanner}>
+                <div className={styles.cancellationHeader}>
+                  <AlertCircle size={15} />
+                  <span>Заказ отменен администратором</span>
+                </div>
+                {order.cancellationReason && (
+                  <div className={styles.cancellationReason}>
+                    <strong>Причина:</strong> {order.cancellationReason}
+                  </div>
+                )}
+                {order.refundMessage && (
+                  <div className={styles.cancellationRefund}>
+                    💳 {order.refundMessage}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Delivery address / method */}
             <div className={styles.deliveryBanner}>
@@ -317,15 +337,34 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
               })()}
 
               {getEffectiveOrderStatus(selectedOrder) === 'declined' && (
-                <div
-                  className={styles.timerNoticeBox}
-                  style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <AlertCircle size={18} />
-                    <span>Время оплаты (20 минут) истекло либо платёж был отклонён банком</span>
+                selectedOrder.cancellationReason || selectedOrder.refundMessage ? (
+                  <div className={styles.cancellationBanner} style={{ margin: '0 0 16px' }}>
+                    <div className={styles.cancellationHeader}>
+                      <AlertCircle size={17} />
+                      <span style={{ fontSize: '14px' }}>Заказ отменен администратором магазина</span>
+                    </div>
+                    {selectedOrder.cancellationReason && (
+                      <div className={styles.cancellationReason} style={{ fontSize: '13px' }}>
+                        <strong>Причина отмены:</strong> {selectedOrder.cancellationReason}
+                      </div>
+                    )}
+                    {selectedOrder.refundMessage && (
+                      <div className={styles.cancellationRefund} style={{ fontSize: '13px' }}>
+                        💳 {selectedOrder.refundMessage}
+                      </div>
+                    )}
                   </div>
-                </div>
+                ) : (
+                  <div
+                    className={styles.timerNoticeBox}
+                    style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <AlertCircle size={18} />
+                      <span>Время оплаты (20 минут) истекло либо платёж был отклонён банком</span>
+                    </div>
+                  </div>
+                )
               )}
 
               {/* Items List */}

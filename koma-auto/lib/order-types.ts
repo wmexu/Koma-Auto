@@ -49,6 +49,14 @@ export interface Order {
   isTestOrder?: boolean;
   promoCode?: string;
   notificationSent?: boolean;
+  // Cancellation and refund attributes
+  cancelledAt?: string;
+  cancelledBy?: 'admin' | 'user' | 'system';
+  cancellationReason?: string;
+  refundStatus?: 'completed' | 'pending' | 'failed' | 'manual_required' | 'not_applicable';
+  refundAmount?: number;
+  refundTransactionId?: string;
+  refundMessage?: string;
 }
 
 /**

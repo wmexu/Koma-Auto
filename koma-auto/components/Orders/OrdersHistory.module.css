@@ -82,6 +82,43 @@
   border: 1px solid #fecaca;
 }
 
+/* Cancellation Banner */
+.cancellationBanner {
+  background-color: #fff5f5;
+  border: 1px solid #fed7d7;
+  border-left: 4px solid #e53e3e;
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.cancellationHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #c53030;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.cancellationReason {
+  color: #2d3748;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.cancellationRefund {
+  color: #9b2c2c;
+  font-size: 12px;
+  background: rgba(254, 215, 215, 0.4);
+  padding: 6px 10px;
+  border-radius: 6px;
+  line-height: 1.4;
+}
+
 /* Delivery Banner */
 .deliveryBanner {
   display: flex;
