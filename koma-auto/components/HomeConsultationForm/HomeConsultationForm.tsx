@@ -19,36 +19,32 @@ export default function HomeConsultationForm() {
 
   const validateName = (nameStr: string) => {
     const trimmed = nameStr.trim();
-    if (trimmed.length < 3) {
-      return 'Имя должно содержать не менее 3 символов';
+    if (trimmed.length < 2) {
+      return 'Имя должно содержать не менее 2 символов';
     }
     return '';
   };
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let val = e.target.value.replace(/\D/g, '');
-    
-    if (val.length === 0) {
-      setPhone('');
-      return;
+    let digits = e.target.value.replace(/\D/g, '');
+    if ((digits.startsWith('7') || digits.startsWith('8')) && digits.length > 10) {
+      digits = digits.slice(1);
     }
+    digits = digits.slice(0, 10);
 
-    if (val[0] !== '7' && val[0] !== '8') {
-      val = '7' + val;
-    }
-    if (val.length > 11) val = val.slice(0, 11);
-    
     let formatted = '';
-    if (val[0] === '7') {
-      formatted = '+7';
+    if (digits.length === 0) {
+      formatted = '';
+    } else if (digits.length <= 3) {
+      formatted = `(${digits}`;
+    } else if (digits.length <= 6) {
+      formatted = `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    } else if (digits.length <= 8) {
+      formatted = `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
     } else {
-      formatted = '8';
+      formatted = `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 8)}-${digits.slice(8, 10)}`;
     }
 
-    if (val.length > 1) formatted += '-' + val.slice(1, 4);
-    if (val.length > 4) formatted += '-' + val.slice(4, 7);
-    if (val.length > 7) formatted += '-' + val.slice(7, 11);
-    
     setPhone(formatted);
     if (errors.phone) setErrors(prev => ({ ...prev, phone: undefined }));
   };
@@ -75,21 +71,20 @@ export default function HomeConsultationForm() {
     const newErrors: {name?: string, phone?: string, vin?: string} = {};
     let hasEmptyFields = false;
 
-    if (!name.trim()) { newErrors.name = 'Заполните это поле'; hasEmptyFields = true; }
-    if (!phone) { newErrors.phone = 'Заполните это поле'; hasEmptyFields = true; }
-    if (!vin) { newErrors.vin = 'Заполните это поле'; hasEmptyFields = true; }
+    const trimmedName = name.trim();
+    const cleanDigits = phone.replace(/\D/g, '');
 
-    if (name.trim()) {
-      const nameError = validateName(name);
+    if (!trimmedName) { newErrors.name = 'Заполните это поле'; hasEmptyFields = true; }
+    if (!cleanDigits) { newErrors.phone = 'Заполните это поле'; hasEmptyFields = true; }
+    if (!vin.trim()) { newErrors.vin = 'Заполните это поле'; hasEmptyFields = true; }
+
+    if (trimmedName) {
+      const nameError = validateName(trimmedName);
       if (nameError) newErrors.name = nameError;
     }
 
-    if (phone) {
-      if (phone.startsWith('+7') && phone.length < 15) {
-        newErrors.phone = 'Введите полный номер телефона';
-      } else if (phone.startsWith('8') && phone.length < 14) {
-        newErrors.phone = 'Введите полный номер телефона';
-      }
+    if (cleanDigits && cleanDigits.length < 10) {
+      newErrors.phone = 'Введите полный номер телефона';
     }
 
     if (vin && (vin.length < 11 || vin.length > 17)) {
@@ -115,15 +110,19 @@ export default function HomeConsultationForm() {
         const dobStr = userProfile?.dob || 'Не указана';
         const createdAtStr = userProfile?.createdAt ? new Date(userProfile.createdAt).toLocaleDateString('ru-RU') : 'Не указана';
         
-        clientInfo = `Клиент: ${typeStr}\nИмя и Фамилия: ${userProfile?.name || name}\nДата рождения: ${dobStr}\nДата регистрации: ${createdAtStr}\nEmail адрес: ${user.email}`;
+        clientInfo = `Клиент: ${typeStr}\nИмя и Фамилия: ${userProfile?.name || trimmedName}\nДата рождения: ${dobStr}\nДата регистрации: ${createdAtStr}\nEmail адрес: ${user.email}`;
       }
+
+      const fullPhone = cleanDigits.length === 10
+        ? `+7${cleanDigits}`
+        : (phone.startsWith('+') ? phone : `+7${cleanDigits}`);
 
       const response = await fetch('/api/consultation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name, phone, vin, clientInfo }),
+        body: JSON.stringify({ name: trimmedName, phone: fullPhone, vin: vin.trim(), clientInfo }),
       });
 
       if (!response.ok) {
@@ -173,7 +172,7 @@ export default function HomeConsultationForm() {
               <User size={32} className={styles.inputIcon} color={getIconColor(errors.name)} />
               <input 
                 type="text" 
-                placeholder="Как к вам обращаться?" 
+                placeholder="Введите ваше Имя" 
                 className={styles.infoInput} 
                 value={name}
                 onChange={(e) => {
@@ -190,10 +189,11 @@ export default function HomeConsultationForm() {
           <div>
             <div className={styles.inputWrapper} style={getErrorStyle(errors.phone)}>
               <Phone size={32} className={styles.inputIcon} color={getIconColor(errors.phone)} />
+              <span className={styles.consultationPhonePrefix}>+7</span>
               <input 
                 type="tel" 
-                placeholder="Ваш номер телефона" 
-                className={styles.infoInput} 
+                placeholder="(707) 000-00-00" 
+                className={`${styles.infoInput} ${styles.phoneInfoInput}`} 
                 value={phone}
                 onChange={handlePhoneChange}
                 required

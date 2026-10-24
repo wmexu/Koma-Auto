@@ -123,9 +123,54 @@
   font-size: 15px;
 }
 
+.inputGroup input::placeholder,
+.inputGroup textarea::placeholder {
+  color: #9CA3AF;
+  opacity: 1;
+}
+
 .inputGroup input:focus,
 .inputGroup textarea:focus {
   border-color: var(--color-navy);
+}
+
+.phoneInputContainer {
+  display: flex;
+  align-items: center;
+  border: 1px solid #ddd;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  overflow: hidden;
+}
+
+.phoneInputContainer:focus-within {
+  border-color: var(--color-navy);
+}
+
+.phonePrefix {
+  padding-left: 14px;
+  padding-right: 2px;
+  font-size: 15px;
+  font-weight: 500;
+  color: #9CA3AF;
+  user-select: none;
+  pointer-events: none;
+}
+
+.phoneInput {
+  flex: 1;
+  border: none !important;
+  outline: none !important;
+  padding: 12px 14px 12px 4px !important;
+  font-size: 15px;
+  background: transparent;
+  width: 100%;
+}
+
+.phoneInput::placeholder {
+  color: #9CA3AF;
+  opacity: 1;
 }
 
 .inputError {

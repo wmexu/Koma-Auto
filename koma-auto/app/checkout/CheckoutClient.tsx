@@ -22,7 +22,7 @@ declare global {
 }
 
 const CITIES_LIST = [
-  "Актау", "Актобе", "Актюбинск", "Алматы", "Аркалык", "Астана", "Атбасар", "Атырау",
+  "Алматы", "Актау", "Актобе", "Актюбинск", "Аркалык", "Астана", "Атбасар", "Атырау",
   "Балхаш", "Боровое",
   "Джамбул",
   "Жезказган",
@@ -44,7 +44,28 @@ const groupedCities = CITIES_LIST.reduce((acc, city) => {
   return acc;
 }, {} as Record<string, string[]>);
 
+if (groupedCities['А']) {
+  groupedCities['А'] = [
+    'Алматы',
+    ...groupedCities['А'].filter(c => c !== 'Алматы')
+  ];
+}
+
 const sortedLetters = Object.keys(groupedCities).sort();
+
+const formatKazakhPhone = (val: string) => {
+  let digits = val.replace(/\D/g, '');
+  if ((digits.startsWith('7') || digits.startsWith('8')) && digits.length > 10) {
+    digits = digits.slice(1);
+  }
+  digits = digits.slice(0, 10);
+
+  if (digits.length === 0) return '';
+  if (digits.length <= 3) return `(${digits}`;
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  if (digits.length <= 8) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 8)}-${digits.slice(8, 10)}`;
+};
 
 export default function CheckoutClient() {
   const router = useRouter();
@@ -55,7 +76,7 @@ export default function CheckoutClient() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [lastOrderId, setLastOrderId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState<{name?: string}>({});
+  const [errors, setErrors] = useState<{ lastName?: string; firstName?: string; phone?: string }>({});
   const [isCityModalOpen, setIsCityModalOpen] = useState(false);
 
   const [promoCodeInput, setPromoCodeInput] = useState('');
@@ -166,7 +187,8 @@ export default function CheckoutClient() {
   }, [searchParams, addToast]);
 
   const [formData, setFormData] = useState({
-    name: '',
+    lastName: '',
+    firstName: '',
     phone: '',
     email: '',
     city: '',
@@ -185,6 +207,21 @@ export default function CheckoutClient() {
     privacy: false,
     refund: false
   });
+
+  useEffect(() => {
+    if (user) {
+      const parts = (user.displayName || '').trim().split(/\s+/);
+      const initialFirst = parts[0] || '';
+      const initialLast = parts.slice(1).join(' ') || '';
+      setFormData((prev) => ({
+        ...prev,
+        firstName: prev.firstName || initialFirst,
+        lastName: prev.lastName || initialLast,
+        email: prev.email || user.email || '',
+        phone: prev.phone || (user.phoneNumber ? formatKazakhPhone(user.phoneNumber) : ''),
+      }));
+    }
+  }, [user]);
 
   const totalPrice = getTotalPrice();
   
@@ -237,14 +274,20 @@ export default function CheckoutClient() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+    if (name === 'lastName' && errors.lastName) {
+      setErrors((prev) => ({ ...prev, lastName: undefined }));
+    }
+    if (name === 'firstName' && errors.firstName) {
+      setErrors((prev) => ({ ...prev, firstName: undefined }));
+    }
   };
 
-  const validateFullName = (fullName: string) => {
-    const trimmed = fullName.trim();
-    if (trimmed.length < 3) {
-      return 'Пожалуйста, введите Имя и Фамилию (не менее 3 символов)';
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatKazakhPhone(e.target.value);
+    setFormData((prev) => ({ ...prev, phone: formatted }));
+    if (errors.phone) {
+      setErrors((prev) => ({ ...prev, phone: undefined }));
     }
-    return '';
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -255,17 +298,31 @@ export default function CheckoutClient() {
       return;
     }
 
-    const nameError = validateFullName(formData.name);
-    if (nameError) {
-      setErrors({ name: nameError });
-      addToast(nameError, 'error');
+    const lastName = formData.lastName.trim();
+    const firstName = formData.firstName.trim();
+    const cleanPhoneDigits = formData.phone.replace(/\D/g, '');
+    const newErrors: { lastName?: string; firstName?: string; phone?: string } = {};
+
+    if (!lastName || lastName.length < 2) {
+      newErrors.lastName = 'Пожалуйста, введите вашу Фамилию';
+    }
+    if (!firstName || firstName.length < 2) {
+      newErrors.firstName = 'Пожалуйста, введите ваше Имя';
+    }
+    if (cleanPhoneDigits.length < 10) {
+      newErrors.phone = 'Пожалуйста, укажите контактный номер телефона';
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      addToast(newErrors.lastName || newErrors.firstName || newErrors.phone || 'Заполните обязательные поля', 'error');
       return;
     }
 
-    if (!formData.phone || formData.phone.trim().length < 8) {
-      addToast('Пожалуйста, укажите контактный номер телефона', 'error');
-      return;
-    }
+    const fullName = `${lastName} ${firstName}`.trim();
+    const formattedPhone = cleanPhoneDigits.length === 10
+      ? `+7${cleanPhoneDigits}`
+      : (formData.phone.startsWith('+') ? formData.phone : `+7${cleanPhoneDigits}`);
 
     if (formData.deliveryMethod === 'courier') {
       if (!formData.city) {
@@ -291,8 +348,8 @@ export default function CheckoutClient() {
           body: JSON.stringify({
             amount: finalPrice,
             promoCode: appliedPromo?.code || undefined,
-            name: formData.name,
-            phone: formData.phone,
+            name: fullName,
+            phone: formattedPhone,
             email: formData.email,
             origin: window.location.origin,
             deliveryMethod: formData.deliveryMethod,
@@ -332,8 +389,8 @@ export default function CheckoutClient() {
           address: fullAddress,
           city: formData.city,
           customer: {
-            name: formData.name,
-            phone: formData.phone,
+            name: fullName,
+            phone: formattedPhone,
             email: formData.email,
             comment: isTestMode
               ? 'ТЕСТОВЫЙ ЗАКАЗ. ИГНОРИРУЙТЕ'
@@ -356,8 +413,8 @@ export default function CheckoutClient() {
             ? {
                 uid: user.uid,
                 email: user.email || formData.email || null,
-                displayName: user.displayName || formData.name || null,
-                phone: user.phoneNumber || formData.phone || null,
+                displayName: user.displayName || fullName || null,
+                phone: user.phoneNumber || formattedPhone || null,
               }
             : null,
           isTestOrder: isTestMode,
@@ -408,8 +465,8 @@ export default function CheckoutClient() {
       address: 'Самовывоз: г. Алматы, Car City 1 ярус Подвал',
       city: formData.city || 'Алматы',
       customer: {
-        name: formData.name,
-        phone: formData.phone,
+        name: fullName,
+        phone: formattedPhone,
         email: formData.email,
         comment: isTestMode
           ? 'ТЕСТОВЫЙ ЗАКАЗ. ИГНОРИРУЙТЕ'
@@ -478,27 +535,56 @@ export default function CheckoutClient() {
             <h2>1. Контактные данные</h2>
             <div className={styles.formGrid}>
               <div className={styles.inputGroup}>
-                <label className={errors.name ? styles.labelError : ''}>Имя и Фамилия *</label>
+                <label className={errors.lastName ? styles.labelError : ''}>Фамилия *</label>
                 <input 
                   required 
                   type="text" 
-                  name="name" 
-                  value={formData.name} 
-                  onChange={(e) => {
-                    handleChange(e);
-                    if (errors.name) setErrors({});
-                  }} 
-                  className={errors.name ? styles.inputError : ''}
+                  name="lastName" 
+                  value={formData.lastName} 
+                  placeholder="Введите вашу Фамилию"
+                  onChange={handleChange} 
+                  className={errors.lastName ? styles.inputError : ''}
                 />
-                {errors.name && <span className={styles.errorText}>{errors.name}</span>}
+                {errors.lastName && <span className={styles.errorText}>{errors.lastName}</span>}
               </div>
               <div className={styles.inputGroup}>
-                <label>Телефон *</label>
-                <input required type="tel" name="phone" value={formData.phone} onChange={handleChange} />
+                <label className={errors.firstName ? styles.labelError : ''}>Имя *</label>
+                <input 
+                  required 
+                  type="text" 
+                  name="firstName" 
+                  value={formData.firstName} 
+                  placeholder="Введите ваше Имя"
+                  onChange={handleChange} 
+                  className={errors.firstName ? styles.inputError : ''}
+                />
+                {errors.firstName && <span className={styles.errorText}>{errors.firstName}</span>}
+              </div>
+              <div className={styles.inputGroup}>
+                <label className={errors.phone ? styles.labelError : ''}>Телефон *</label>
+                <div className={`${styles.phoneInputContainer} ${errors.phone ? styles.inputError : ''}`}>
+                  <span className={styles.phonePrefix}>+7</span>
+                  <input 
+                    required 
+                    type="tel" 
+                    name="phone" 
+                    value={formData.phone} 
+                    onChange={handlePhoneChange} 
+                    placeholder="(707) 000-00-00"
+                    className={styles.phoneInput}
+                  />
+                </div>
+                {errors.phone && <span className={styles.errorText}>{errors.phone}</span>}
               </div>
               <div className={styles.inputGroup}>
                 <label>E-mail</label>
-                <input type="email" name="email" value={formData.email} onChange={handleChange} />
+                <input 
+                  type="email" 
+                  name="email" 
+                  value={formData.email} 
+                  onChange={handleChange} 
+                  placeholder="name@example.com"
+                />
               </div>
             </div>
           </div>
@@ -547,15 +633,36 @@ export default function CheckoutClient() {
               </div>
               <div className={styles.inputGroup}>
                 <label>Улица / Микрорайон *</label>
-                <input required type="text" name="street" value={formData.street} onChange={handleChange} />
+                <input 
+                  required 
+                  type="text" 
+                  name="street" 
+                  value={formData.street} 
+                  onChange={handleChange} 
+                  placeholder="Например: ул. Абая или мкр. Самал-2"
+                />
               </div>
               <div className={styles.inputGroup}>
                 <label>Дом / Здание *</label>
-                <input required type="text" name="house" value={formData.house} onChange={handleChange} />
+                <input 
+                  required 
+                  type="text" 
+                  name="house" 
+                  value={formData.house} 
+                  onChange={handleChange} 
+                  placeholder="Например: 15/2"
+                />
               </div>
               <div className={styles.inputGroup}>
                 <label>Квартира / Офис *</label>
-                <input required type="text" name="apartment" value={formData.apartment} onChange={handleChange} />
+                <input 
+                  required 
+                  type="text" 
+                  name="apartment" 
+                  value={formData.apartment} 
+                  onChange={handleChange} 
+                  placeholder="Например: 42"
+                />
               </div>
             </div>
             
@@ -563,16 +670,34 @@ export default function CheckoutClient() {
             <div className={styles.formGrid}>
               <div className={styles.inputGroup}>
                 <label>Подъезд / Код / Этаж</label>
-                <input type="text" name="entrance" value={formData.entrance} onChange={handleChange} />
+                <input 
+                  type="text" 
+                  name="entrance" 
+                  value={formData.entrance} 
+                  onChange={handleChange} 
+                  placeholder="Например: 2 подъезд, 4 этаж"
+                />
               </div>
               <div className={styles.inputGroup}>
                 <label>Почтовый индекс</label>
-                <input type="text" name="postalCode" value={formData.postalCode} onChange={handleChange} />
+                <input 
+                  type="text" 
+                  name="postalCode" 
+                  value={formData.postalCode} 
+                  onChange={handleChange} 
+                  placeholder="Например: 050000"
+                />
               </div>
             </div>
             <div className={styles.inputGroup} style={{ marginTop: '16px' }}>
               <label>Комментарий для курьера</label>
-              <textarea name="comment" value={formData.comment} onChange={handleChange} rows={2} />
+              <textarea 
+                name="comment" 
+                value={formData.comment} 
+                onChange={handleChange} 
+                rows={2} 
+                placeholder="Например: позвонить за 30 минут, оставить у консьержа..."
+              />
             </div>
           </div>
 
