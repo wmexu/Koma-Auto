@@ -1,5 +1,6 @@
 import { client, isDbConfigured } from '@/db';
 import { Product, ProductVariant } from '@/data/products';
+import { normalizeBrand, sortProductVariants } from '@/lib/brand-utils';
 
 export interface GetProductsDbParams {
   limit?: number;
@@ -64,15 +65,20 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
 
   let specs: Record<string, string> = {};
   if (r.specs && typeof r.specs === 'object' && !Array.isArray(r.specs)) {
-    specs = r.specs;
+    specs = { ...r.specs };
   } else if (typeof r.specs === 'string') {
     try {
       const parsed = JSON.parse(r.specs);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        specs = parsed;
+        specs = { ...parsed };
       }
     } catch {}
   }
+  // Remove stale manufacturer keys from specs so the canonical brand takes precedence
+  delete specs['Производитель'];
+  delete specs['производитель'];
+  delete specs['Бренд'];
+  delete specs['бренд'];
 
   const price = Number(r.price) || 0;
   let oldPrice = r.old_price ? Number(r.old_price) : undefined;
@@ -82,13 +88,20 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
   }
   const stock = Number(r.stock_quantity) || 0;
 
+  const brandInfo = normalizeBrand(
+    r.brand && r.brand !== 'Koma Auto' ? r.brand : undefined,
+    r.original_oem || r.clean_oem_number
+  );
+  const determinedBrand = brandInfo.brand;
+  const determinedTier = brandInfo.tier;
+
   const defaultVariant: ProductVariant = {
     id: r.id,
     name: r.title,
     code: r.original_oem || '',
     oem: r.clean_oem_number || '',
-    brand: r.brand || 'Koma Auto',
-    tier: 1,
+    brand: determinedBrand,
+    tier: determinedTier,
     price,
     oldPrice,
     stock,
@@ -100,13 +113,14 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
   };
 
   const finalVariants = variants.length > 0 ? variants : [defaultVariant];
+  const primaryBrand = finalVariants[0]?.brand || determinedBrand;
 
   return {
     id: r.id,
     moySkladId: r.id,
     article: r.clean_oem_number || r.original_oem || '',
     oem: r.clean_oem_number || '',
-    brand: r.brand || 'Koma Auto',
+    brand: primaryBrand,
     name: r.title,
     price,
     oldPrice,
@@ -212,7 +226,7 @@ export async function getVariantsByOemFromDb(cleanOem: string): Promise<ProductV
       WHERE clean_oem_number = ${cleanOem} AND price >= 500
       ORDER BY in_stock DESC, price ASC;
     `;
-    return rows.map((r: any) => {
+    const mappedVariants = rows.map((r: any) => {
       let images: string[] = [];
       if (Array.isArray(r.images)) {
         images = r.images.filter((img: any) => typeof img === 'string' && img.trim().length > 0);
@@ -233,14 +247,18 @@ export async function getVariantsByOemFromDb(cleanOem: string): Promise<ProductV
       if (variantOldPrice && variantOldPrice <= variantPrice) {
         variantOldPrice = undefined;
       }
+      const bInfo = normalizeBrand(
+        r.brand && r.brand !== 'Koma Auto' ? r.brand : undefined,
+        r.original_oem || r.clean_oem_number
+      );
       return {
         id: r.id,
         moySkladId: r.id,
         name: r.title,
         code: r.original_oem || '',
         oem: r.clean_oem_number,
-        brand: r.brand || 'Koma Auto',
-        tier: 1,
+        brand: bInfo.brand,
+        tier: bInfo.tier,
         price: variantPrice,
         oldPrice: variantOldPrice,
         stock: Number(r.stock_quantity) || 0,
@@ -251,6 +269,22 @@ export async function getVariantsByOemFromDb(cleanOem: string): Promise<ProductV
         description: r.description || '',
       };
     });
+
+    const brandMap = new Map<string, ProductVariant>();
+    mappedVariants.forEach((v: ProductVariant) => {
+      const existing = brandMap.get(v.brand);
+      if (!existing) {
+        brandMap.set(v.brand, v);
+      } else {
+        if (!existing.inStock && v.inStock) {
+          brandMap.set(v.brand, v);
+        } else if (existing.inStock === v.inStock && v.price < existing.price && v.price >= 500) {
+          brandMap.set(v.brand, v);
+        }
+      }
+    });
+
+    return sortProductVariants(Array.from(brandMap.values()));
   } catch (err) {
     console.error('[DB] Error querying variants by OEM:', err);
     return [];

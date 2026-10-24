@@ -177,14 +177,7 @@ export default function ProductDetails({
     }
   }, []);
 
-  // Hook 2: Quantity stock cap (Unconditionally called at top level)
-  useEffect(() => {
-    if (availableStock > 0 && quantity > availableStock) {
-      setQuantity(availableStock);
-    }
-  }, [availableStock, quantity]);
-
-  // Hook 3: Product and similar products fetching
+  // Hook 2: Product and similar products fetching
   useEffect(() => {
     let isCancelled = false;
 
@@ -342,7 +335,7 @@ export default function ProductDetails({
   const favorite = isFavorite(activeVariant ? activeVariant.id : product.id);
 
   const handleAddToCart = () => {
-    if (!isItemInStock || availableStock <= 0) {
+    if (!isItemInStock) {
       addToast('Товара нет в наличии', 'error');
       return;
     }
@@ -355,8 +348,8 @@ export default function ProductDetails({
       brand: target.brand || product.brand,
       price: target.price,
       oldPrice: target.oldPrice,
-      stock: availableStock,
-      inStock: target.inStock,
+      stock: target.stock ?? product.stock ?? 1,
+      inStock: target.inStock ?? product.inStock,
       article: ('oem' in target && target.oem) ? target.oem : (product.oem || product.article),
       oem: ('oem' in target && target.oem) ? target.oem : (product.oem || product.article),
     };
@@ -506,8 +499,8 @@ export default function ProductDetails({
           <h1 className={styles.title}>{product.name}</h1>
 
           <div className={styles.status}>
-            {isItemInStock && availableStock > 0 ? (
-              <span className={styles.inStock}>В наличии: {availableStock} шт.</span>
+            {isItemInStock ? (
+              <span className={styles.inStock}>В наличии</span>
             ) : (
               <span className={styles.outOfStock}>Нет в наличии</span>
             )}
@@ -565,20 +558,20 @@ export default function ProductDetails({
               <button 
                 type="button"
                 onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                disabled={quantity <= 1 || availableStock <= 0}
+                disabled={quantity <= 1 || !isItemInStock}
               >-</button>
               <input type="number" value={quantity} readOnly />
               <button 
                 type="button"
-                onClick={() => setQuantity(Math.min(availableStock, quantity + 1))}
-                disabled={quantity >= availableStock || availableStock <= 0}
+                onClick={() => setQuantity(Math.min(99, quantity + 1))}
+                disabled={!isItemInStock || quantity >= 99}
               >+</button>
             </div>
             
             <button
-              className={`${styles.addToCartBtn} ${!isItemInStock || availableStock <= 0 ? styles.disabled : ''}`}
+              className={`${styles.addToCartBtn} ${!isItemInStock ? styles.disabled : ''}`}
               onClick={handleAddToCart}
-              disabled={!isItemInStock || availableStock <= 0}
+              disabled={!isItemInStock}
             >
               <ShoppingCart size={20} />
               В корзину
@@ -648,12 +641,14 @@ export default function ProductDetails({
                   </div>
                 )}
                 {product.specs && Object.keys(product.specs).length > 0 && (
-                  Object.entries(product.specs).map(([key, value]) => (
-                    <div key={key} className={styles.specRow}>
-                      <span className={styles.specName}>{key}</span>
-                      <span className={styles.specValue}>{value}</span>
-                    </div>
-                  ))
+                  Object.entries(product.specs)
+                    .filter(([key]) => !/^(производитель|бренд)$/i.test(key.trim()))
+                    .map(([key, value]) => (
+                      <div key={key} className={styles.specRow}>
+                        <span className={styles.specName}>{key}</span>
+                        <span className={styles.specValue}>{value}</span>
+                      </div>
+                    ))
                 )}
                 {!product.description && (!product.specs || Object.keys(product.specs).length === 0) && (
                   <p className={styles.specsEmpty}>Характеристики не указаны</p>

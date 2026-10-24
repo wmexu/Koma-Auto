@@ -27,6 +27,7 @@ export default function CartClient() {
   
   const [promoCodeInput, setPromoCodeInput] = useState('');
   const [isApplyingPromo, setIsApplyingPromo] = useState(false);
+  const [isCheckingStock, setIsCheckingStock] = useState(false);
   const [appliedPromo, setAppliedPromo] = useState<{
     code: string;
     isTestMode: boolean;
@@ -123,6 +124,51 @@ export default function CartClient() {
   const handleFavGridChange = (cols: 1 | 2) => {
     setFavGridColumns(cols);
     localStorage.setItem('favGridColumns', cols.toString());
+  };
+
+  const handleProceedToCheckout = async () => {
+    if (!appliedPromo?.isTestMode) {
+      addToast('Платежная система на сайте временно приостановлена', 'error');
+      return;
+    }
+    if (!user) {
+      addToast('Чтобы заказывать товары, зарегистрируйтесь/войдите в аккаунт.', 'error');
+      return;
+    }
+
+    setIsCheckingStock(true);
+    try {
+      const checkItems = validItems.map((item) => ({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+      }));
+
+      const res = await fetch('/api/cart/verify-stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: checkItems }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.valid === false) {
+        if (Array.isArray(data.errors) && data.errors.length > 0) {
+          data.errors.forEach((err: any) => {
+            addToast(err.message, 'error');
+          });
+        } else {
+          addToast('Некоторые товары недоступны в выбранном количестве', 'error');
+        }
+        return;
+      }
+
+      router.push('/checkout');
+    } catch (e: any) {
+      console.error('Stock verification error:', e);
+      router.push('/checkout');
+    } finally {
+      setIsCheckingStock(false);
+    }
   };
 
   const validItems = items.filter(item => item && item.price >= 500);
@@ -389,19 +435,10 @@ export default function CartClient() {
 
           <button 
             className={styles.checkoutBtn} 
-            onClick={() => {
-              if (!appliedPromo?.isTestMode) {
-                addToast('Платежная система на сайте временно приостановлена', 'error');
-                return;
-              }
-              if (!user) {
-                addToast('Чтобы заказывать товары, зарегистрируйтесь/войдите в аккаунт.', 'error');
-              } else {
-                router.push('/checkout');
-              }
-            }}
+            onClick={handleProceedToCheckout}
+            disabled={isCheckingStock}
           >
-            Перейти к оформлению <ArrowRight size={20} />
+            {isCheckingStock ? 'Проверка наличия...' : 'Перейти к оформлению'} <ArrowRight size={20} />
           </button>
         </div>
       </div>
