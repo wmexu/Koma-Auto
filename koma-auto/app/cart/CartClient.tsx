@@ -127,10 +127,6 @@ export default function CartClient() {
   };
 
   const handleProceedToCheckout = async () => {
-    if (!appliedPromo?.isTestMode) {
-      addToast('Платежная система на сайте временно приостановлена', 'error');
-      return;
-    }
     if (!user) {
       addToast('Чтобы заказывать товары, зарегистрируйтесь/войдите в аккаунт.', 'error');
       return;
