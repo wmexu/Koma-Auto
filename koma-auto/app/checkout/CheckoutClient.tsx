@@ -21,6 +21,22 @@ declare global {
   }
 }
 
+function WhatsAppIcon({ size = 20, className = '' }: { size?: number; className?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ minWidth: size }}
+    >
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.456 5.711 1.457h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
+    </svg>
+  );
+}
+
 const CITIES_LIST = [
   "Алматы", "Актау", "Актобе", "Актюбинск", "Аркалык", "Астана", "Атбасар", "Атырау",
   "Балхаш", "Боровое",
@@ -61,10 +77,10 @@ const formatKazakhPhone = (val: string) => {
   digits = digits.slice(0, 10);
 
   if (digits.length === 0) return '';
-  if (digits.length <= 3) return `(${digits}`;
-  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-  if (digits.length <= 8) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
-  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 8)}-${digits.slice(8, 10)}`;
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)} ${digits.slice(3)}`;
+  if (digits.length <= 8) return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
+  return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 8)} ${digits.slice(8, 10)}`;
 };
 
 export default function CheckoutClient() {
@@ -103,16 +119,11 @@ export default function CheckoutClient() {
             setAppliedPromo(data);
           } else {
             sessionStorage.removeItem('koma_test_promocode');
-            addToast('Платежная система на сайте временно приостановлена', 'error');
-            router.replace('/cart');
           }
         })
         .catch(() => {});
-    } else {
-      addToast('Платежная система на сайте временно приостановлена', 'error');
-      router.replace('/cart');
     }
-  }, [router, addToast]);
+  }, []);
 
   const handleApplyPromo = async () => {
     const code = promoCodeInput.trim();
@@ -199,8 +210,10 @@ export default function CheckoutClient() {
     postalCode: '',
     comment: '',
     deliveryMethod: 'courier',
-    paymentMethod: 'online',
+    paymentMethod: 'kaspi_pay',
   });
+
+  const [lastPaymentMethod, setLastPaymentMethod] = useState<'kaspi_pay' | 'online'>('kaspi_pay');
 
   const [agreements, setAgreements] = useState({
     offer: false,
@@ -256,13 +269,6 @@ export default function CheckoutClient() {
       setFormData(prev => ({ ...prev, deliveryMethod: 'pickup' }));
     }
   }, [courierAvailable, formData.deliveryMethod]);
-
-  // Enforce online payment only (immediate payment required)
-  useEffect(() => {
-    if (formData.paymentMethod !== 'online') {
-      setFormData(prev => ({ ...prev, paymentMethod: 'online' }));
-    }
-  }, [formData.paymentMethod]);
 
   const isTestMode = Boolean(appliedPromo?.isTestMode);
   const testPrice = appliedPromo?.targetPrice ?? 10;
@@ -335,9 +341,74 @@ export default function CheckoutClient() {
       }
     }
 
+    if (formData.paymentMethod === 'kaspi_pay') {
+      setIsSubmitting(true);
+      try {
+        const kaspiOrderId = Math.floor(10000000 + Math.random() * 90000000).toString();
+        const fullAddress = formData.deliveryMethod === 'courier'
+          ? `г. ${formData.city}, ул. ${formData.street}, д. ${formData.house}${formData.apartment ? `, кв. ${formData.apartment}` : ''}${formData.entrance ? `, подъезд ${formData.entrance}` : ''}${formData.postalCode ? `, инд. ${formData.postalCode}` : ''}`
+          : 'Самовывоз: г. Алматы, Car City 1 ярус Подвал';
+
+        const kaspiOrder: Order = {
+          id: kaspiOrderId,
+          invoiceId: kaspiOrderId,
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          status: 'pending',
+          amount: finalPrice,
+          itemsPrice: totalPrice,
+          deliveryCost: calculatedDelivery,
+          deliveryMethod: formData.deliveryMethod as 'courier' | 'pickup',
+          address: fullAddress,
+          city: formData.city || 'Алматы',
+          customer: {
+            name: fullName,
+            phone: formattedPhone,
+            email: formData.email,
+            comment: `ОПЛАТА KASPI PAY (счет на номер ${formattedPhone}). ${isTestMode ? 'ТЕСТОВЫЙ ЗАКАЗ' : (formData.comment || '')}`.trim(),
+          },
+          paymentMethod: 'kaspi_pay',
+          items: items.map((item) => ({
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            image: item.image || (item.images && item.images[0]) || '',
+            article: item.article || item.oem || '',
+            oem: item.oem || item.article || '',
+            brand: item.brand || '',
+          })),
+          userId: user?.uid || null,
+          userAccountDetails: user
+            ? {
+                uid: user.uid,
+                email: user.email || formData.email || null,
+                displayName: user.displayName || fullName || null,
+                phone: user.phoneNumber || formattedPhone || null,
+              }
+            : null,
+          isTestOrder: isTestMode,
+          promoCode: appliedPromo?.code || undefined,
+        };
+
+        await persistOrder(kaspiOrder);
+        setLastOrderId(kaspiOrderId);
+        setLastPaymentMethod('kaspi_pay');
+        setIsSuccess(true);
+        clearCart();
+        addToast('Заказ принят! Менеджер сформирует счет в Kaspi Pay.', 'success');
+      } catch (err: any) {
+        console.error('Kaspi order error:', err);
+        addToast(err?.message || 'Ошибка оформления заказа. Пожалуйста, попробуйте еще раз.', 'error');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     if (formData.paymentMethod === 'online') {
       if (!isTestMode) {
-        addToast('Платежная система на сайте временно приостановлена', 'error');
+        addToast('Онлайн-оплата картой временно на техническом обслуживании. Пожалуйста, выберите оплату через Kaspi Pay.', 'warning');
         return;
       }
       setIsSubmitting(true);
@@ -493,12 +564,39 @@ export default function CheckoutClient() {
   };
 
   if (isSuccess) {
+    const isKaspi = lastPaymentMethod === 'kaspi_pay';
+    const cleanPhone = (formData.phone || '').replace(/\D/g, '');
+    const phoneFormatted = cleanPhone.length === 10 ? `+7${cleanPhone}` : (formData.phone || '');
+    const whatsappKaspiUrl = `https://wa.me/77079194462?text=${encodeURIComponent(
+      `Здравствуйте! Я оформил заказ №${lastOrderId} на сумму ${finalPrice.toLocaleString()} ₸ через Kaspi Pay.\nМой номер для счета Kaspi: ${phoneFormatted}.\nИмя: ${formData.lastName} ${formData.firstName}`
+    )}`;
+
     return (
       <div className={`container ${styles.successState}`}>
-        <CheckCircle size={80} color="var(--color-success)" />
-        <h1>Заказ успешно оформлен!</h1>
-        <p>Ваш заказ №{lastOrderId || Math.floor(Math.random() * 100000)} принят в обработку. Мы свяжемся с вами в ближайшее время.</p>
-        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center' }}>
+        <CheckCircle size={80} color="var(--color-navy)" />
+        <h1>Заказ №{lastOrderId} успешно оформлен!</h1>
+        {isKaspi ? (
+          <div className={styles.kaspiSuccessCard}>
+            <p className={styles.kaspiSuccessLead}>
+              Способ оплаты: <strong>Kaspi Pay</strong> &middot; Сумма к оплате: <strong>{finalPrice.toLocaleString()} ₸</strong>
+            </p>
+            <p className={styles.kaspiSuccessText}>
+              Менеджер магазина Koma Auto сейчас сформирует и выставит удаленный счет на оплату в приложении Kaspi на ваш номер <strong>{phoneFormatted}</strong>.
+            </p>
+            <a
+              href={whatsappKaspiUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.whatsappSuccessBtn}
+            >
+              <WhatsAppIcon size={22} className={styles.whatsappIcon} />
+              <span>Написать в WhatsApp для ускорения счета</span>
+            </a>
+          </div>
+        ) : (
+          <p>Ваш заказ №{lastOrderId} принят в обработку. Мы свяжемся с вами в ближайшее время.</p>
+        )}
+        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '24px' }}>
           <Link href="/profile" className={styles.homeBtn} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
             <Package size={18} />
             Перейти в мои заказы
@@ -750,24 +848,45 @@ export default function CheckoutClient() {
           <div className={styles.section}>
             <h2>4. Способ оплаты</h2>
             <div className={styles.radioGroup}>
-              <label className={styles.radioCard}>
+              <label className={`${styles.radioCard} ${formData.paymentMethod === 'kaspi_pay' ? styles.activeRadioCard : ''}`}>
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  value="kaspi_pay"
+                  checked={formData.paymentMethod === 'kaspi_pay'}
+                  onChange={handleChange}
+                />
+                <div className={styles.radioContent}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className={styles.radioTitle}>Kaspi Pay (Счет в приложении или QR)</span>
+                    <span className={styles.recommendBadge}>Рекомендуем</span>
+                  </div>
+                  <span className={styles.radioDesc}>
+                    Менеджер выставит счет на оплату в приложении Kaspi на ваш номер телефона или отправит Kaspi QR для быстрой оплаты
+                  </span>
+                </div>
+              </label>
+
+              <label className={`${styles.radioCard} ${formData.paymentMethod === 'online' ? styles.activeRadioCard : ''}`}>
                 <input
                   type="radio"
                   name="paymentMethod"
                   value="online"
-                  checked={true}
-                  readOnly
+                  checked={formData.paymentMethod === 'online'}
+                  onChange={handleChange}
                 />
                 <div className={styles.radioContent}>
-                  <span className={styles.radioTitle}>Halyk QR, Kaspi, или картой онлайн</span>
-                  <span className={styles.radioDesc}>Оплата сразу при заказе через защищенный платёжный шлюз ePay</span>
+                  <span className={styles.radioTitle}>Банковской картой онлайн (Halyk ePay)</span>
+                  <span className={styles.radioDesc}>
+                    Visa, Mastercard любого банка через защищенный платёжный шлюз ePay
+                  </span>
                 </div>
               </label>
             </div>
             
             {formData.paymentMethod === 'online' && (
               <div className={styles.securityText}>
-                <Shield size={16} color="var(--color-success)" style={{ minWidth: '16px' }} />
+                <Shield size={16} color="var(--color-navy)" style={{ minWidth: '16px' }} />
                 <span>Оплата производится через защищенный платежный шлюз Halyk ePay с поддержкой технологии 3D Secure</span>
               </div>
             )}
@@ -890,7 +1009,11 @@ export default function CheckoutClient() {
             </div>
 
             <button type="submit" className={styles.submitBtn} disabled={isSubmitting}>
-              {isSubmitting ? 'Подключение к Halyk ePay...' : 'Перейти к оплате'}
+              {isSubmitting 
+                ? 'Оформление заказа...' 
+                : formData.paymentMethod === 'kaspi_pay'
+                ? `Оформить заказ (${finalPrice.toLocaleString()} ₸)`
+                : 'Перейти к оплате'}
             </button>
           </div>
         </div>

@@ -38,7 +38,7 @@ export interface Order {
   address: string;
   city?: string;
   customer: OrderCustomer;
-  paymentMethod: 'online' | 'cash' | 'card_receipt';
+  paymentMethod: 'online' | 'cash' | 'card_receipt' | 'kaspi_pay';
   paymentUrl?: string; // Halyk ePay direct link
   receiptUrl?: string;
   userId?: string | null;

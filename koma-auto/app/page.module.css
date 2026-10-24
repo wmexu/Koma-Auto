@@ -255,22 +255,8 @@
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.consultationPhonePrefix {
-  position: absolute;
-  left: 56px;
-  font-size: 18px;
-  font-weight: 500;
-  color: #9CA3AF;
-  user-select: none;
-  pointer-events: none;
-}
-
-.phoneInfoInput {
-  padding-left: 86px !important;
-}
-
 .infoInput::placeholder {
-  color: #c7c7c7;
+  color: #9CA3AF;
   font-weight: 500;
 }
 
@@ -539,15 +525,6 @@
   .infoInput {
     padding: 14px 14px 14px 48px;
     font-size: 14px;
-  }
-
-  .consultationPhonePrefix {
-    left: 44px;
-    font-size: 14px;
-  }
-
-  .phoneInfoInput {
-    padding-left: 70px !important;
   }
 
   .inputIcon {

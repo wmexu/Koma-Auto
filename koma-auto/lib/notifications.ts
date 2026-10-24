@@ -39,7 +39,18 @@ export function formatOrderReport(order: Order): string {
   const commentStr = order.isTestOrder ? 'ТЕСТОВЫЙ ЗАКАЗ. ИГНОРИРУЙТЕ' : (order.customer.comment || 'Нет');
   const totalLabel = order.status === 'paid' ? 'ИТОГО ОПЛАЧЕНО' : 'ИТОГО К ОПЛАТЕ';
 
+  const paymentMethodLabel = order.paymentMethod === 'kaspi_pay'
+    ? 'Kaspi Pay (Удаленный счет / Kaspi QR)'
+    : order.paymentMethod === 'online'
+    ? 'Онлайн-оплата (Halyk ePay)'
+    : order.paymentMethod === 'cash'
+    ? 'Наличными при получении'
+    : 'Банковской картой при получении';
+
   return `ЗАКАЗ №${order.id}: ${statusLabel}
+
+Оплата:
+• Способ: ${paymentMethodLabel}
 
 Клиент:
 • Имя в заказе: ${order.customer.name}

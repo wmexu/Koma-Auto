@@ -148,8 +148,8 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
 
   const limit = Math.min(params.limit || 36, 100);
   const offset = params.offset || 0;
-  const search = (params.search || '').trim();
-  const cleanSearch = search.replace(/[\s\-\.]/g, '').toUpperCase();
+  const search = (params.search || '').trim().slice(0, 100);
+  const cleanSearch = search.replace(/[\s\-_.\/\\,]/g, '').toUpperCase();
 
   try {
     let whereConditions = [];
@@ -173,9 +173,17 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
 
     if (search) {
       const searchPattern = `%${search}%`;
-      const oemPattern = `%${cleanSearch}%`;
+      const oemPattern = cleanSearch ? `%${cleanSearch}%` : searchPattern;
       whereConditions.push(
-        sql`(title ILIKE ${searchPattern} OR clean_oem_number ILIKE ${oemPattern} OR brand ILIKE ${searchPattern} OR compatibility::text ILIKE ${searchPattern})`
+        sql`(
+          title ILIKE ${searchPattern}
+          OR clean_oem_number ILIKE ${oemPattern}
+          OR original_oem ILIKE ${searchPattern}
+          OR regexp_replace(original_oem, '[\\s\\-_\\./]', '', 'g') ILIKE ${oemPattern}
+          OR regexp_replace(title, '[\\s\\-_\\./]', '', 'g') ILIKE ${oemPattern}
+          OR brand ILIKE ${searchPattern}
+          OR compatibility::text ILIKE ${searchPattern}
+        )`
       );
     }
 

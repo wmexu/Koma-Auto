@@ -25,24 +25,79 @@ export default function HomeConsultationForm() {
     return '';
   };
 
+  const handlePhoneFocus = () => {
+    if (!phone || phone.trim() === '') {
+      setPhone('+7 ');
+    }
+  };
+
+  const handlePhoneBlur = () => {
+    const digitsOnly = phone.replace(/\D/g, '');
+    if (digitsOnly.length <= 1) {
+      setPhone('');
+    }
+  };
+
+  const handlePhoneClick = (e: React.MouseEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    if (input.selectionStart !== null && input.selectionStart < 3 && phone.startsWith('+7 ')) {
+      input.setSelectionRange(phone.length, phone.length);
+    }
+  };
+
+  const handlePhoneKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const start = input.selectionStart ?? 0;
+    const end = input.selectionEnd ?? 0;
+
+    if (e.key === 'Backspace') {
+      if (start <= 3 && end <= 3) {
+        e.preventDefault();
+        return;
+      }
+      if (start < 3 && end > 3) {
+        e.preventDefault();
+        setPhone('+7 ');
+        return;
+      }
+    }
+
+    if (e.key === 'Delete') {
+      if (start < 3 && end <= 3) {
+        e.preventDefault();
+        return;
+      }
+      if (start < 3 && end > 3) {
+        e.preventDefault();
+        setPhone('+7 ');
+        return;
+      }
+    }
+  };
+
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let digits = e.target.value.replace(/\D/g, '');
-    if ((digits.startsWith('7') || digits.startsWith('8')) && digits.length > 10) {
+    let raw = e.target.value;
+    let digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('7') || digits.startsWith('8')) {
       digits = digits.slice(1);
     }
     digits = digits.slice(0, 10);
 
-    let formatted = '';
     if (digits.length === 0) {
-      formatted = '';
-    } else if (digits.length <= 3) {
-      formatted = `(${digits}`;
+      setPhone('+7 ');
+      if (errors.phone) setErrors(prev => ({ ...prev, phone: undefined }));
+      return;
+    }
+
+    let formatted = '+7 ';
+    if (digits.length <= 3) {
+      formatted += digits;
     } else if (digits.length <= 6) {
-      formatted = `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+      formatted += `${digits.slice(0, 3)} ${digits.slice(3)}`;
     } else if (digits.length <= 8) {
-      formatted = `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+      formatted += `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
     } else {
-      formatted = `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 8)}-${digits.slice(8, 10)}`;
+      formatted += `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 8)} ${digits.slice(8, 10)}`;
     }
 
     setPhone(formatted);
@@ -72,10 +127,10 @@ export default function HomeConsultationForm() {
     let hasEmptyFields = false;
 
     const trimmedName = name.trim();
-    const cleanDigits = phone.replace(/\D/g, '');
+    const digitsAfterSeven = phone.replace(/\D/g, '').slice(1);
 
     if (!trimmedName) { newErrors.name = 'Заполните это поле'; hasEmptyFields = true; }
-    if (!cleanDigits) { newErrors.phone = 'Заполните это поле'; hasEmptyFields = true; }
+    if (!digitsAfterSeven || digitsAfterSeven.length === 0) { newErrors.phone = 'Заполните это поле'; hasEmptyFields = true; }
     if (!vin.trim()) { newErrors.vin = 'Заполните это поле'; hasEmptyFields = true; }
 
     if (trimmedName) {
@@ -83,7 +138,7 @@ export default function HomeConsultationForm() {
       if (nameError) newErrors.name = nameError;
     }
 
-    if (cleanDigits && cleanDigits.length < 10) {
+    if (digitsAfterSeven && digitsAfterSeven.length < 10) {
       newErrors.phone = 'Введите полный номер телефона';
     }
 
@@ -113,9 +168,7 @@ export default function HomeConsultationForm() {
         clientInfo = `Клиент: ${typeStr}\nИмя и Фамилия: ${userProfile?.name || trimmedName}\nДата рождения: ${dobStr}\nДата регистрации: ${createdAtStr}\nEmail адрес: ${user.email}`;
       }
 
-      const fullPhone = cleanDigits.length === 10
-        ? `+7${cleanDigits}`
-        : (phone.startsWith('+') ? phone : `+7${cleanDigits}`);
+      const fullPhone = `+7${digitsAfterSeven}`;
 
       const response = await fetch('/api/consultation', {
         method: 'POST',
@@ -189,12 +242,15 @@ export default function HomeConsultationForm() {
           <div>
             <div className={styles.inputWrapper} style={getErrorStyle(errors.phone)}>
               <Phone size={32} className={styles.inputIcon} color={getIconColor(errors.phone)} />
-              <span className={styles.consultationPhonePrefix}>+7</span>
               <input 
                 type="tel" 
-                placeholder="(707) 000-00-00" 
-                className={`${styles.infoInput} ${styles.phoneInfoInput}`} 
+                placeholder="Введите номер телефона" 
+                className={styles.infoInput} 
                 value={phone}
+                onFocus={handlePhoneFocus}
+                onBlur={handlePhoneBlur}
+                onClick={handlePhoneClick}
+                onKeyDown={handlePhoneKeyDown}
                 onChange={handlePhoneChange}
                 required
                 style={errors.phone ? { backgroundColor: 'transparent', color: '#e53e3e' } : {}}
