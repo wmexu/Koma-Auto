@@ -210,10 +210,11 @@ export default function CheckoutClient() {
     postalCode: '',
     comment: '',
     deliveryMethod: 'courier',
-    paymentMethod: 'kaspi_pay',
+    paymentMethod: 'online',
   });
 
-  const [lastPaymentMethod, setLastPaymentMethod] = useState<'kaspi_pay' | 'online'>('kaspi_pay');
+  const [lastPaymentMethod, setLastPaymentMethod] = useState<'kaspi_pay' | 'online'>('online');
+  const [isPhoneFocused, setIsPhoneFocused] = useState(false);
 
   const [agreements, setAgreements] = useState({
     offer: false,
@@ -408,7 +409,7 @@ export default function CheckoutClient() {
 
     if (formData.paymentMethod === 'online') {
       if (!isTestMode) {
-        addToast('Онлайн-оплата картой временно на техническом обслуживании. Пожалуйста, выберите оплату через Kaspi Pay.', 'warning');
+        addToast('Онлайн-оплата картой временно на техническом обслуживании.', 'warning');
         return;
       }
       setIsSubmitting(true);
@@ -661,12 +662,16 @@ export default function CheckoutClient() {
               <div className={styles.inputGroup}>
                 <label className={errors.phone ? styles.labelError : ''}>Телефон *</label>
                 <div className={`${styles.phoneInputContainer} ${errors.phone ? styles.inputError : ''}`}>
-                  <span className={styles.phonePrefix}>+7</span>
+                  <span className={`${styles.phonePrefix} ${(isPhoneFocused || Boolean(formData.phone)) ? styles.phonePrefixActive : ''}`}>
+                    +7
+                  </span>
                   <input 
                     required 
                     type="tel" 
                     name="phone" 
                     value={formData.phone} 
+                    onFocus={() => setIsPhoneFocused(true)}
+                    onBlur={() => setIsPhoneFocused(false)}
                     onChange={handlePhoneChange} 
                     placeholder="(707) 000-00-00"
                     className={styles.phoneInput}
@@ -848,25 +853,6 @@ export default function CheckoutClient() {
           <div className={styles.section}>
             <h2>4. Способ оплаты</h2>
             <div className={styles.radioGroup}>
-              <label className={`${styles.radioCard} ${formData.paymentMethod === 'kaspi_pay' ? styles.activeRadioCard : ''}`}>
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  value="kaspi_pay"
-                  checked={formData.paymentMethod === 'kaspi_pay'}
-                  onChange={handleChange}
-                />
-                <div className={styles.radioContent}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span className={styles.radioTitle}>Kaspi Pay (Счет в приложении или QR)</span>
-                    <span className={styles.recommendBadge}>Рекомендуем</span>
-                  </div>
-                  <span className={styles.radioDesc}>
-                    Менеджер выставит счет на оплату в приложении Kaspi на ваш номер телефона или отправит Kaspi QR для быстрой оплаты
-                  </span>
-                </div>
-              </label>
-
               <label className={`${styles.radioCard} ${formData.paymentMethod === 'online' ? styles.activeRadioCard : ''}`}>
                 <input
                   type="radio"
@@ -876,9 +862,25 @@ export default function CheckoutClient() {
                   onChange={handleChange}
                 />
                 <div className={styles.radioContent}>
-                  <span className={styles.radioTitle}>Банковской картой онлайн (Halyk ePay)</span>
+                  <span className={styles.radioTitle}>Halyk QR, или картой онлайн</span>
                   <span className={styles.radioDesc}>
-                    Visa, Mastercard любого банка через защищенный платёжный шлюз ePay
+                    Оплата сразу при заказе через защищенный платёжный шлюз ePay
+                  </span>
+                </div>
+              </label>
+
+              <label className={`${styles.radioCard} ${formData.paymentMethod === 'kaspi_pay' ? styles.activeRadioCard : ''}`}>
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  value="kaspi_pay"
+                  checked={formData.paymentMethod === 'kaspi_pay'}
+                  onChange={handleChange}
+                />
+                <div className={styles.radioContent}>
+                  <span className={styles.radioTitle}>Kaspi Pay</span>
+                  <span className={styles.radioDesc}>
+                    Дистанционная оплата по номеру телефона
                   </span>
                 </div>
               </label>
