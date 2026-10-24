@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { Order } from '@/lib/order-types';
-import { syncOrderToMoySklad } from '@/lib/moysklad-order';
+import { syncOrderToMoySklad, markMoySkladOrderCancelled } from '@/lib/moysklad-order';
 import { verifyEpayPayment } from '@/lib/epay-refund';
 
 export async function POST(request: Request) {
@@ -135,6 +135,7 @@ export async function POST(request: Request) {
         try {
           const orderRef = doc(db, 'orders', invoiceId);
           await updateDoc(orderRef, { status: 'declined' }).catch(() => {});
+          await markMoySkladOrderCancelled(invoiceId, 'Оплата не прошла');
         } catch (e) {
           // ignore
         }

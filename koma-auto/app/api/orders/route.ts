@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { Order, OrderStatus } from '@/lib/order-types';
-import { createMoySkladOrder, notifyMoySkladOrderPaid } from '@/lib/moysklad-order';
+import { createMoySkladOrder, notifyMoySkladOrderPaid, markMoySkladOrderCancelled } from '@/lib/moysklad-order';
 import { verifyEpayPayment } from '@/lib/epay-refund';
 
 export async function POST(request: Request) {
@@ -132,6 +132,14 @@ export async function PATCH(request: Request) {
     }
 
     // 2. Security Check: If client attempts to set status to 'paid', verify with Halyk ePay bank API first!
+    if (status === 'declined') {
+      try {
+        await markMoySkladOrderCancelled(orderId, 'Оплата не прошла');
+      } catch (e) {
+        console.warn('Failed to mark MoySklad order as cancelled:', e);
+      }
+    }
+
     if (status === 'paid') {
       const epayCheck = await verifyEpayPayment(orderId);
       if (!epayCheck.paid) {

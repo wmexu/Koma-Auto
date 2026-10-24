@@ -40,14 +40,15 @@ export function formatOrderReport(order: Order): string {
   const totalLabel = order.status === 'paid' ? 'ИТОГО ОПЛАЧЕНО' : 'ИТОГО К ОПЛАТЕ';
 
   const paymentMethodLabel = order.paymentMethod === 'kaspi_pay'
-    ? 'Kaspi Pay (Удаленный счет / Kaspi QR)'
+    ? 'Kaspi Pay (Дистанционная оплата по номеру телефона)'
     : order.paymentMethod === 'online'
     ? 'Онлайн-оплата (Halyk ePay)'
     : order.paymentMethod === 'cash'
     ? 'Наличными при получении'
     : 'Банковской картой при получении';
 
-  return `ЗАКАЗ №${order.id}: ${statusLabel}
+  const kaspiPhonePrefix = order.paymentMethod === 'kaspi_pay' ? `Номер телефона для отправки платежа Kaspi: ${order.kaspiPhone || order.customer.phone}\n\n` : '';
+  return `${kaspiPhonePrefix}ЗАКАЗ №${order.id}: ${statusLabel}
 
 Оплата:
 • Способ: ${paymentMethodLabel}

@@ -22,6 +22,7 @@ const TEST_ORDER_SERVICE_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/se
 // CustomerOrder States in MoySklad
 const STATE_NEW_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/customerorder/metadata/states/79218f4f-4aa7-11f1-0a80-1ac70019f4ef'; // Новый
 const STATE_CONFIRMED_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/customerorder/metadata/states/79219082-4aa7-11f1-0a80-1ac70019f4f0'; // Подтвержден
+const STATE_CANCELLED_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/customerorder/metadata/states/79219399-4aa7-11f1-0a80-1ac70019f4f5'; // Отменен
 
 function getGetHeaders() {
   return {
@@ -490,4 +491,58 @@ export async function syncOrderToMoySklad(order: Order) {
     return notifyMoySkladOrderPaid(order);
   }
   return createMoySkladOrder(order);
+}
+
+/**
+ * Updates order state to "Отменен" with description "Оплата не прошла" in MoySklad
+ */
+export async function markMoySkladOrderCancelled(orderId: string, reason: string = 'Оплата не прошла'): Promise<boolean> {
+  if (!TOKEN) {
+    console.warn('[MoySklad] MOYSKLAD_TOKEN is missing, cannot cancel order');
+    return false;
+  }
+
+  try {
+    const cleanId = orderId.replace(/^№\s*/, '').trim();
+    const searchRes = await fetch(
+      `${API_URL}/entity/customerorder?filter=name~=${encodeURIComponent(cleanId)}&limit=1`,
+      { headers: getGetHeaders() }
+    );
+
+    if (!searchRes.ok) return false;
+    const searchData = await searchRes.json();
+    if (!searchData.rows || searchData.rows.length === 0) {
+      console.warn(`[MoySklad Cancel] Order #${cleanId} not found in MoySklad to cancel`);
+      return false;
+    }
+
+    const msOrder = searchData.rows[0];
+    const prevDesc = msOrder.description || '';
+    const newDesc = prevDesc
+      ? `[ОТМЕНА: ${reason}]\r\n${prevDesc}`
+      : `Оплата не прошла: ${reason}`;
+
+    const updateRes = await fetch(msOrder.meta.href, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        state: {
+          meta: {
+            href: STATE_CANCELLED_HREF,
+            type: 'state',
+            mediaType: 'application/json',
+          },
+        },
+        description: newDesc,
+      }),
+    });
+
+    if (updateRes.ok) {
+      console.log(`[MoySklad] Order #${cleanId} state updated to "Отменен" ("${reason}")`);
+      return true;
+    }
+  } catch (err) {
+    console.error(`[MoySklad] Error cancelling order #${orderId}:`, err);
+  }
+  return false;
 }

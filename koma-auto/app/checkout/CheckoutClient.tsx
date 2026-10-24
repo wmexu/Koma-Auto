@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Script from 'next/script';
 import Link from 'next/link';
-import { CheckCircle, Shield, Package, AlertTriangle } from 'lucide-react';
+import { CheckCircle, Shield, Package, AlertTriangle, Smartphone, X } from 'lucide-react';
 import { useCartStore } from '../../store/useCartStore';
 import { useToastStore } from '../../store/useToastStore';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -215,6 +215,28 @@ export default function CheckoutClient() {
 
   const [lastPaymentMethod, setLastPaymentMethod] = useState<'kaspi_pay' | 'online'>('online');
   const [isPhoneFocused, setIsPhoneFocused] = useState(false);
+  const [customKaspiPhone, setCustomKaspiPhone] = useState<string>('');
+  const [isKaspiModalOpen, setIsKaspiModalOpen] = useState(false);
+  const [kaspiModalPhone, setKaspiModalPhone] = useState('');
+  const [isKaspiModalFocused, setIsKaspiModalFocused] = useState(false);
+
+  const handleOpenKaspiModal = () => {
+    setKaspiModalPhone(customKaspiPhone || formData.phone || '');
+    setIsKaspiModalOpen(true);
+  };
+
+  const handleSaveKaspiPhone = () => {
+    const digits = kaspiModalPhone.replace(/\D/g, '');
+    if (digits.length > 0 && digits.length < 10) {
+      addToast('Пожалуйста, введите полный номер телефона (10 цифр)', 'error');
+      return;
+    }
+    setCustomKaspiPhone(kaspiModalPhone);
+    setIsKaspiModalOpen(false);
+    if (digits.length >= 10) {
+      addToast('Номер телефона для счета Kaspi обновлен', 'success');
+    }
+  };
 
   const [agreements, setAgreements] = useState({
     offer: false,
@@ -288,6 +310,12 @@ export default function CheckoutClient() {
       setErrors((prev) => ({ ...prev, firstName: undefined }));
     }
   };
+
+  const rawKaspi = (customKaspiPhone || formData.phone || '').replace(/\D/g, '');
+  const kaspiFormattedDigits = rawKaspi.length >= 10 ? rawKaspi.slice(-10) : rawKaspi;
+  const displayKaspiPhone = kaspiFormattedDigits.length === 10
+    ? `+7${kaspiFormattedDigits}`
+    : (kaspiFormattedDigits.length > 0 ? `+7${kaspiFormattedDigits}` : '+7 (укажите в контактах)');
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatKazakhPhone(e.target.value);
@@ -366,8 +394,9 @@ export default function CheckoutClient() {
             name: fullName,
             phone: formattedPhone,
             email: formData.email,
-            comment: `ОПЛАТА KASPI PAY (счет на номер ${formattedPhone}). ${isTestMode ? 'ТЕСТОВЫЙ ЗАКАЗ' : (formData.comment || '')}`.trim(),
+            comment: `Номер телефона для отправки платежа Kaspi: ${displayKaspiPhone.startsWith('+7') && !displayKaspiPhone.includes('(') ? displayKaspiPhone : formattedPhone}\r\nЗаказ KASPI PAY (счет на номер ${displayKaspiPhone.startsWith('+7') && !displayKaspiPhone.includes('(') ? displayKaspiPhone : formattedPhone}). ${isTestMode ? 'ТЕСТОВЫЙ ЗАКАЗ' : (formData.comment || '')}`.trim(),
           },
+          kaspiPhone: displayKaspiPhone.startsWith('+7') && !displayKaspiPhone.includes('(') ? displayKaspiPhone : formattedPhone,
           paymentMethod: 'kaspi_pay',
           items: items.map((item) => ({
             id: item.id,
@@ -408,10 +437,6 @@ export default function CheckoutClient() {
     }
 
     if (formData.paymentMethod === 'online') {
-      if (!isTestMode) {
-        addToast('Онлайн-оплата картой временно на техническом обслуживании.', 'warning');
-        return;
-      }
       setIsSubmitting(true);
       try {
         const res = await fetch('/api/epay/create-payment', {
@@ -566,7 +591,7 @@ export default function CheckoutClient() {
 
   if (isSuccess) {
     const isKaspi = lastPaymentMethod === 'kaspi_pay';
-    const cleanPhone = (formData.phone || '').replace(/\D/g, '');
+    const cleanPhone = (customKaspiPhone || formData.phone || '').replace(/\D/g, '');
     const phoneFormatted = cleanPhone.length === 10 ? `+7${cleanPhone}` : (formData.phone || '');
     const whatsappKaspiUrl = `https://wa.me/77079194462?text=${encodeURIComponent(
       `Здравствуйте! Я оформил заказ №${lastOrderId} на сумму ${finalPrice.toLocaleString()} ₸ через Kaspi Pay.\nМой номер для счета Kaspi: ${phoneFormatted}.\nИмя: ${formData.lastName} ${formData.firstName}`
@@ -574,7 +599,7 @@ export default function CheckoutClient() {
 
     return (
       <div className={`container ${styles.successState}`}>
-        <CheckCircle size={80} color="var(--color-navy)" />
+        <CheckCircle size={84} color="var(--color-success)" strokeWidth={2} />
         <h1>Заказ №{lastOrderId} успешно оформлен!</h1>
         {isKaspi ? (
           <div className={styles.kaspiSuccessCard}>
@@ -892,6 +917,24 @@ export default function CheckoutClient() {
                 <span>Оплата производится через защищенный платежный шлюз Halyk ePay с поддержкой технологии 3D Secure</span>
               </div>
             )}
+            
+            {formData.paymentMethod === 'kaspi_pay' && (
+              <div className={styles.kaspiInfoBox}>
+                <Smartphone size={16} color="var(--color-navy)" style={{ minWidth: '16px', marginTop: '2px' }} />
+                <span>
+                  Менеджер Koma Auto выставит счёт на ваш Kaspi счёт. Убедитесь, что номер{' '}
+                  <strong>{displayKaspiPhone}</strong> принадлежит вашему Kaspi счёту, либо вы можете его{' '}
+                  <button
+                    type="button"
+                    onClick={handleOpenKaspiModal}
+                    className={styles.changeKaspiPhoneBtn}
+                  >
+                    Изменить
+                  </button>
+                  .
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1021,6 +1064,51 @@ export default function CheckoutClient() {
         </div>
       </form>
       <Script src="https://epay.homebank.kz/payform/payment-api.js" strategy="afterInteractive" />
+    
+      {isKaspiModalOpen && (
+        <div className={styles.modalOverlay} onClick={() => setIsKaspiModalOpen(false)}>
+          <div className={styles.kaspiModalCard} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.kaspiModalHeader}>
+              <h3 className={styles.kaspiModalTitle}>Номер телефона привязанного к вашему Kaspi Gold</h3>
+              <button
+                type="button"
+                className={styles.kaspiModalCloseBtn}
+                onClick={() => setIsKaspiModalOpen(false)}
+                aria-label="Закрыть"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <p className={styles.kaspiModalSub}>
+              Укажите номер телефона, на который менеджер выставит счет в приложении Kaspi Pay.
+            </p>
+            <div className={styles.phoneInputContainer}>
+              <span className={`${styles.phonePrefix} ${(isKaspiModalFocused || Boolean(kaspiModalPhone)) ? styles.phonePrefixActive : ''}`}>
+                +7
+              </span>
+              <input
+                type="tel"
+                value={kaspiModalPhone}
+                onFocus={() => setIsKaspiModalFocused(true)}
+                onBlur={() => setIsKaspiModalFocused(false)}
+                onChange={(e) => setKaspiModalPhone(formatKazakhPhone(e.target.value))}
+                placeholder="(707) 000-00-00"
+                className={styles.phoneInput}
+                autoFocus
+              />
+            </div>
+            <div className={styles.kaspiModalActions}>
+              <button
+                type="button"
+                onClick={handleSaveKaspiPhone}
+                className={styles.kaspiModalSubmitBtn}
+              >
+                Отправить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
