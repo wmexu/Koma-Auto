@@ -55,6 +55,16 @@ export async function GET(request: Request) {
     const orderId = searchParams.get('orderId');
 
     if (orderId) {
+      // Require admin authorization for direct lookup of customer order data by ID
+      const authHeader = request.headers.get('authorization');
+      const customKey = request.headers.get('x-admin-key');
+      const adminKey = process.env.ADMIN_SECRET_KEY;
+      const providedKey = customKey || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null);
+
+      if (!adminKey || providedKey !== adminKey) {
+        return NextResponse.json({ error: 'Доступ ограничен: требуются права администратора' }, { status: 403 });
+      }
+
       const docSnap = await getDoc(doc(db, 'orders', orderId));
       if (!docSnap.exists()) {
         return NextResponse.json({ error: 'Заказ не найден' }, { status: 404 });
