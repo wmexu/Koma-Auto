@@ -248,7 +248,7 @@ export default function ProductDetails({ id }: { id: string }) {
             tier: 1,
             price: product.price,
             oldPrice: product.oldPrice,
-            stock: product.inStock ? 1 : 0,
+            stock: product.stock ?? (product.inStock ? 1 : 0),
             inStock: product.inStock,
             images: product.images,
             image: product.image,
@@ -261,10 +261,15 @@ export default function ProductDetails({ id }: { id: string }) {
   const activeVariant: ProductVariant =
     effectiveVariants.find((v) => v.id === selectedVariantId) || effectiveVariants[0];
 
+  const availableStock = Math.max(
+    0,
+    activeVariant?.stock ?? product.stock ?? (activeVariant?.inStock || product.inStock ? 1 : 0)
+  );
+
   const displayOem = activeVariant?.oem || product.oem || product.article || '';
   const currentPrice = activeVariant ? activeVariant.price : product.price;
   const currentOldPrice = activeVariant ? activeVariant.oldPrice : product.oldPrice;
-  const isItemInStock = activeVariant ? activeVariant.inStock : product.inStock;
+  const isItemInStock = Boolean((activeVariant ? activeVariant.inStock : product.inStock) && availableStock > 0);
   const displayBrand = activeVariant ? activeVariant.brand : product.brand;
 
   const displayPrice = currentPrice * quantity;
@@ -272,7 +277,17 @@ export default function ProductDetails({ id }: { id: string }) {
 
   const favorite = isFavorite(activeVariant ? activeVariant.id : product.id);
 
+  useEffect(() => {
+    if (availableStock > 0 && quantity > availableStock) {
+      setQuantity(availableStock);
+    }
+  }, [availableStock, quantity]);
+
   const handleAddToCart = () => {
+    if (!isItemInStock || availableStock <= 0) {
+      addToast('Товара нет в наличии', 'error');
+      return;
+    }
     const target = activeVariant || product;
     const itemToAdd: Product = {
       ...product,
@@ -282,13 +297,12 @@ export default function ProductDetails({ id }: { id: string }) {
       brand: target.brand || product.brand,
       price: target.price,
       oldPrice: target.oldPrice,
+      stock: availableStock,
       inStock: target.inStock,
       article: ('oem' in target && target.oem) ? target.oem : (product.oem || product.article),
       oem: ('oem' in target && target.oem) ? target.oem : (product.oem || product.article),
     };
-    for (let i = 0; i < quantity; i++) {
-      addItemToCart(itemToAdd);
-    }
+    addItemToCart(itemToAdd, quantity);
     addToast(`${target.brand} добавлен в корзину`, 'success');
   };
 
@@ -428,8 +442,8 @@ export default function ProductDetails({ id }: { id: string }) {
           <h1 className={styles.title}>{product.name}</h1>
 
           <div className={styles.status}>
-            {isItemInStock ? (
-              <span className={styles.inStock}>В наличии</span>
+            {isItemInStock && availableStock > 0 ? (
+              <span className={styles.inStock}>В наличии: {availableStock} шт.</span>
             ) : (
               <span className={styles.outOfStock}>Нет в наличии</span>
             )}
@@ -484,15 +498,23 @@ export default function ProductDetails({ id }: { id: string }) {
 
           <div className={styles.actions}>
             <div className={styles.quantity}>
-              <button onClick={() => setQuantity(Math.max(1, quantity - 1))}>-</button>
+              <button 
+                type="button"
+                onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                disabled={quantity <= 1 || availableStock <= 0}
+              >-</button>
               <input type="number" value={quantity} readOnly />
-              <button onClick={() => setQuantity(quantity + 1)}>+</button>
+              <button 
+                type="button"
+                onClick={() => setQuantity(Math.min(availableStock, quantity + 1))}
+                disabled={quantity >= availableStock || availableStock <= 0}
+              >+</button>
             </div>
             
             <button
-              className={`${styles.addToCartBtn} ${!isItemInStock ? styles.disabled : ''}`}
+              className={`${styles.addToCartBtn} ${!isItemInStock || availableStock <= 0 ? styles.disabled : ''}`}
               onClick={handleAddToCart}
-              disabled={!isItemInStock}
+              disabled={!isItemInStock || availableStock <= 0}
             >
               <ShoppingCart size={20} />
               В корзину

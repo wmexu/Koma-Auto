@@ -27,6 +27,7 @@ export interface Product {
   minPrice?: number;
   maxPrice?: number;
   oldPrice?: number;
+  stock?: number;
   inStock: boolean;
   category: string;
   image?: string;

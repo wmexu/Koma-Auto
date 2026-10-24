@@ -25,9 +25,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Secure Price Calculation:
+    // Secure Price & Stock Verification:
     // If test order, use strict test promo target price (10, 50, or 100 ₸).
-    // If live order, re-calculate and verify genuine item prices directly from Neon PostgreSQL to prevent client-side tampering.
+    // If live order, verify genuine item prices directly from Neon PostgreSQL and enforce inventory stock limits.
     let effectiveAmount = 0;
 
     if (testPromo) {
@@ -36,11 +36,28 @@ export async function POST(request: Request) {
       if (Array.isArray(items) && items.length > 0) {
         const itemIds = items.map((i: any) => i.id).filter(Boolean);
         const dbProducts = await getProductsByIdsFromDb(itemIds);
-        const priceMap = new Map(dbProducts.map((p) => [p.id, p.price]));
+        const productMap = new Map(dbProducts.map((p) => [p.id, p]));
+
+        // Enforce inventory stock check
+        for (const item of items) {
+          const dbItem = productMap.get(item.id);
+          const requestedQty = Math.max(1, Number(item.quantity) || 1);
+          if (dbItem) {
+            if (dbItem.stock_quantity < requestedQty) {
+              return NextResponse.json(
+                {
+                  error: `Товара "${dbItem.title}" недостаточно на складе Car City. В наличии: ${dbItem.stock_quantity} шт., запрошено: ${requestedQty} шт. Пожалуйста, скорректируйте количество в корзине.`,
+                },
+                { status: 400 }
+              );
+            }
+          }
+        }
 
         let calculatedItemsTotal = 0;
         for (const item of items) {
-          const genuinePrice = priceMap.get(item.id) ?? Number(item.price) ?? 0;
+          const dbItem = productMap.get(item.id);
+          const genuinePrice = dbItem ? dbItem.price : (Number(item.price) || 0);
           const qty = Math.max(1, Number(item.quantity) || 1);
           calculatedItemsTotal += genuinePrice * qty;
         }

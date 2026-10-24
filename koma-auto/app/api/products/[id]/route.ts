@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getProductByIdFromDb } from '@/lib/products-db';
 import { getProduct, mapMoySkladToProduct, getProductVariantsByOem } from '@/lib/moysklad';
 import {
   sortProductVariants,
@@ -15,6 +16,20 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const params = await context.params;
     const { id } = params;
 
+    // 1. High-speed database lookup (<15ms) - Zero MoySklad rate limit consumption
+    try {
+      const dbProduct = await getProductByIdFromDb(id);
+      if (dbProduct) {
+        if (dbProduct.price < 500 && (!dbProduct.variants || dbProduct.variants.length === 0)) {
+          return NextResponse.json({ error: 'Product not available' }, { status: 404 });
+        }
+        return NextResponse.json(dbProduct);
+      }
+    } catch (dbErr) {
+      console.warn('[Product API] Neon DB lookup failed, falling back:', dbErr);
+    }
+
+    // 2. Fallback to direct MoySklad API only if DB misses
     const productRes = await getProduct(id);
     const mappedProduct = mapMoySkladToProduct(productRes);
 
@@ -49,7 +64,6 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
             })
             .filter((v) => !isBrandBlacklisted(v.brand) && v.price >= 500);
 
-          // Ensure current product is included in variants list if not blacklisted and price >= 500
           if (
             !isBrandBlacklisted(mappedProduct.brand) &&
             mappedProduct.price >= 500 &&
@@ -99,7 +113,6 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
           mappedProduct.variants = sortedVariants;
           mappedProduct.availableBrandsCount = sortedVariants.length;
 
-          // Default to first variant (which is highest tier in-stock)
           if (sortedVariants.length > 0) {
             mappedProduct.brand = sortedVariants[0].brand;
             if (mappedProduct.price < 500) {

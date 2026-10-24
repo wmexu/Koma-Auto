@@ -1,5 +1,5 @@
 import { client, isDbConfigured } from '@/db';
-import { Product } from '@/data/products';
+import { Product, ProductVariant } from '@/data/products';
 
 export interface GetProductsDbParams {
   limit?: number;
@@ -18,6 +18,81 @@ export interface GetProductsDbResult {
   hasMore: boolean;
 }
 
+/**
+ * Maps a single PostgreSQL row from `my_sklad_products` into the canonical `Product` structure
+ */
+export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Product {
+  let images: string[] = [];
+  if (Array.isArray(r.images)) {
+    images = r.images;
+  } else if (typeof r.images === 'string') {
+    try {
+      images = JSON.parse(r.images);
+    } catch {
+      // ignore
+    }
+  }
+
+  let compatibility: string[] = [];
+  if (Array.isArray(r.compatibility)) {
+    compatibility = r.compatibility.map((c: any) =>
+      typeof c === 'string' ? c : `${c.make} ${c.model}${c.years ? ` (${c.years})` : ''}`
+    );
+  }
+
+  let specs: Record<string, string> = {};
+  if (r.specs && typeof r.specs === 'object') {
+    specs = r.specs;
+  }
+
+  const price = Number(r.price) || 0;
+  const oldPrice = r.old_price ? Number(r.old_price) : undefined;
+  const stock = Number(r.stock_quantity) || 0;
+
+  const defaultVariant: ProductVariant = {
+    id: r.id,
+    name: r.title,
+    code: r.original_oem || '',
+    oem: r.clean_oem_number || '',
+    brand: r.brand || 'Koma Auto',
+    tier: 1,
+    price,
+    oldPrice,
+    stock,
+    inStock: Boolean(r.in_stock),
+    image: r.image || (images.length > 0 ? images[0] : ''),
+    images,
+    article: r.clean_oem_number || r.original_oem || '',
+    description: r.description || '',
+  };
+
+  const finalVariants = variants.length > 0 ? variants : [defaultVariant];
+
+  return {
+    id: r.id,
+    moySkladId: r.id,
+    article: r.clean_oem_number || r.original_oem || '',
+    oem: r.clean_oem_number || '',
+    brand: r.brand || 'Koma Auto',
+    name: r.title,
+    price,
+    oldPrice,
+    stock,
+    inStock: Boolean(r.in_stock),
+    category: r.category || 'Автозапчасти',
+    image: r.image || (images.length > 0 ? images[0] : ''),
+    images,
+    specs,
+    compatibility,
+    description: r.description || '',
+    variants: finalVariants,
+    availableBrandsCount: finalVariants.length,
+  };
+}
+
+/**
+ * Fast catalog and search queries (<15ms)
+ */
 export async function getProductsFromDb(params: GetProductsDbParams): Promise<GetProductsDbResult | null> {
   const sql = client;
   if (!isDbConfigured() || !sql) {
@@ -41,6 +116,10 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
 
     if (params.brand) {
       whereConditions.push(sql`brand ILIKE ${params.brand}`);
+    }
+
+    if (params.category) {
+      whereConditions.push(sql`category ILIKE ${'%' + params.category + '%'}`);
     }
 
     if (search) {
@@ -70,69 +149,7 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
       LIMIT ${limit} OFFSET ${offset};
     `;
 
-    const products: Product[] = rows.map((r: any) => {
-      let images: string[] = [];
-      if (Array.isArray(r.images)) {
-        images = r.images;
-      } else if (typeof r.images === 'string') {
-        try {
-          images = JSON.parse(r.images);
-        } catch {
-          // ignore
-        }
-      }
-
-      let compatibility: string[] = [];
-      if (Array.isArray(r.compatibility)) {
-        compatibility = r.compatibility.map((c: any) =>
-          typeof c === 'string' ? c : `${c.make} ${c.model}${c.years ? ` (${c.years})` : ''}`
-        );
-      }
-
-      let specs: Record<string, string> = {};
-      if (r.specs && typeof r.specs === 'object') {
-        specs = r.specs;
-      }
-
-      const price = Number(r.price) || 0;
-      const oldPrice = r.old_price ? Number(r.old_price) : undefined;
-
-      return {
-        id: r.id,
-        moySkladId: r.id,
-        article: r.clean_oem_number || r.original_oem || '',
-        oem: r.clean_oem_number || '',
-        brand: r.brand || 'Koma Auto',
-        name: r.title,
-        price,
-        oldPrice,
-        inStock: r.in_stock,
-        category: r.category || 'Автозапчасти',
-        image: r.image || (images.length > 0 ? images[0] : ''),
-        images,
-        specs,
-        compatibility,
-        description: r.description || '',
-        variants: [
-          {
-            id: r.id,
-            name: r.title,
-            code: r.original_oem || '',
-            oem: r.clean_oem_number || '',
-            brand: r.brand || 'Koma Auto',
-            tier: 1,
-            price,
-            oldPrice,
-            stock: r.stock_quantity || 1,
-            inStock: r.in_stock,
-            image: r.image,
-            images,
-            article: r.clean_oem_number,
-          },
-        ],
-        availableBrandsCount: 1,
-      };
-    });
+    const products: Product[] = rows.map((r: any) => mapDbRowToProduct(r));
 
     return {
       products,
@@ -148,14 +165,126 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
 }
 
 /**
- * Fast batch lookup by IDs for price and inventory re-verification (e.g. at checkout)
+ * Fetch all brand variants sharing the same clean OEM number
  */
-export async function getProductsByIdsFromDb(ids: string[]): Promise<Array<{ id: string; price: number; title: string }>> {
+export async function getVariantsByOemFromDb(cleanOem: string): Promise<ProductVariant[]> {
+  const sql = client;
+  if (!isDbConfigured() || !sql || !cleanOem) return [];
+  try {
+    const rows = await sql`
+      SELECT id, title, brand, clean_oem_number, original_oem, price, old_price, stock_quantity, in_stock, image, images, description
+      FROM my_sklad_products
+      WHERE clean_oem_number = ${cleanOem} AND price >= 500
+      ORDER BY in_stock DESC, price ASC;
+    `;
+    return rows.map((r: any) => {
+      let images: string[] = [];
+      if (Array.isArray(r.images)) images = r.images;
+      else if (typeof r.images === 'string') {
+        try { images = JSON.parse(r.images); } catch {}
+      }
+      return {
+        id: r.id,
+        moySkladId: r.id,
+        name: r.title,
+        code: r.original_oem || '',
+        oem: r.clean_oem_number,
+        brand: r.brand || 'Koma Auto',
+        tier: 1,
+        price: Number(r.price) || 0,
+        oldPrice: r.old_price ? Number(r.old_price) : undefined,
+        stock: Number(r.stock_quantity) || 0,
+        inStock: Boolean(r.in_stock),
+        image: r.image || (images.length > 0 ? images[0] : ''),
+        images,
+        article: r.clean_oem_number,
+        description: r.description || '',
+      };
+    });
+  } catch (err) {
+    console.error('[DB] Error querying variants by OEM:', err);
+    return [];
+  }
+}
+
+/**
+ * Fast single product query by ID with all OEM brand variants (<15ms)
+ */
+export async function getProductByIdFromDb(id: string): Promise<Product | null> {
+  const sql = client;
+  if (!isDbConfigured() || !sql || !id) return null;
+  try {
+    const rows = await sql`
+      SELECT * FROM my_sklad_products WHERE id = ${id} LIMIT 1;
+    `;
+    if (!rows || rows.length === 0) return null;
+    const r = rows[0];
+
+    // Fetch sibling variants sharing the same clean OEM
+    let variants: ProductVariant[] = [];
+    if (r.clean_oem_number && r.clean_oem_number.length >= 4) {
+      variants = await getVariantsByOemFromDb(r.clean_oem_number);
+    }
+
+    return mapDbRowToProduct(r, variants);
+  } catch (err) {
+    console.error('[DB] Error querying product by id:', err);
+    return null;
+  }
+}
+
+/**
+ * Fast batch lookup of full products (e.g. for Cart)
+ */
+export async function getBatchProductsFromDb(ids: string[]): Promise<Product[]> {
   const sql = client;
   if (!isDbConfigured() || !sql || ids.length === 0) return [];
   try {
     const rows = await sql`
-      SELECT id, price, title 
+      SELECT * FROM my_sklad_products 
+      WHERE id IN ${sql(ids)} AND price >= 500;
+    `;
+    return rows.map((r: any) => mapDbRowToProduct(r));
+  } catch (err) {
+    console.error('[DB] Error querying batch products:', err);
+    return [];
+  }
+}
+
+/**
+ * Fast categories query directly from Neon (<10ms)
+ */
+export async function getCategoriesFromDb(): Promise<Array<{ id: string; name: string; count: number }>> {
+  const sql = client;
+  if (!isDbConfigured() || !sql) return [];
+  try {
+    const rows = await sql`
+      SELECT category as name, count(*)::int as count
+      FROM my_sklad_products
+      WHERE category IS NOT NULL AND category != ''
+      GROUP BY category
+      ORDER BY count DESC;
+    `;
+    return rows.map((r: any, idx: number) => ({
+      id: String(idx + 1),
+      name: r.name,
+      count: r.count,
+    }));
+  } catch (err) {
+    console.error('[DB] Error querying categories:', err);
+    return [];
+  }
+}
+
+/**
+ * Fast batch lookup by IDs for price and inventory re-verification (e.g. at checkout)
+ */
+export async function getProductsByIdsFromDb(ids: string[]): Promise<Array<{ id: string; price: number; title: string; stock_quantity: number; in_stock: boolean }>> {
+  const sql = client;
+  if (!isDbConfigured() || !sql || ids.length === 0) return [];
+  try {
+    const rows = await sql`
+      SELECT id, price, title, stock_quantity, in_stock
       FROM my_sklad_products 
       WHERE id IN ${sql(ids)}
     `;
@@ -163,6 +292,8 @@ export async function getProductsByIdsFromDb(ids: string[]): Promise<Array<{ id:
       id: r.id,
       price: Number(r.price) || 0,
       title: r.title,
+      stock_quantity: Number(r.stock_quantity) || 0,
+      in_stock: Boolean(r.in_stock),
     }));
   } catch (err) {
     console.error('[DB] Error querying products by ids:', err);

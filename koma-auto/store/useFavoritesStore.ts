@@ -20,7 +20,7 @@ export const useFavoritesStore = create<FavoritesState>()(
           if (isExist) {
             return { items: state.items.filter((item) => item.id !== product.id) };
           }
-          return { items: [...state.items, product] };
+          return { items: [product, ...state.items] };
         });
       },
       isFavorite: (productId) => {

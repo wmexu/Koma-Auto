@@ -24,6 +24,10 @@ export default function ProductCard({ product }: ProductCardProps) {
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (!product.inStock || (product.stock !== undefined && product.stock <= 0)) {
+      addToast('Товара нет в наличии', 'error');
+      return;
+    }
     addItemToCart(product);
     addToast('Товар добавлен в корзину', 'success');
   };

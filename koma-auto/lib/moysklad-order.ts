@@ -23,10 +23,19 @@ const TEST_ORDER_SERVICE_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/se
 const STATE_NEW_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/customerorder/metadata/states/79218f4f-4aa7-11f1-0a80-1ac70019f4ef'; // Новый
 const STATE_CONFIRMED_HREF = 'https://api.moysklad.ru/api/remap/1.2/entity/customerorder/metadata/states/79219082-4aa7-11f1-0a80-1ac70019f4f0'; // Подтвержден
 
+function getGetHeaders() {
+  return {
+    'Authorization': `Bearer ${TOKEN}`,
+    'Accept': 'application/json;charset=utf-8',
+    'Accept-Encoding': 'gzip',
+  };
+}
+
 function getHeaders() {
   return {
     'Authorization': `Bearer ${TOKEN}`,
     'Content-Type': 'application/json',
+    'Accept': 'application/json;charset=utf-8',
     'Accept-Encoding': 'gzip',
   };
 }
@@ -42,7 +51,7 @@ async function findOrCreateCounterparty(order: Order): Promise<{ href: string; t
     try {
       const searchRes = await fetch(
         `${API_URL}/entity/counterparty?filter=phone~=${encodeURIComponent(searchPhone)}&limit=1`,
-        { headers: getHeaders() }
+        { headers: getGetHeaders() }
       );
       if (searchRes.ok) {
         const searchData = await searchRes.json();
@@ -128,7 +137,7 @@ async function buildOrderPositions(order: Order): Promise<any[]> {
           try {
             const clean = searchCode.replace(/[\s\-\.]/g, '');
             const pRes = await fetch(`${API_URL}/entity/product?filter=code~=${encodeURIComponent(clean)}&limit=1`, {
-              headers: getHeaders(),
+              headers: getGetHeaders(),
             });
             if (pRes.ok) {
               const pData = await pRes.json();
@@ -315,10 +324,16 @@ export async function notifyMoySkladOrderPaid(order: Order): Promise<{
     // 2. Find or create CustomerOrder in MoySklad
     let msOrder: any = null;
     try {
-      const searchRes = await fetch(
-        `${API_URL}/entity/customerorder?filter=name~=${encodeURIComponent(cleanId)}&limit=1`,
-        { headers: getHeaders() }
+      let searchRes = await fetch(
+        `${API_URL}/entity/customerorder?filter=name=${encodeURIComponent(cleanId)}&limit=1`,
+        { headers: getGetHeaders() }
       );
+      if (!searchRes.ok || (await searchRes.clone().json().then((d: any) => !d.rows || d.rows.length === 0).catch(() => true))) {
+        searchRes = await fetch(
+          `${API_URL}/entity/customerorder?filter=name~=${encodeURIComponent(cleanId)}&limit=1`,
+          { headers: getGetHeaders() }
+        );
+      }
       if (searchRes.ok) {
         const searchData = await searchRes.json();
         if (searchData.rows && searchData.rows.length > 0) {
@@ -326,7 +341,7 @@ export async function notifyMoySkladOrderPaid(order: Order): Promise<{
 
           // Update state to confirmed (paid) and update description with payment receipt
           const updatedDescription = formatOrderReport(order).replace(/\r?\n/g, '\r\n');
-          await fetch(msOrder.meta.href, {
+          const putRes = await fetch(msOrder.meta.href, {
             method: 'PUT',
             headers: getHeaders(),
             body: JSON.stringify({
@@ -340,7 +355,16 @@ export async function notifyMoySkladOrderPaid(order: Order): Promise<{
               description: updatedDescription,
             }),
           });
+          if (putRes.ok) {
+            console.log(`[MoySklad] Successfully updated order #${cleanId} status to "Подтвержден"`);
+          } else {
+            console.error(`[MoySklad] Failed to update order state to "Подтвержден":`, await putRes.text());
+          }
+        } else {
+          console.warn(`[MoySklad] CustomerOrder #${cleanId} not found by name`);
         }
+      } else {
+        console.error(`[MoySklad] CustomerOrder search failed with status ${searchRes.status}:`, await searchRes.text());
       }
     } catch (e) {
       console.warn('[MoySklad] Could not search/update order state:', e);

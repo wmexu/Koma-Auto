@@ -253,15 +253,27 @@ export default function CartClient() {
                   <Link href={`/product/${item.id}`} className={styles.itemName}>
                     {item.name}
                   </Link>
-                  <div className={styles.itemMeta}>OEM: {item.oem || item.article} | {item.brand}</div>
+                  <div className={styles.itemMeta}>
+                    OEM: {item.oem || item.article} | {item.brand}
+                    {item.stock !== undefined && (
+                      <span> • В наличии: {item.stock} шт.</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className={styles.itemActions}>
                   <div className={styles.quantity}>
-                    <button onClick={() => updateQuantity(item.id, item.quantity - 1)}>-</button>
+                    <button 
+                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                      disabled={item.quantity <= 1}
+                    >-</button>
                     <input type="number" value={item.quantity} readOnly />
                     <span className={styles.quantityText}>{item.quantity} шт.</span>
-                    <button onClick={() => updateQuantity(item.id, item.quantity + 1)}>+</button>
+                    <button 
+                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                      disabled={item.stock !== undefined && item.quantity >= item.stock}
+                      title={item.stock !== undefined && item.quantity >= item.stock ? `Достигнут максимум на складе (${item.stock} шт.)` : undefined}
+                    >+</button>
                   </div>
                   
                   <div className={styles.itemPrice}>
