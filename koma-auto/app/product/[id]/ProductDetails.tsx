@@ -370,14 +370,40 @@ export default function ProductDetails({
   const displayPrice = (currentPrice || 0) * (quantity || 1);
   const displayOldPrice = currentOldPrice ? currentOldPrice * (quantity || 1) : undefined;
 
-  const whatsappText = `Здравствуйте! Хочу заказать запчасть:
-📦 Название: ${product.name}
-🏷 OEM: ${displayOem || 'Не указан'}
-🏭 Производитель: ${displayBrand || 'Koma Auto'}
-💰 Цена: ${displayPrice.toLocaleString()} ₸
-${typeof window !== 'undefined' ? `🔗 Ссылка: ${window.location.href}` : ''}
+  // Find genuine article (distinct from OEM code)
+  const findArticle = () => {
+    if (product.specs) {
+      for (const [key, val] of Object.entries(product.specs)) {
+        if (key.trim().toLowerCase() === 'артикул' && val) {
+          return val;
+        }
+      }
+    }
+    if (activeVariant && (activeVariant as any).article && (activeVariant as any).article !== displayOem) {
+      return (activeVariant as any).article;
+    }
+    if (product.article && product.article !== displayOem) {
+      return product.article;
+    }
+    return displayOem || 'Не указан';
+  };
+  const displayArticle = findArticle();
 
-Подскажите, пожалуйста, есть ли в наличии и как оформить заказ?`;
+  const brandStr = displayBrand && !product.name.toLowerCase().includes(displayBrand.toLowerCase())
+    ? ` ${displayBrand}`
+    : '';
+  const oemStr = displayOem ? ` (oem. ${displayOem})` : '';
+  const productLine = `${product.name}${brandStr}${oemStr}`;
+  const productUrl = typeof window !== 'undefined' ? window.location.href : `https://koma.com.kz/product/${product.id}`;
+
+  const whatsappText = `Здравствуйте! Хочу уточнить наличие и заказать:
+
+${productLine}
+Цена на сайте: ${displayPrice.toLocaleString()} ₸
+Артикул: ${displayArticle}
+${productUrl}
+
+Подскажите, есть в наличии?`;
   const whatsappUrl = `https://wa.me/77079194462?text=${encodeURIComponent(whatsappText)}`;
 
   const favorite = isFavorite(activeVariant ? activeVariant.id : product.id);
