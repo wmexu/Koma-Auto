@@ -16,18 +16,33 @@ interface DromFitmentModel {
   generations: Array<{ title: string; code?: string }>;
 }
 
-function formatDromCompatibility(compatibility?: string[]): {
+function formatDromCompatibility(compatibility?: any): {
   models: DromFitmentModel[];
   engines: string[];
 } {
-  if (!compatibility || compatibility.length === 0) {
+  if (!compatibility) {
+    return { models: [], engines: [] };
+  }
+
+  let list: string[] = [];
+  if (Array.isArray(compatibility)) {
+    list = compatibility;
+  } else if (typeof compatibility === 'string') {
+    try {
+      const parsed = JSON.parse(compatibility);
+      if (Array.isArray(parsed)) list = parsed;
+      else list = [compatibility];
+    } catch {
+      list = [compatibility];
+    }
+  } else {
     return { models: [], engines: [] };
   }
 
   const modelMap = new Map<string, Array<{ title: string; code?: string }>>();
   const engineSet = new Set<string>();
 
-  for (const raw of compatibility) {
+  for (const raw of list) {
     if (!raw || typeof raw !== 'string') continue;
     const str = raw.trim();
     if (!str) continue;
@@ -92,11 +107,21 @@ function formatDromCompatibility(compatibility?: string[]): {
   return { models, engines: Array.from(engineSet) };
 }
 
-export default function ProductDetails({ id }: { id: string }) {
-  const [product, setProduct] = useState<Product | null>(null);
-  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+export default function ProductDetails({
+  id,
+  initialProduct,
+}: {
+  id: string;
+  initialProduct?: Product | null;
+}) {
+  const [product, setProduct] = useState<Product | null>(initialProduct || null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(
+    initialProduct?.variants?.some((v) => v.id === id)
+      ? id
+      : (initialProduct?.variants?.[0]?.id || id)
+  );
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!initialProduct);
   const [mobileGridColumns, setMobileGridColumns] = useState<1 | 2>(2);
 
   const [activeTab, setActiveTab] = useState('specs');
@@ -111,6 +136,40 @@ export default function ProductDetails({ id }: { id: string }) {
   const { toggleFavorite, isFavorite } = useFavoritesStore();
   const addToast = useToastStore((state) => state.addToast);
 
+  // Compute effective variants safely before any hooks
+  const effectiveVariants: ProductVariant[] =
+    product?.variants && product.variants.length > 0
+      ? product.variants
+      : product
+      ? [
+          {
+            id: product.id,
+            name: product.name,
+            code: product.oem || product.article || '',
+            brand: product.brand || 'Hyundai',
+            tier: 1,
+            price: product.price,
+            oldPrice: product.oldPrice,
+            stock: product.stock ?? (product.inStock ? 1 : 0),
+            inStock: product.inStock,
+            images: product.images,
+            image: product.image,
+            article: product.oem || product.article,
+            oem: product.oem || product.article,
+            description: product.description,
+          },
+        ]
+      : [];
+
+  const activeVariant: ProductVariant | undefined =
+    effectiveVariants.find((v) => v.id === selectedVariantId) || effectiveVariants[0];
+
+  const availableStock = Math.max(
+    0,
+    activeVariant?.stock ?? product?.stock ?? (activeVariant?.inStock || product?.inStock ? 1 : 0)
+  );
+
+  // Hook 1: Saved grid preference from local storage
   useEffect(() => {
     const saved = localStorage.getItem('catalog_grid_pref');
     if (saved === '1' || saved === '2') {
@@ -118,37 +177,49 @@ export default function ProductDetails({ id }: { id: string }) {
     }
   }, []);
 
-  const handleGridChange = (cols: 1 | 2) => {
-    setMobileGridColumns(cols);
-    localStorage.setItem('catalog_grid_pref', cols.toString());
-  };
-
+  // Hook 2: Quantity stock cap (Unconditionally called at top level)
   useEffect(() => {
+    if (availableStock > 0 && quantity > availableStock) {
+      setQuantity(availableStock);
+    }
+  }, [availableStock, quantity]);
+
+  // Hook 3: Product and similar products fetching
+  useEffect(() => {
+    let isCancelled = false;
+
     const fetchProduct = async () => {
       try {
-        setIsLoading(true);
+        if (!initialProduct) {
+          setIsLoading(true);
+        }
         const res = await fetch(`/api/products/${id}`);
         if (!res.ok) {
-          setProduct(null);
+          if (!product && !isCancelled) setProduct(null);
           return;
         }
         const data = await res.json();
         if (!data || data.error || !data.name) {
-          setProduct(null);
+          if (!product && !isCancelled) setProduct(null);
           return;
         }
+        if (isCancelled) return;
         setProduct(data);
 
-        if (data && data.variants && data.variants.length > 0) {
-          setSelectedVariantId(data.variants[0].id);
+        if (data.variants && data.variants.length > 0) {
+          setSelectedVariantId((prev) => {
+            if (prev) return prev;
+            if (data.variants.some((v: any) => v.id === id)) return id;
+            return data.variants[0].id;
+          });
         }
         
-        // Fetch similar products intelligently:
+        // Fetch similar products intelligently
         let foundSimilar: Product[] = [];
         const isCurrentShock = (data.name || '').toLowerCase().includes('амортизатор');
 
         // 1. Try by category if category is valid and not 'other'
-        if (data && data.category && data.category !== 'other') {
+        if (data && data.category && data.category !== 'other' && data.category !== 'Автозапчасти') {
           try {
             const simRes = await fetch(`/api/products?category=${encodeURIComponent(data.category)}&limit=10`);
             const simData = await simRes.json();
@@ -162,7 +233,7 @@ export default function ProductDetails({ id }: { id: string }) {
           }
         }
 
-        // 2. If fewer than 4 items, search by key terms from product name (e.g. "Фильтр", "Свечи", "Датчик")
+        // 2. If fewer than 4 items, search by key terms from product name
         if (foundSimilar.length < 4 && data.name) {
           const cleanName = data.name.replace(/\b(Chevrolet|Hyundai|Kia|Daewoo|GM|UZ)\b/gi, '').trim();
           const words = cleanName.split(/\s+/).filter((w: string) => w.length > 2 && !w.startsWith('(') && !w.endsWith(')'));
@@ -188,7 +259,7 @@ export default function ProductDetails({ id }: { id: string }) {
           }
         }
 
-        // 3. If still fewer than 4, search by brand (e.g. "Hyundai" or "Chevrolet")
+        // 3. If still fewer than 4, search by brand
         if (foundSimilar.length < 4 && data.brand) {
           try {
             const brandRes = await fetch(`/api/products?search=${encodeURIComponent(data.brand)}&limit=15`);
@@ -214,16 +285,31 @@ export default function ProductDetails({ id }: { id: string }) {
           foundSimilar = foundSimilar.filter((p) => !p.name.toLowerCase().includes('амортизатор'));
         }
 
-        setSimilarProducts(foundSimilar.slice(0, 4));
+        if (!isCancelled) {
+          setSimilarProducts(foundSimilar.slice(0, 4));
+        }
       } catch (error) {
         console.error('Failed to fetch product:', error);
       } finally {
-        setIsLoading(false);
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
       }
     };
-    fetchProduct();
-  }, [id]);
 
+    fetchProduct();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [id, initialProduct]);
+
+  const handleGridChange = (cols: 1 | 2) => {
+    setMobileGridColumns(cols);
+    localStorage.setItem('catalog_grid_pref', cols.toString());
+  };
+
+  // Safe early returns AFTER all hooks have executed
   if (isLoading) {
     return (
       <div className={`container ${styles.loadingState}`}>
@@ -244,52 +330,16 @@ export default function ProductDetails({ id }: { id: string }) {
     );
   }
 
-  const effectiveVariants: ProductVariant[] =
-    product.variants && product.variants.length > 0
-      ? product.variants
-      : [
-          {
-            id: product.id,
-            name: product.name,
-            code: product.oem || product.article || '',
-            brand: product.brand || 'Hyundai',
-            tier: 1,
-            price: product.price,
-            oldPrice: product.oldPrice,
-            stock: product.stock ?? (product.inStock ? 1 : 0),
-            inStock: product.inStock,
-            images: product.images,
-            image: product.image,
-            article: product.oem || product.article,
-            oem: product.oem || product.article,
-            description: product.description,
-          },
-        ];
-
-  const activeVariant: ProductVariant =
-    effectiveVariants.find((v) => v.id === selectedVariantId) || effectiveVariants[0];
-
-  const availableStock = Math.max(
-    0,
-    activeVariant?.stock ?? product.stock ?? (activeVariant?.inStock || product.inStock ? 1 : 0)
-  );
-
   const displayOem = activeVariant?.oem || product.oem || product.article || '';
   const currentPrice = activeVariant ? activeVariant.price : product.price;
   const currentOldPrice = activeVariant ? activeVariant.oldPrice : product.oldPrice;
   const isItemInStock = Boolean((activeVariant ? activeVariant.inStock : product.inStock) && availableStock > 0);
   const displayBrand = activeVariant ? activeVariant.brand : product.brand;
 
-  const displayPrice = currentPrice * quantity;
-  const displayOldPrice = currentOldPrice ? currentOldPrice * quantity : undefined;
+  const displayPrice = (currentPrice || 0) * (quantity || 1);
+  const displayOldPrice = currentOldPrice ? currentOldPrice * (quantity || 1) : undefined;
 
   const favorite = isFavorite(activeVariant ? activeVariant.id : product.id);
-
-  useEffect(() => {
-    if (availableStock > 0 && quantity > availableStock) {
-      setQuantity(availableStock);
-    }
-  }, [availableStock, quantity]);
 
   const handleAddToCart = () => {
     if (!isItemInStock || availableStock <= 0) {
@@ -311,7 +361,7 @@ export default function ProductDetails({ id }: { id: string }) {
       oem: ('oem' in target && target.oem) ? target.oem : (product.oem || product.article),
     };
     addItemToCart(itemToAdd, quantity);
-    addToast(`${target.brand} добавлен в корзину`, 'success');
+    addToast(`${target.brand || product.brand} добавлен в корзину`, 'success');
   };
 
   const handleToggleFavorite = () => {
@@ -337,10 +387,16 @@ export default function ProductDetails({ id }: { id: string }) {
     ? activeVariant.images
     : (activeVariant?.image ? [activeVariant.image] : null);
 
-  const images = (variantImages && variantImages.length > 0)
+  const rawImages = (variantImages && variantImages.length > 0)
     ? variantImages
     : (product.images && product.images.length > 0 ? product.images : (product.image ? [product.image] : []));
-  const currentImage = images.length > 0 ? images[currentImageIndex] : `https://placehold.co/600x600/F5F5F5/060F48?text=${encodeURIComponent((product.name || '').split(' ').slice(0, 2).join('\n'))}`;
+
+  const images = rawImages.filter((img): img is string => typeof img === 'string' && img.trim().length > 0);
+
+  const placeholderText = encodeURIComponent(
+    ((product.name || '').split(' ').slice(0, 2).join('\n')) || 'Koma'
+  );
+  const fallbackPlaceholder = `https://placehold.co/600x600/F5F5F5/060F48?text=${placeholderText}`;
 
   const nextImage = () => setCurrentImageIndex(prev => (prev === images.length - 1 ? 0 : prev + 1));
   const prevImage = () => setCurrentImageIndex(prev => (prev === 0 ? images.length - 1 : prev - 1));
@@ -406,7 +462,7 @@ export default function ProductDetails({ id }: { id: string }) {
               ))
             ) : (
               <Image
-                src={`https://placehold.co/600x600/F5F5F5/060F48?text=${encodeURIComponent(product.name.split(' ').slice(0, 2).join('\n'))}`}
+                src={fallbackPlaceholder}
                 alt={product.name}
                 fill
                 className={`${styles.image} ${styles.activeImage} ${imageLoaded ? styles.loaded : ''}`}

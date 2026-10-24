@@ -58,7 +58,7 @@ export default function ProductCard({ product }: ProductCardProps) {
           src={
             product.image ||
             `https://placehold.co/400x400/F5F5F5/060F48?text=${encodeURIComponent(
-              product.name.split(' ').slice(0, 2).join('\n')
+              (product.name || '').split(' ').slice(0, 2).join('\n')
             )}`
           }
           alt={product.name}

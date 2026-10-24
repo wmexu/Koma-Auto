@@ -24,12 +24,19 @@ export interface GetProductsDbResult {
 export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Product {
   let images: string[] = [];
   if (Array.isArray(r.images)) {
-    images = r.images;
+    images = r.images.filter((img: any) => typeof img === 'string' && img.trim().length > 0);
   } else if (typeof r.images === 'string') {
     try {
-      images = JSON.parse(r.images);
+      const parsed = JSON.parse(r.images);
+      if (Array.isArray(parsed)) {
+        images = parsed.filter((img: any) => typeof img === 'string' && img.trim().length > 0);
+      } else if (typeof parsed === 'string' && parsed.trim().length > 0) {
+        images = [parsed.trim()];
+      }
     } catch {
-      // ignore
+      if (r.images.trim().length > 0) {
+        images = [r.images.trim()];
+      }
     }
   }
 
@@ -38,11 +45,33 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
     compatibility = r.compatibility.map((c: any) =>
       typeof c === 'string' ? c : `${c.make} ${c.model}${c.years ? ` (${c.years})` : ''}`
     );
+  } else if (typeof r.compatibility === 'string') {
+    try {
+      const parsed = JSON.parse(r.compatibility);
+      if (Array.isArray(parsed)) {
+        compatibility = parsed.map((c: any) =>
+          typeof c === 'string' ? c : `${c.make} ${c.model}${c.years ? ` (${c.years})` : ''}`
+        );
+      } else if (typeof parsed === 'string' && parsed.trim().length > 0) {
+        compatibility = [parsed.trim()];
+      }
+    } catch {
+      if (r.compatibility.trim().length > 0) {
+        compatibility = [r.compatibility.trim()];
+      }
+    }
   }
 
   let specs: Record<string, string> = {};
-  if (r.specs && typeof r.specs === 'object') {
+  if (r.specs && typeof r.specs === 'object' && !Array.isArray(r.specs)) {
     specs = r.specs;
+  } else if (typeof r.specs === 'string') {
+    try {
+      const parsed = JSON.parse(r.specs);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        specs = parsed;
+      }
+    } catch {}
   }
 
   const price = Number(r.price) || 0;
@@ -185,9 +214,19 @@ export async function getVariantsByOemFromDb(cleanOem: string): Promise<ProductV
     `;
     return rows.map((r: any) => {
       let images: string[] = [];
-      if (Array.isArray(r.images)) images = r.images;
-      else if (typeof r.images === 'string') {
-        try { images = JSON.parse(r.images); } catch {}
+      if (Array.isArray(r.images)) {
+        images = r.images.filter((img: any) => typeof img === 'string' && img.trim().length > 0);
+      } else if (typeof r.images === 'string') {
+        try {
+          const parsed = JSON.parse(r.images);
+          if (Array.isArray(parsed)) {
+            images = parsed.filter((img: any) => typeof img === 'string' && img.trim().length > 0);
+          } else if (typeof parsed === 'string' && parsed.trim().length > 0) {
+            images = [parsed.trim()];
+          }
+        } catch {
+          if (r.images.trim().length > 0) images = [r.images.trim()];
+        }
       }
       const variantPrice = Number(r.price) || 0;
       let variantOldPrice = r.old_price ? Number(r.old_price) : undefined;

@@ -27,8 +27,8 @@ export default function SideSliderCard({ product }: { product: Product }) {
       <div className={styles.cardImageWrapper}>
         {!imageLoaded && <div className={styles.skeleton}></div>}
         <Image
-          src={product.image || `https://placehold.co/200x200/F5F5F5/060F48?text=${encodeURIComponent(product.name.split(' ').slice(0, 2).join('\n'))}`}
-          alt={product.name}
+          src={product.image || `https://placehold.co/200x200/F5F5F5/060F48?text=${encodeURIComponent((product.name || '').split(' ').slice(0, 2).join('\n'))}`}
+          alt={product.name || 'Товар'}
           width={160}
           height={160}
           className={`${styles.cardImage} ${imageLoaded ? styles.loaded : ''}`}

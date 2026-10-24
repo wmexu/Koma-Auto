@@ -27,5 +27,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function ProductPage({ params }: Props) {
   const { id } = await params;
-  return <ProductDetails id={id} />;
+  let initialProduct = null;
+  try {
+    initialProduct = await getProductByIdFromDb(id);
+  } catch (error) {
+    console.error('Error fetching initial product for SSR:', error);
+  }
+
+  if (!initialProduct) {
+    initialProduct = fallbackProducts.find((p) => p.id === id || p.moySkladId === id) || null;
+  }
+
+  return <ProductDetails id={id} initialProduct={initialProduct} />;
 }
