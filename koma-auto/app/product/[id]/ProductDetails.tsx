@@ -128,7 +128,15 @@ export default function ProductDetails({ id }: { id: string }) {
       try {
         setIsLoading(true);
         const res = await fetch(`/api/products/${id}`);
+        if (!res.ok) {
+          setProduct(null);
+          return;
+        }
         const data = await res.json();
+        if (!data || data.error || !data.name) {
+          setProduct(null);
+          return;
+        }
         setProduct(data);
 
         if (data && data.variants && data.variants.length > 0) {
@@ -225,7 +233,7 @@ export default function ProductDetails({ id }: { id: string }) {
     );
   }
 
-  if (!product) {
+  if (!product || !product.name) {
     return (
       <div className="container" style={{ padding: '60px 0', textAlign: 'center' }}>
         <h1>Товар не найден</h1>
@@ -332,7 +340,7 @@ export default function ProductDetails({ id }: { id: string }) {
   const images = (variantImages && variantImages.length > 0)
     ? variantImages
     : (product.images && product.images.length > 0 ? product.images : (product.image ? [product.image] : []));
-  const currentImage = images.length > 0 ? images[currentImageIndex] : `https://placehold.co/600x600/F5F5F5/060F48?text=${encodeURIComponent(product.name.split(' ').slice(0, 2).join('\n'))}`;
+  const currentImage = images.length > 0 ? images[currentImageIndex] : `https://placehold.co/600x600/F5F5F5/060F48?text=${encodeURIComponent((product.name || '').split(' ').slice(0, 2).join('\n'))}`;
 
   const nextImage = () => setCurrentImageIndex(prev => (prev === images.length - 1 ? 0 : prev + 1));
   const prevImage = () => setCurrentImageIndex(prev => (prev === 0 ? images.length - 1 : prev - 1));

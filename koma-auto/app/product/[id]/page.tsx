@@ -1,34 +1,28 @@
 import { Metadata } from 'next';
 import ProductDetails from './ProductDetails';
-import { getProduct, mapMoySkladToProduct } from '../../../lib/moysklad';
-import { products as fallbackProducts } from '../../../data/products';
+import { getProductByIdFromDb } from '@/lib/products-db';
+import { products as fallbackProducts } from '@/data/products';
 
 type Props = {
   params: Promise<{ id: string }>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { id } = await params;
-  
   try {
-    const productRes = await getProduct(id);
-    
-    const product = mapMoySkladToProduct(productRes);
+    const { id } = await params;
+    const product = await getProductByIdFromDb(id);
 
-    return {
-      title: `${product.name} - ${product.brand} | koma.com.kz`,
-      description: `Купить ${product.name} (OEM: ${product.oem || product.article}) по выгодной цене.`,
-    };
-  } catch (error) {
-    const product = fallbackProducts.find((p) => p.id === id || p.moySkladId === id);
     if (product) {
       return {
         title: `${product.name} - ${product.brand} | koma.com.kz`,
         description: `Купить ${product.name} (OEM: ${product.oem || product.article}) по выгодной цене.`,
       };
     }
-    return { title: 'Товар не найден' };
+  } catch (error) {
+    console.error('Error generating metadata:', error);
   }
+
+  return { title: 'Купить автозапчасти | koma.com.kz' };
 }
 
 export default async function ProductPage({ params }: Props) {

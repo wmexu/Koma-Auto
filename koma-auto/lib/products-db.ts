@@ -46,7 +46,11 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
   }
 
   const price = Number(r.price) || 0;
-  const oldPrice = r.old_price ? Number(r.old_price) : undefined;
+  let oldPrice = r.old_price ? Number(r.old_price) : undefined;
+  // Safety: strikethrough oldPrice must strictly be higher than the real selling price
+  if (oldPrice && oldPrice <= price) {
+    oldPrice = undefined;
+  }
   const stock = Number(r.stock_quantity) || 0;
 
   const defaultVariant: ProductVariant = {
@@ -118,8 +122,10 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
       whereConditions.push(sql`brand ILIKE ${params.brand}`);
     }
 
-    if (params.category) {
-      whereConditions.push(sql`category ILIKE ${'%' + params.category + '%'}`);
+    if (params.category && params.category !== 'Все категории' && params.category !== 'all') {
+      whereConditions.push(
+        sql`(category ILIKE ${'%' + params.category + '%'} OR title ILIKE ${'%' + params.category + '%'})`
+      );
     }
 
     if (search) {
@@ -141,11 +147,11 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
     `;
     const total = countResult[0]?.count || 0;
 
-    // Data query with ordering
+    // Data query with ordering - Alphabetical order (title ASC), with in-stock products first
     const rows = await sql`
       SELECT * FROM my_sklad_products
       ${whereSql}
-      ORDER BY in_stock DESC, id ASC
+      ORDER BY in_stock DESC, title ASC
       LIMIT ${limit} OFFSET ${offset};
     `;
 
@@ -183,6 +189,11 @@ export async function getVariantsByOemFromDb(cleanOem: string): Promise<ProductV
       else if (typeof r.images === 'string') {
         try { images = JSON.parse(r.images); } catch {}
       }
+      const variantPrice = Number(r.price) || 0;
+      let variantOldPrice = r.old_price ? Number(r.old_price) : undefined;
+      if (variantOldPrice && variantOldPrice <= variantPrice) {
+        variantOldPrice = undefined;
+      }
       return {
         id: r.id,
         moySkladId: r.id,
@@ -191,8 +202,8 @@ export async function getVariantsByOemFromDb(cleanOem: string): Promise<ProductV
         oem: r.clean_oem_number,
         brand: r.brand || 'Koma Auto',
         tier: 1,
-        price: Number(r.price) || 0,
-        oldPrice: r.old_price ? Number(r.old_price) : undefined,
+        price: variantPrice,
+        oldPrice: variantOldPrice,
         stock: Number(r.stock_quantity) || 0,
         inStock: Boolean(r.in_stock),
         image: r.image || (images.length > 0 ? images[0] : ''),
@@ -261,9 +272,9 @@ export async function getCategoriesFromDb(): Promise<Array<{ id: string; name: s
     const rows = await sql`
       SELECT category as name, count(*)::int as count
       FROM my_sklad_products
-      WHERE category IS NOT NULL AND category != ''
+      WHERE category IS NOT NULL AND category != '' AND category != 'Автозапчасти' AND category != 'Без группы'
       GROUP BY category
-      ORDER BY count DESC;
+      ORDER BY category ASC;
     `;
     return rows.map((r: any, idx: number) => ({
       id: String(idx + 1),

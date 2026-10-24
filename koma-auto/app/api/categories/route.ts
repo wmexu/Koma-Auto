@@ -1,33 +1,39 @@
 import { NextResponse } from 'next/server';
-import { getCategoriesFromDb } from '@/lib/products-db';
 import { getProductFolders } from '@/lib/moysklad';
+import { getCategoriesFromDb } from '@/lib/products-db';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // 1. High-speed database lookup (<10ms) - Zero MoySklad rate limit consumption
-    try {
-      const dbCategories = await getCategoriesFromDb();
-      if (dbCategories && dbCategories.length > 0) {
-        return NextResponse.json(dbCategories);
+    // 1. Live fetch of all categories/folders from MoySklad (so newly added or renamed folders appear instantly)
+    const foldersRes = await getProductFolders();
+    const seenNames = new Set<string>();
+    const categories: Array<{ id: string; name: string }> = [];
+
+    for (const folder of (foldersRes.rows || [])) {
+      const name = folder.name?.trim();
+      if (!name || name === 'Без группы' || name === 'Автозапчасти') continue;
+      if (!seenNames.has(name.toLowerCase())) {
+        seenNames.add(name.toLowerCase());
+        categories.push({
+          id: folder.id,
+          name,
+        });
       }
-    } catch (dbErr) {
-      console.warn('[Categories API] Neon DB lookup failed, falling back:', dbErr);
     }
 
-    // 2. Fallback to MoySklad API only if DB misses
-    const foldersRes = await getProductFolders();
-    const categories = foldersRes.rows.map((folder: any) => ({
-      id: folder.id,
-      name: folder.name,
-    }));
-
-    categories.sort((a: any, b: any) => a.name.localeCompare(b.name));
+    // Sort categories alphabetically (A-Z, А-Я)
+    categories.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
 
     return NextResponse.json(categories);
   } catch (error) {
-    console.error('Error fetching categories:', error);
-    return NextResponse.json({ error: 'Failed to fetch categories' }, { status: 500 });
+    console.error('Error fetching categories from MoySklad, falling back to DB:', error);
+    try {
+      const dbCategories = await getCategoriesFromDb();
+      return NextResponse.json(dbCategories);
+    } catch {
+      return NextResponse.json({ error: 'Failed to fetch categories' }, { status: 500 });
+    }
   }
 }

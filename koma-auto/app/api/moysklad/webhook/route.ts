@@ -18,7 +18,7 @@ function getMoySkladHeaders() {
  */
 async function syncProductFromMoySklad(productHref: string, sql: any) {
   try {
-    const res = await fetch(`${productHref}?expand=images,supplier`, {
+    const res = await fetch(`${productHref}?expand=images,supplier,productFolder`, {
       headers: getMoySkladHeaders(),
     });
 
@@ -37,6 +37,23 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
       const defaultPrice =
         p.salePrices.find((sp: any) => sp.priceType?.name === 'Цена продажи') || p.salePrices[0];
       price = (defaultPrice?.value || 0) / 100;
+    }
+
+    // Extract Category from MoySklad productFolder
+    let category = p.productFolder?.name || 'Автозапчасти';
+    if (category === 'Без группы' || !category.trim()) {
+      category = 'Автозапчасти';
+    }
+
+    // Deterministic 5% round sale price calculation
+    let oldPrice: number | null = null;
+    let hashNum = 0;
+    for (let i = 0; i < productId.length; i++) hashNum = (hashNum * 31 + productId.charCodeAt(i)) >>> 0;
+    if ((hashNum % 100) < 5 && price >= 1000) {
+      const rawTarget = price * 1.25;
+      if (price < 2000) oldPrice = Math.ceil(rawTarget / 100) * 100;
+      else if (price < 10000) oldPrice = Math.ceil(rawTarget / 500) * 500;
+      else oldPrice = Math.ceil(rawTarget / 1000) * 1000;
     }
 
     // Extract OEM
@@ -96,16 +113,17 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
     // UPSERT directly into Neon Postgres
     await sql`
       INSERT INTO my_sklad_products (
-        id, title, price, stock_quantity, in_stock, brand, category,
+        id, title, price, old_price, stock_quantity, in_stock, brand, category,
         original_oem, clean_oem_number, image, images, specs, description, updated_at
       ) VALUES (
         ${productId},
         ${p.name},
         ${price},
+        ${oldPrice},
         ${stockQuantity},
         ${inStock},
         ${brandInfo.brand},
-        'Автозапчасти',
+        ${category},
         ${rawOem},
         ${cleanOem},
         ${image},
@@ -117,6 +135,7 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
       ON CONFLICT (id) DO UPDATE SET
         title = EXCLUDED.title,
         price = EXCLUDED.price,
+        old_price = EXCLUDED.old_price,
         stock_quantity = EXCLUDED.stock_quantity,
         in_stock = EXCLUDED.in_stock,
         brand = EXCLUDED.brand,
