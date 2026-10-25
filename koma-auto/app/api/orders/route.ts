@@ -4,6 +4,7 @@ import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } fro
 import { Order, OrderStatus } from '@/lib/order-types';
 import { createMoySkladOrder, notifyMoySkladOrderPaid, markMoySkladOrderCancelled } from '@/lib/moysklad-order';
 import { verifyEpayPayment } from '@/lib/epay-refund';
+import { client, isDbConfigured } from '@/db';
 
 export async function POST(request: Request) {
   try {
@@ -32,6 +33,66 @@ export async function POST(request: Request) {
       moySkladResult = await createMoySkladOrder(order);
     } catch (msErr) {
       console.error('MoySklad order creation exception:', msErr);
+    }
+
+    // 3. Mirror order & customer to Neon PostgreSQL for staff CRM
+    if (isDbConfigured() && client) {
+      try {
+        const orderId = String(order.id);
+        const orderUserId = order.userId || order.userAccountDetails?.uid || null;
+        const customerEmail = (order.customer?.email || order.userAccountDetails?.email || `customer_${orderId}@koma.kz`).toLowerCase().trim();
+        const customerName = order.customer?.name || order.userAccountDetails?.displayName || 'Покупатель';
+        const customerPhone = order.customer?.phone || '';
+
+        // Upsert user in Neon if userId is available
+        if (orderUserId) {
+          await client`
+            INSERT INTO users (id, email, full_name, phone, role, updated_at)
+            VALUES (${orderUserId}, ${customerEmail}, ${customerName}, ${customerPhone}, 'customer', NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              full_name = COALESCE(EXCLUDED.full_name, users.full_name),
+              phone = COALESCE(EXCLUDED.phone, users.phone),
+              updated_at = NOW();
+          `;
+        }
+
+        // Insert order into Neon
+        await client`
+          INSERT INTO orders (
+            id, invoice_id, user_id, amount, items_price, delivery_cost,
+            delivery_method, payment_method, payment_status, fulfillment_status,
+            customer_name, customer_phone, customer_email, kaspi_phone,
+            delivery_address, city, items, warehouse_id, created_at, updated_at
+          ) VALUES (
+            ${orderId},
+            ${order.invoiceId || orderId},
+            ${orderUserId},
+            ${order.amount || 0},
+            ${order.itemsPrice || 0},
+            ${order.deliveryCost || 0},
+            ${order.deliveryMethod || 'pickup'},
+            ${order.paymentMethod || 'online'},
+            ${order.status === 'paid' ? 'paid' : 'pending'},
+            'assembling',
+            ${customerName},
+            ${customerPhone},
+            ${customerEmail},
+            ${order.kaspiPhone || null},
+            ${order.address || ''},
+            ${order.city || 'Алматы'},
+            ${JSON.stringify(order.items || [])}::jsonb,
+            'car_city_podval',
+            ${order.createdAt ? new Date(order.createdAt) : new Date()},
+            NOW()
+          )
+          ON CONFLICT (id) DO UPDATE SET
+            payment_status = EXCLUDED.payment_status,
+            amount = EXCLUDED.amount,
+            updated_at = NOW();
+        `;
+      } catch (neonErr) {
+        console.warn('Neon order mirror notice (non-fatal):', neonErr);
+      }
     }
 
     return NextResponse.json({
@@ -174,6 +235,20 @@ export async function PATCH(request: Request) {
           notificationSent: true,
         };
         await notifyMoySkladOrderPaid(fallbackOrder);
+      }
+    }
+
+    // 3. Mirror status to Neon DB
+    if (isDbConfigured() && client) {
+      try {
+        await client`
+          UPDATE orders
+          SET payment_status = ${status === 'paid' ? 'paid' : status === 'declined' ? 'failed' : 'pending'},
+              updated_at = NOW()
+          WHERE id = ${orderId} OR invoice_id = ${orderId};
+        `;
+      } catch (neonErr) {
+        console.warn('Neon order status sync notice:', neonErr);
       }
     }
 

@@ -40,20 +40,23 @@ export default function AdminClient() {
 
   // Kill Switch & Warehouse state
   const [killSwitchActive, setKillSwitchActive] = useState(false);
+  const [isKillSwitchModalOpen, setIsKillSwitchModalOpen] = useState(false);
   const [activeWarehouse, setActiveWarehouse] = useState('Car City 1 ярус Подвал');
 
   // Promocodes state
   const [promocodes, setPromocodes] = useState<any[]>([]);
   const [promoCode, setPromoCode] = useState('');
   const [promoType, setPromoType] = useState<'percent' | 'fixed'>('percent');
-  const [promoValue, setPromoValue] = useState<number>(10);
+  const [promoValue, setPromoValue] = useState<number>(1);
   const [minCartTotal, setMinCartTotal] = useState<number>(15000);
-  const [maxDiscount, setMaxDiscount] = useState<number>(10000);
+  const [maxDiscount, setMaxDiscount] = useState<number>(15000);
   const [promoAudience, setPromoAudience] = useState<'all' | 'retail' | 'wholesale'>('all');
   const [boundUserSearch, setBoundUserSearch] = useState('');
-  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [selectedUsers, setSelectedUsers] = useState<any[]>([]);
+  const [isAddingUser, setIsAddingUser] = useState(false);
   const [searchedUsers, setSearchedUsers] = useState<any[]>([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
+  const [isPromoConfigModalOpen, setIsPromoConfigModalOpen] = useState(false);
 
   // Users state
   const [usersList, setUsersList] = useState<any[]>([]);
@@ -161,7 +164,7 @@ export default function AdminClient() {
 
   // Autocomplete search for user email
   useEffect(() => {
-    if (!boundUserSearch.trim() || selectedUser) {
+    if (!boundUserSearch.trim()) {
       setSearchedUsers([]);
       return;
     }
@@ -170,12 +173,16 @@ export default function AdminClient() {
       fetch(`/api/admin/users?q=${encodeURIComponent(boundUserSearch)}`)
         .then(res => res.json())
         .then(data => {
-          if (data.success) setSearchedUsers(data.users || []);
+          if (data.success) {
+            // Filter out users already selected
+            const filtered = (data.users || []).filter((u: any) => !selectedUsers.some(su => su.id === u.id));
+            setSearchedUsers(filtered);
+          }
         })
         .finally(() => setIsSearchingUsers(false));
     }, 250);
     return () => clearTimeout(timer);
-  }, [boundUserSearch, selectedUser]);
+  }, [boundUserSearch, selectedUsers]);
 
   // Handle Verify 12-digit code
   const handleVerifyCode = async (e: React.FormEvent) => {
@@ -263,6 +270,25 @@ export default function AdminClient() {
     }
   };
 
+  // Handle Warehouse Selection
+  const handleUpdateWarehouse = async (warehouseName: string) => {
+    setActiveWarehouse(warehouseName);
+    try {
+      await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'active_warehouse',
+          value: { id: warehouseName === 'Car City 1 ярус Подвал' ? 'car_city_podval' : 'severnoye_koltso', name: warehouseName },
+          staffUserId: user?.uid,
+        }),
+      });
+      addToast(`Основной склад обновлен: ${warehouseName}`, 'success');
+    } catch {
+      addToast('Ошибка сохранения склада', 'error');
+    }
+  };
+
   // Handle Create Promocode
   const handleCreatePromocode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -282,7 +308,8 @@ export default function AdminClient() {
           minCartTotal,
           maxDiscount: promoType === 'percent' ? maxDiscount : null,
           targetAudience: promoAudience,
-          boundUserId: selectedUser?.id || null,
+          boundUserId: selectedUsers.length === 1 ? selectedUsers[0].id : null,
+          boundEmails: selectedUsers.map(u => u.email),
           staffUserId: user?.uid,
         }),
       });
@@ -292,7 +319,8 @@ export default function AdminClient() {
 
       addToast(data.message || 'Промокод создан!', 'success');
       setPromoCode('');
-      setSelectedUser(null);
+      setSelectedUsers([]);
+      setIsAddingUser(false);
       setBoundUserSearch('');
       // Refresh list
       fetch('/api/admin/promocodes').then(r => r.json()).then(d => setPromocodes(d.promocodes || []));
@@ -411,11 +439,8 @@ export default function AdminClient() {
         {/* Top Bar */}
         <div className={styles.topBar}>
           <div className={styles.topBarLeft}>
-            <h1>
-              KOMA AUTO CRM
-              <span className={`${styles.roleBadge} ${roleBadgeClass[userRole]}`}>
-                {roleLabels[userRole]}
-              </span>
+            <h1 style={{ fontFamily: 'var(--font-geist-sans), sans-serif', fontSize: '24px', fontWeight: 800, color: 'var(--color-navy)', margin: '0 0 6px 0' }}>
+              Панель управления
             </h1>
             <p className={styles.topBarSubtitle}>
               Авторизован: {userProfile?.name || user?.displayName || user?.email} ({user?.email}) • Склад: {activeWarehouse}
@@ -428,30 +453,6 @@ export default function AdminClient() {
             </Link>
           </div>
         </div>
-
-        {/* Kill Switch (Director Only) */}
-        {isDirector && (
-          <div className={`${styles.killSwitchBanner} ${killSwitchActive ? '' : styles.killSwitchInactive}`}>
-            <div className={styles.killSwitchInfo}>
-              <AlertTriangle size={20} />
-              <div>
-                <strong>{killSwitchActive ? 'ВНИМАНИЕ: Приём новых заказов ЗАБЛОКИРОВАН' : 'Приём заказов на сайте работает в штатном режиме'}</strong>
-                <div style={{ fontSize: '12px', marginTop: '2px', opacity: 0.85 }}>
-                  {killSwitchActive
-                    ? 'Покупатели видят предупреждение в корзине и чекауте, новые платежи не создаются.'
-                    : 'Покупатели могут свободно оформлять заказы с доставкой или самовывозом.'}
-                </div>
-              </div>
-            </div>
-            <button
-              type="button"
-              className={killSwitchActive ? styles.killSwitchEnableBtn : styles.killSwitchToggleBtn}
-              onClick={handleToggleKillSwitch}
-            >
-              {killSwitchActive ? 'Возобновить приём заказов' : 'Экстренно заблокировать заказы'}
-            </button>
-          </div>
-        )}
 
         {/* Navigation Tabs */}
         <div className={styles.tabsNav}>
@@ -489,6 +490,14 @@ export default function AdminClient() {
               >
                 <KeyRound size={16} />
                 Шифры доступа
+              </button>
+              <button
+                type="button"
+                className={`${styles.tabBtn} ${activeTab === 'settings' ? styles.activeTabBtn : ''}`}
+                onClick={() => setActiveTab('settings')}
+              >
+                <Settings size={16} />
+                Управление
               </button>
             </>
           )}
@@ -659,7 +668,12 @@ export default function AdminClient() {
                       placeholder="Например: KOMA10 или VIP2026"
                       value={promoCode}
                       onChange={e => setPromoCode(e.target.value.toUpperCase())}
-                      style={{ textTransform: 'uppercase', fontWeight: 700 }}
+                      style={{
+                        fontFamily: 'var(--font-geist-sans), sans-serif',
+                        textTransform: 'uppercase',
+                        fontWeight: 700,
+                        letterSpacing: '0',
+                      }}
                       required
                     />
                   </div>
@@ -672,6 +686,7 @@ export default function AdminClient() {
                       className={styles.inputField}
                       value={promoType}
                       onChange={e => setPromoType(e.target.value as any)}
+                      style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}
                     >
                       <option value="percent">В процентах (%)</option>
                       <option value="fixed">Фиксированная сумма (₸)</option>
@@ -679,30 +694,52 @@ export default function AdminClient() {
                   </div>
 
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>
-                      Размер скидки: {promoType === 'percent' ? `${promoValue}%` : `${promoValue.toLocaleString()} ₸`}
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>
+                        Размер скидки:
+                      </label>
+                      <button
+                        type="button"
+                        className={styles.clickableValuePill}
+                        onClick={() => setIsPromoConfigModalOpen(true)}
+                        title="Нажмите для точного ручного ввода суммы"
+                      >
+                        {promoType === 'percent' ? `${promoValue}%` : `${promoValue.toLocaleString()} ₸`}
+                        <span style={{ fontSize: '11px', opacity: 0.7 }}>✎</span>
+                      </button>
+                    </div>
                     <input
                       type="range"
                       min={promoType === 'percent' ? 1 : 500}
                       max={promoType === 'percent' ? 30 : 50000}
                       step={promoType === 'percent' ? 1 : 500}
-                      value={promoValue}
+                      value={Math.min(promoValue, promoType === 'percent' ? 30 : 50000)}
                       onChange={e => setPromoValue(Number(e.target.value))}
                       style={{ width: '100%', marginTop: '8px' }}
                     />
                   </div>
 
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>
-                      Мин. корзина: {minCartTotal.toLocaleString()} ₸
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>
+                        Мин. корзина:
+                      </label>
+                      <button
+                        type="button"
+                        className={styles.clickableValuePill}
+                        onClick={() => setIsPromoConfigModalOpen(true)}
+                        title="Нажмите для точного ручного ввода суммы"
+                      >
+                        {minCartTotal.toLocaleString()} ₸
+                        <span style={{ fontSize: '11px', opacity: 0.7 }}>✎</span>
+                      </button>
+                    </div>
                     <input
                       type="range"
                       min={0}
                       max={150000}
                       step={5000}
-                      value={minCartTotal}
+                      value={Math.min(minCartTotal, 150000)}
                       onChange={e => setMinCartTotal(Number(e.target.value))}
                       style={{ width: '100%', marginTop: '8px' }}
                     />
@@ -710,15 +747,26 @@ export default function AdminClient() {
 
                   {promoType === 'percent' && (
                     <div>
-                      <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>
-                        Потолок скидки: {maxDiscount.toLocaleString()} ₸
-                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>
+                          Потолок скидки:
+                        </label>
+                        <button
+                          type="button"
+                          className={styles.clickableValuePill}
+                          onClick={() => setIsPromoConfigModalOpen(true)}
+                          title="Нажмите для точного ручного ввода суммы"
+                        >
+                          {maxDiscount.toLocaleString()} ₸
+                          <span style={{ fontSize: '11px', opacity: 0.7 }}>✎</span>
+                        </button>
+                      </div>
                       <input
                         type="range"
                         min={2000}
-                        max={100000}
+                        max={150000}
                         step={2000}
-                        value={maxDiscount}
+                        value={Math.min(maxDiscount, 150000)}
                         onChange={e => setMaxDiscount(Number(e.target.value))}
                         style={{ width: '100%', marginTop: '8px' }}
                       />
@@ -733,6 +781,7 @@ export default function AdminClient() {
                       className={styles.inputField}
                       value={promoAudience}
                       onChange={e => setPromoAudience(e.target.value as any)}
+                      style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}
                     >
                       <option value="all">Все покупатели</option>
                       <option value="retail">Только Розничные</option>
@@ -751,31 +800,54 @@ export default function AdminClient() {
                   </div>
                 )}
 
-                {/* Exclusive User Selection with Autocomplete */}
+                {/* Exclusive User Selection with Autocomplete and Smooth Disappearance */}
                 <div className={styles.autocompleteWrapper}>
-                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>
-                    Привязать к конкретному пользователю (необязательно)
-                  </label>
-                  {selectedUser ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#f1f5f9', padding: '8px 12px', borderRadius: '6px' }}>
-                      <span>Выбран: <strong>{selectedUser.email}</strong> ({selectedUser.full_name || 'Без имени'})</span>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedUser(null)}
-                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}
-                      >
-                        Открепить
-                      </button>
+                  {selectedUsers.length > 0 && (
+                    <div style={{ marginBottom: '12px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>
+                        Привязанные покупатели ({selectedUsers.length}):
+                      </label>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                        {selectedUsers.map(u => (
+                          <div key={u.id} className={styles.boundUserTag}>
+                            <span><strong>{u.email}</strong> {u.full_name ? `(${u.full_name})` : ''}</span>
+                            <button
+                              type="button"
+                              className={styles.boundUserTagUnpinBtn}
+                              onClick={() => {
+                                setSelectedUsers(prev => prev.filter(x => x.id !== u.id));
+                              }}
+                            >
+                              Открепить
+                            </button>
+                          </div>
+                        ))}
+                        {!isAddingUser && (
+                          <button
+                            type="button"
+                            onClick={() => setIsAddingUser(true)}
+                            style={{ background: '#f1f5f9', border: '1px dashed #94a3b8', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontWeight: 700, color: 'var(--color-navy)', cursor: 'pointer' }}
+                          >
+                            + Добавить ещё
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  ) : (
-                    <>
+                  )}
+
+                  {/* Search box & label that smoothly collapses when at least 1 user is selected and not adding */}
+                  <div className={`${styles.userBindingCollapsible} ${(selectedUsers.length > 0 && !isAddingUser) ? styles.userBindingCollapsed : styles.userBindingExpanded}`}>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>
+                      {selectedUsers.length > 0 ? 'Добавить ещё покупателя (поиск по email):' : 'Для кого (выбор): привязать к конкретным покупателям'}
+                    </label>
+                    <div style={{ position: 'relative' }}>
                       <input
                         type="text"
                         className={styles.inputField}
-                        placeholder="Начните вводить email для поиска (например aco)..."
+                        placeholder="Начните вводить email для поиска (например aco или nurg)..."
                         value={boundUserSearch}
                         onChange={e => setBoundUserSearch(e.target.value)}
-                        style={{ margin: 0 }}
+                        style={{ margin: 0, fontFamily: 'var(--font-geist-sans), sans-serif' }}
                       />
                       {searchedUsers.length > 0 && (
                         <div className={styles.autocompleteList}>
@@ -784,9 +856,12 @@ export default function AdminClient() {
                               key={u.id}
                               className={styles.autocompleteItem}
                               onClick={() => {
-                                setSelectedUser(u);
+                                if (!selectedUsers.some(x => x.id === u.id)) {
+                                  setSelectedUsers(prev => [...prev, u]);
+                                }
                                 setBoundUserSearch('');
                                 setSearchedUsers([]);
+                                setIsAddingUser(false);
                               }}
                             >
                               <span>{u.email} ({u.full_name || 'Покупатель'})</span>
@@ -797,8 +872,8 @@ export default function AdminClient() {
                           ))}
                         </div>
                       )}
-                    </>
-                  )}
+                    </div>
+                  </div>
                 </div>
 
                 <button type="submit" className={styles.submitBtn} style={{ marginTop: '10px' }}>
@@ -827,7 +902,11 @@ export default function AdminClient() {
                     <td>{p.type === 'percent' ? `${p.value}%` : `${Number(p.value).toLocaleString()} ₸`}</td>
                     <td>{Number(p.min_cart_total).toLocaleString()} ₸</td>
                     <td>{p.target_audience === 'wholesale' ? 'Оптовики' : p.target_audience === 'retail' ? 'Розница' : 'Все'}</td>
-                    <td>{p.bound_user_email || '—'}</td>
+                    <td>
+                      {p.bound_emails && Array.isArray(p.bound_emails) && p.bound_emails.length > 0
+                        ? p.bound_emails.join(', ')
+                        : (p.bound_user_email || '—')}
+                    </td>
                     <td>{p.used_count} раз</td>
                     <td>
                       <button
@@ -1011,6 +1090,65 @@ export default function AdminClient() {
           </div>
         )}
 
+        {/* TAB 5: SETTINGS / УПРАВЛЕНИЕ (Director Only) */}
+        {activeTab === 'settings' && isDirector && (
+          <div>
+            <div className={styles.settingsCard}>
+              <h2 className={styles.settingsCardTitle}>Системное управление приёмом заказов</h2>
+
+              <div className={styles.settingsRow}>
+                <div className={styles.settingsRowLeft}>
+                  <div className={styles.settingsRowTitle}>
+                    Приём заказов:{' '}
+                    {killSwitchActive ? (
+                      <span style={{ color: '#d97706', fontWeight: 800 }}>Приостановлен</span>
+                    ) : (
+                      <span style={{ color: '#10b981', fontWeight: 800 }}>Открыто</span>
+                    )}
+                  </div>
+                  <div className={styles.settingsRowDesc}>
+                    {killSwitchActive
+                      ? 'Приём новых заказов на сайте временно отключён. Покупатели видят предупреждение в корзине.'
+                      : 'Покупатели могут свободно оформлять заказы с доставкой или самовывозом.'}
+                  </div>
+                </div>
+
+                {/* Animated Toggle Switch */}
+                <label
+                  className={styles.toggleSwitch}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setIsKillSwitchModalOpen(true);
+                  }}
+                  title="Нажмите для переключения режима работы магазина"
+                >
+                  <input type="checkbox" checked={!killSwitchActive} readOnly />
+                  <span className={styles.toggleSlider}></span>
+                </label>
+              </div>
+
+              {/* Warehouse selector */}
+              <div className={styles.settingsRow} style={{ marginTop: '16px' }}>
+                <div className={styles.settingsRowLeft}>
+                  <div className={styles.settingsRowTitle}>Основной склад отгрузки</div>
+                  <div className={styles.settingsRowDesc}>
+                    Укажите склад, из которого осуществляется комплектация и выдача товаров
+                  </div>
+                </div>
+                <select
+                  value={activeWarehouse}
+                  onChange={e => handleUpdateWarehouse(e.target.value)}
+                  className={styles.inputField}
+                  style={{ width: '280px', margin: 0, fontFamily: 'var(--font-geist-sans), sans-serif' }}
+                >
+                  <option value="Car City 1 ярус Подвал">Car City 1 ярус Подвал</option>
+                  <option value="Склад Северное Кольцо">Склад Северное Кольцо</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* MODAL 1: VERIFY 12-DIGIT PICKUP CODE */}
         {verifyingOrder && (
           <div className={styles.modalOverlay} onClick={() => !isVerifying && setVerifyingOrder(null)}>
@@ -1095,6 +1233,151 @@ export default function AdminClient() {
                   onClick={handleAssignCourier}
                 >
                   Закрепить за курьером
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 3: KILL-SWITCH CONFIRMATION MODAL */}
+        {isKillSwitchModalOpen && (
+          <div className={styles.modalOverlay} onClick={() => setIsKillSwitchModalOpen(false)}>
+            <div className={styles.modalCard} onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+              <h3 className={styles.modalTitle}>
+                {killSwitchActive ? 'Возобновить приём заказов?' : 'Приостановить приём заказов?'}
+              </h3>
+              <p className={styles.modalDesc} style={{ fontSize: '14px', lineHeight: 1.5, color: '#475569' }}>
+                {killSwitchActive
+                  ? 'Вы действительно хотите возобновить приём заказов на сайте? Покупатели снова смогут оформлять покупки с доставкой и самовывозом, а корзина станет активной.'
+                  : 'Вы действительно хотите приостановить приём заказов на сайте? Пользователи увидят сервисное уведомление в корзине и не смогут оформлять новые покупки.'}
+              </p>
+              <div className={styles.modalFooter} style={{ marginTop: '24px' }}>
+                <button
+                  type="button"
+                  className={styles.cancelBtn}
+                  onClick={() => setIsKillSwitchModalOpen(false)}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  className={styles.submitBtn}
+                  style={{
+                    background: killSwitchActive ? 'var(--color-navy-gradient)' : '#d97706',
+                  }}
+                  onClick={async () => {
+                    await handleToggleKillSwitch();
+                    setIsKillSwitchModalOpen(false);
+                  }}
+                >
+                  Подтвердить
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 4: PROMOCODE CONFIGURATION & MANUAL INPUT MODAL */}
+        {isPromoConfigModalOpen && (
+          <div className={styles.modalOverlay} onClick={() => setIsPromoConfigModalOpen(false)}>
+            <div className={styles.modalCard} onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+              <h3 className={styles.modalTitle}>Настройка параметров скидки</h3>
+              <p className={styles.modalDesc} style={{ fontSize: '13px', marginBottom: '20px' }}>
+                Вы можете регулировать значения ползунками или вводить точные суммы в поля справа:
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {/* 1. Размер скидки */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-navy)' }}>
+                      Размер скидки ({promoType === 'percent' ? '%' : '₸'})
+                    </label>
+                    <input
+                      type="number"
+                      min={promoType === 'percent' ? 1 : 500}
+                      max={promoType === 'percent' ? 100 : 150000}
+                      value={promoValue}
+                      onChange={e => setPromoValue(Math.max(1, Number(e.target.value)))}
+                      className={styles.manualInputBox}
+                    />
+                  </div>
+                  <input
+                    type="range"
+                    min={promoType === 'percent' ? 1 : 500}
+                    max={promoType === 'percent' ? 30 : 50000}
+                    step={promoType === 'percent' ? 1 : 500}
+                    value={Math.min(promoValue, promoType === 'percent' ? 30 : 50000)}
+                    onChange={e => setPromoValue(Number(e.target.value))}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                {/* 2. Минимальная корзина */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-navy)' }}>
+                      Мин. корзина (₸)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={150000}
+                      step={1000}
+                      value={minCartTotal}
+                      onChange={e => setMinCartTotal(Math.max(0, Number(e.target.value)))}
+                      className={styles.manualInputBox}
+                    />
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={150000}
+                    step={5000}
+                    value={Math.min(minCartTotal, 150000)}
+                    onChange={e => setMinCartTotal(Number(e.target.value))}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                {/* 3. Потолок скидки */}
+                {promoType === 'percent' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-navy)' }}>
+                        Потолок скидки (₸)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={150000}
+                        step={1000}
+                        value={maxDiscount}
+                        onChange={e => setMaxDiscount(Math.max(0, Number(e.target.value)))}
+                        className={styles.manualInputBox}
+                      />
+                    </div>
+                    <input
+                      type="range"
+                      min={1000}
+                      max={150000}
+                      step={2000}
+                      value={Math.min(maxDiscount, 150000)}
+                      onChange={e => setMaxDiscount(Number(e.target.value))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className={styles.modalFooter} style={{ marginTop: '28px' }}>
+                <button
+                  type="button"
+                  className={styles.submitBtn}
+                  style={{ width: '100%' }}
+                  onClick={() => setIsPromoConfigModalOpen(false)}
+                >
+                  Готово
                 </button>
               </div>
             </div>

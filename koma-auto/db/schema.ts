@@ -173,6 +173,7 @@ export const promocodes = pgTable("promocodes", {
   maxDiscount: numeric("max_discount"),
   targetAudience: varchar("target_audience", { length: 20 }).notNull().default("all"),
   boundUserId: varchar("bound_user_id", { length: 255 }).references(() => users.id),
+  boundEmails: jsonb("bound_emails").$type<string[]>().default([]),
   usageLimit: integer("usage_limit"),
   usedCount: integer("used_count").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),

@@ -553,7 +553,7 @@ export default function CheckoutClient() {
       id: offlineOrderId,
       invoiceId: offlineOrderId,
       createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
       status: 'pending',
       amount: finalPrice,
       itemsPrice: totalPrice,

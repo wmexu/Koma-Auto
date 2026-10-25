@@ -470,9 +470,11 @@
   padding: 10px 14px;
   border: 1px solid #cbd5e1;
   border-radius: var(--radius-sm);
+  font-family: var(--font-geist-sans), sans-serif;
   font-size: 14px;
   box-sizing: border-box;
   margin-bottom: 14px;
+  letter-spacing: 0;
 }
 
 .codeInputLarge {
@@ -595,3 +597,197 @@
 .dataTable tr:hover {
   background: #fafafa;
 }
+
+/* Animated Toggle Switch (Тумблер) */
+.toggleSwitch {
+  position: relative;
+  display: inline-block;
+  width: 52px;
+  height: 28px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.toggleSwitch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggleSlider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 28px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.toggleSlider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.toggleSwitch input:checked + .toggleSlider {
+  background-color: #10b981;
+}
+
+.toggleSwitch input:checked + .toggleSlider:before {
+  transform: translateX(24px);
+}
+
+/* Settings White Card */
+.settingsCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-md);
+  padding: 24px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+  margin-bottom: 24px;
+}
+
+.settingsCardTitle {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--color-navy);
+  margin-bottom: 20px;
+}
+
+.settingsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.settingsRow:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.settingsRowLeft {
+  flex: 1;
+}
+
+.settingsRowTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+
+.settingsRowDesc {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+/* User Binding Collapse & Tags */
+.userBindingCollapsible {
+  transition: all 0.3s ease-in-out;
+  overflow: hidden;
+}
+
+.userBindingCollapsed {
+  max-height: 0;
+  opacity: 0;
+  margin-bottom: 0 !important;
+  pointer-events: none;
+}
+
+.userBindingExpanded {
+  max-height: 200px;
+  opacity: 1;
+  margin-bottom: 14px;
+}
+
+.boundUserTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #1e293b;
+}
+
+.boundUserTagUnpinBtn {
+  background: none;
+  border: none;
+  color: #ef4444;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.boundUserTagUnpinBtn:hover {
+  background: #fee2e2;
+}
+
+/* Interactive Value Pills on Sliders */
+.clickableValuePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-navy);
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: 6px;
+}
+
+.clickableValuePill:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+  transform: translateY(-1px);
+}
+
+.manualInputBox {
+  width: 140px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-navy);
+  background: #ffffff;
+  outline: none;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.manualInputBox:focus {
+  border-color: var(--color-navy);
+}
+
+.sliderRowWithManual {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+}
+

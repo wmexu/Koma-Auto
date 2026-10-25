@@ -11,7 +11,7 @@ export async function GET() {
     const promocodesList = await client`
       SELECT 
         p.id, p.code, p.type, p.value, p.min_cart_total, p.max_discount,
-        p.target_audience, p.bound_user_id, p.usage_limit, p.used_count,
+        p.target_audience, p.bound_user_id, p.bound_emails, p.usage_limit, p.used_count,
         p.is_active, p.created_at, u.email as bound_user_email
       FROM promocodes p
       LEFT JOIN users u ON u.id = p.bound_user_id
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { 
       code, type, value, minCartTotal, maxDiscount, 
-      targetAudience, boundUserId, usageLimit, staffUserId 
+      targetAudience, boundUserId, boundEmails, usageLimit, staffUserId 
     } = body;
 
     if (!code || !type || value === undefined) {
@@ -43,10 +43,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'База данных недоступна' }, { status: 503 });
     }
 
+    const emailsArray = Array.isArray(boundEmails) ? boundEmails : boundEmails ? [boundEmails] : [];
+
     await client`
       INSERT INTO promocodes (
         id, code, type, value, min_cart_total, max_discount,
-        target_audience, bound_user_id, usage_limit, is_active,
+        target_audience, bound_user_id, bound_emails, usage_limit, is_active,
         created_by, created_at
       ) VALUES (
         gen_random_uuid(),
@@ -57,6 +59,7 @@ export async function POST(request: Request) {
         ${maxDiscount || null},
         ${targetAudience || 'all'},
         ${boundUserId || null},
+        ${JSON.stringify(emailsArray)}::jsonb,
         ${usageLimit || null},
         true,
         ${staffUserId || null},
@@ -69,6 +72,7 @@ export async function POST(request: Request) {
         max_discount = EXCLUDED.max_discount,
         target_audience = EXCLUDED.target_audience,
         bound_user_id = EXCLUDED.bound_user_id,
+        bound_emails = EXCLUDED.bound_emails,
         usage_limit = EXCLUDED.usage_limit,
         is_active = true;
     `;
