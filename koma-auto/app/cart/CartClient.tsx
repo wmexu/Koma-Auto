@@ -28,6 +28,7 @@ export default function CartClient() {
   const [promoCodeInput, setPromoCodeInput] = useState('');
   const [isApplyingPromo, setIsApplyingPromo] = useState(false);
   const [isCheckingStock, setIsCheckingStock] = useState(false);
+  const [killSwitchActive, setKillSwitchActive] = useState(false);
   const [appliedPromo, setAppliedPromo] = useState<{
     code: string;
     isTestMode: boolean;
@@ -37,6 +38,16 @@ export default function CartClient() {
   } | null>(null);
 
   useEffect(() => {
+    // Check emergency kill switch status
+    fetch('/api/admin/settings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.settings) {
+          setKillSwitchActive(Boolean(data.settings.killSwitchActive));
+        }
+      })
+      .catch(() => {});
+
     const savedPromo = sessionStorage.getItem('koma_test_promocode');
     if (savedPromo) {
       fetch('/api/promocode/validate', {
@@ -127,6 +138,11 @@ export default function CartClient() {
   };
 
   const handleProceedToCheckout = async () => {
+    if (killSwitchActive) {
+      addToast('Приём заказов на сайте временно приостановлен администрацией', 'error');
+      return;
+    }
+
     if (!user) {
       addToast('Чтобы заказывать товары, зарегистрируйтесь/войдите в аккаунт.', 'error');
       return;
@@ -277,6 +293,29 @@ export default function CartClient() {
 
       <div className={styles.content}>
         <div className={styles.itemsListContainer}>
+          {killSwitchActive && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '14px',
+              backgroundColor: '#fffbeb',
+              border: '1px solid #fde68a',
+              borderRadius: '12px',
+              padding: '16px 20px',
+              marginBottom: '20px',
+              color: '#92400e',
+              fontSize: '14px',
+              lineHeight: 1.5,
+            }}>
+              <AlertTriangle size={24} style={{ color: '#d97706', flexShrink: 0 }} />
+              <div>
+                <strong style={{ display: 'block', fontSize: '15px', color: '#78350f', marginBottom: '2px' }}>
+                  Приём заказов на сайте временно приостановлен
+                </strong>
+                Оформление покупок временно отключено администрацией магазина. Вы можете просматривать каталог и собирать корзину — возможность оплаты возобновится в ближайшее время.
+              </div>
+            </div>
+          )}
           <div className={`${styles.itemsList} ${cartGridColumns === 1 ? styles.grid1 : styles.grid2}`}>
             {currentCartItems.map((item) => (
               <div key={item.id} className={styles.cartItem}>
@@ -432,9 +471,15 @@ export default function CartClient() {
           <button 
             className={styles.checkoutBtn} 
             onClick={handleProceedToCheckout}
-            disabled={isCheckingStock}
+            disabled={isCheckingStock || killSwitchActive}
+            style={killSwitchActive ? { opacity: 0.6, cursor: 'not-allowed', filter: 'grayscale(0.6)' } : {}}
           >
-            {isCheckingStock ? 'Проверка наличия...' : 'Перейти к оформлению'} <ArrowRight size={20} />
+            {killSwitchActive
+              ? 'Приём заказов приостановлен'
+              : isCheckingStock
+              ? 'Проверка наличия...'
+              : 'Перейти к оформлению'}{' '}
+            {!killSwitchActive && <ArrowRight size={20} />}
           </button>
         </div>
       </div>

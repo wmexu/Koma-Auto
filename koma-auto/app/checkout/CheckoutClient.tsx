@@ -94,6 +94,7 @@ export default function CheckoutClient() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<{ lastName?: string; firstName?: string; phone?: string }>({});
   const [isCityModalOpen, setIsCityModalOpen] = useState(false);
+  const [killSwitchActive, setKillSwitchActive] = useState(false);
 
   const [promoCodeInput, setPromoCodeInput] = useState('');
   const [isApplyingPromo, setIsApplyingPromo] = useState(false);
@@ -106,6 +107,15 @@ export default function CheckoutClient() {
   } | null>(null);
 
   useEffect(() => {
+    fetch('/api/admin/settings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.settings) {
+          setKillSwitchActive(Boolean(data.settings.killSwitchActive));
+        }
+      })
+      .catch(() => {});
+
     const savedPromo = sessionStorage.getItem('koma_test_promocode');
     if (savedPromo) {
       fetch('/api/promocode/validate', {
@@ -327,6 +337,11 @@ export default function CheckoutClient() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (killSwitchActive) {
+      addToast('Приём заказов на сайте временно приостановлен администрацией магазина', 'error');
+      return;
+    }
 
     if (!agreements.offer || !agreements.privacy || !agreements.refund) {
       addToast('Необходимо согласиться со всеми условиями', 'error');
@@ -655,6 +670,30 @@ export default function CheckoutClient() {
 
       <form className={styles.formLayout} onSubmit={handleSubmit}>
         <div className={styles.mainCol}>
+          {killSwitchActive && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '14px',
+              backgroundColor: '#fffbeb',
+              border: '1px solid #fde68a',
+              borderRadius: '12px',
+              padding: '16px 20px',
+              marginBottom: '20px',
+              color: '#92400e',
+              fontSize: '14px',
+              lineHeight: 1.5,
+            }}>
+              <AlertTriangle size={24} style={{ color: '#d97706', flexShrink: 0 }} />
+              <div>
+                <strong style={{ display: 'block', fontSize: '15px', color: '#78350f', marginBottom: '2px' }}>
+                  Приём новых заказов временно приостановлен
+                </strong>
+                Оформление покупок отключено администрацией магазина. Пожалуйста, возвращайтесь позже.
+              </div>
+            </div>
+          )}
+
           <div className={styles.section}>
             <h2>1. Контактные данные</h2>
             <div className={styles.formGrid}>
@@ -1061,8 +1100,15 @@ export default function CheckoutClient() {
               </label>
             </div>
 
-            <button type="submit" className={styles.submitBtn} disabled={isSubmitting}>
-              {isSubmitting 
+            <button 
+              type="submit" 
+              className={styles.submitBtn} 
+              disabled={isSubmitting || killSwitchActive}
+              style={killSwitchActive ? { opacity: 0.6, cursor: 'not-allowed', filter: 'grayscale(0.6)' } : {}}
+            >
+              {killSwitchActive
+                ? 'Приём заказов приостановлен'
+                : isSubmitting 
                 ? 'Оформление заказа...' 
                 : formData.paymentMethod === 'kaspi_pay'
                 ? `Оформить заказ (${finalPrice.toLocaleString()} ₸)`

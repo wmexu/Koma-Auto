@@ -10,9 +10,19 @@ import {
 import { getTestPromoConfig } from '@/lib/promocode';
 import { getProductsByIdsFromDb } from '@/lib/products-db';
 import { client, isDbConfigured } from '@/db';
+import { isKillSwitchActive } from '@/lib/system-settings';
 
 export async function POST(request: Request) {
   try {
+    // 0. Emergency Kill-Switch Check
+    const killSwitch = await isKillSwitchActive();
+    if (killSwitch) {
+      return NextResponse.json(
+        { error: 'Приём заказов на сайте временно приостановлен администрацией магазина.' },
+        { status: 503 }
+      );
+    }
+
     const body = await request.json();
     const { amount, name, phone, email, origin, deliveryMethod, city, comment, items, promoCode } = body;
 

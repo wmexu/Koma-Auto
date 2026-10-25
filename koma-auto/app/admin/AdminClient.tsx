@@ -69,11 +69,19 @@ export default function AdminClient() {
   const [tokenBoundEmail, setTokenBoundEmail] = useState('');
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
-  // Authenticated fetch helper for admin / staff CRM endpoints
-  const adminFetch = (url: string, options: RequestInit = {}) => {
+  // Authenticated fetch helper for admin / staff CRM endpoints with Google ID token
+  const adminFetch = async (url: string, options: RequestInit = {}) => {
     const headers = new Headers(options.headers || {});
-    if (user?.uid) {
+    if (user) {
       headers.set('x-staff-user-id', user.uid);
+      try {
+        const idToken = await user.getIdToken();
+        if (idToken) {
+          headers.set('authorization', `Bearer ${idToken}`);
+        }
+      } catch (err) {
+        console.warn('Failed to retrieve Firebase ID token:', err);
+      }
     }
     return fetch(url, {
       ...options,

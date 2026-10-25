@@ -86,6 +86,50 @@ export default function ProfileClient() {
     }
   };
 
+  const [isDeactivatingRole, setIsDeactivatingRole] = useState(false);
+
+  const handleDeactivateStaffRole = async () => {
+    if (!user || !userProfile) return;
+    if (!confirm('Вы действительно хотите снять полномочия сотрудника и вернуться в статус обычного покупателя?')) {
+      return;
+    }
+
+    setIsDeactivatingRole(true);
+    try {
+      const res = await fetch('/api/user/role/deactivate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.uid,
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+          targetClientType: userProfile.clientType === 'wholesale' ? 'wholesale' : 'retail',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Ошибка выхода из режима сотрудника');
+      }
+
+      const updatedRole = data.role || 'customer';
+      const updatedClientType = data.clientType || 'retail';
+      setUserProfile({
+        ...userProfile,
+        role: updatedRole,
+        clientType: updatedClientType,
+      });
+
+      addToast('Вы успешно вышли из статуса сотрудника', 'success');
+      setIsEditModalOpen(false);
+    } catch (err: any) {
+      addToast(err.message || 'Ошибка снятия роли', 'error');
+    } finally {
+      setIsDeactivatingRole(false);
+    }
+  };
+
   // Validation errors state
   const [errors, setErrors] = useState<{name?: string, dob?: string, email?: string, password?: string, confirmPassword?: string}>({});
 
@@ -385,7 +429,13 @@ export default function ProfileClient() {
     if (!user || !userProfile) return;
     setEditName(userProfile.name || user.displayName || '');
     setEditDob(userProfile.dob || '');
-    setEditClientType(userProfile.clientType || 'retail');
+    const isStaff = Boolean(userProfile.role && ['director', 'manager', 'courier'].includes(userProfile.role));
+    if (isStaff) {
+      setEditClientType(userProfile.role!);
+    } else {
+      setEditClientType(userProfile.clientType || 'retail');
+    }
+    setStaffTokenInput('');
     setIsEditModalOpen(true);
   };
 
@@ -425,11 +475,26 @@ export default function ProfileClient() {
         await updateProfile(user, { displayName: editName });
       }
 
+      const isCurrentStaff = Boolean(userProfile.role && ['director', 'manager', 'courier'].includes(userProfile.role));
+      let newRole = userProfile.role || 'customer';
+      let newClientType = editClientType;
+
+      // If a staff member chose to switch back to retail or wholesale
+      if (isCurrentStaff && (editClientType === 'retail' || editClientType === 'wholesale')) {
+        await fetch('/api/user/role/deactivate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-user-id': user.uid },
+          body: JSON.stringify({ userId: user.uid, targetClientType: editClientType }),
+        });
+        newRole = editClientType === 'wholesale' ? 'wholesale' : 'customer';
+      }
+
       const updatedProfile = {
         ...userProfile,
         name: editName,
         dob: editDob,
-        clientType: editClientType
+        clientType: newClientType,
+        role: newRole,
       };
       
       await setDoc(doc(db, 'users', user.uid), updatedProfile, { merge: true });
@@ -709,7 +774,13 @@ export default function ProfileClient() {
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>Тип клиента</span>
                   <div>
-                    {userProfile.clientType === 'wholesale' ? (
+                    {userProfile.role === 'director' ? (
+                      <span className={styles.badgeDirector}>Директор</span>
+                    ) : userProfile.role === 'manager' ? (
+                      <span className={styles.badgeManager}>Менеджер</span>
+                    ) : userProfile.role === 'courier' ? (
+                      <span className={styles.badgeCourier}>Курьер</span>
+                    ) : userProfile.clientType === 'wholesale' ? (
                       <span className={styles.badgeWholesale}>Оптовый клиент</span>
                     ) : (
                       <span className={styles.badgeRetail}>Розничный клиент</span>
@@ -804,43 +875,73 @@ export default function ProfileClient() {
 
                 <div className={styles.inputGroup}>
                   <label htmlFor="edit-clientType" className={styles.label}>Укажите тип клиента:</label>
-                  <select
-                    id="edit-clientType"
-                    value={editClientType}
-                    onChange={(e) => setEditClientType(e.target.value)}
-                    className={styles.select}
-                  >
-                    <option value="retail">Розничный клиент</option>
-                    <option value="wholesale">Оптовый клиент</option>
-                    <option value="staff_code">Ввести код профиля (сотрудник)</option>
-                  </select>
-                </div>
+                  {Boolean(userProfile?.role && ['director', 'manager', 'courier'].includes(userProfile.role)) ? (
+                    <>
+                      <select
+                        id="edit-clientType"
+                        value={editClientType}
+                        onChange={(e) => setEditClientType(e.target.value)}
+                        className={styles.select}
+                      >
+                        <option value="retail">Розничный клиент</option>
+                        <option value="wholesale">Оптовый клиент</option>
+                        {userProfile.role === 'director' && <option value="director">Директор (Текущий статус)</option>}
+                        {userProfile.role === 'manager' && <option value="manager">Менеджер (Текущий статус)</option>}
+                        {userProfile.role === 'courier' && <option value="courier">Курьер (Текущий статус)</option>}
+                      </select>
 
-                {editClientType === 'staff_code' && (
-                  <div className={styles.codeActivationBox}>
-                    <label style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-navy)', display: 'block', marginBottom: '8px' }}>
-                      24-значный шифр сотрудника
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={24}
-                      placeholder="Введите 24-значный шифр"
-                      value={staffTokenInput}
-                      onChange={(e) => setStaffTokenInput(e.target.value.trim())}
-                      className={`${styles.input} ${styles.codeActivationInput}`}
-                      style={{ marginBottom: '10px' }}
-                    />
-                    <button
-                      type="button"
-                      className={styles.submitBtn}
-                      style={{ width: '100%', margin: 0 }}
-                      disabled={isActivatingRole || staffTokenInput.trim().length !== 24}
-                      onClick={handleActivateStaffRole}
-                    >
-                      {isActivatingRole ? 'Проверка шифра...' : 'Активировать роль сотрудника'}
-                    </button>
-                  </div>
-                )}
+                      <button
+                        type="button"
+                        className={styles.staffExitBtn}
+                        onClick={handleDeactivateStaffRole}
+                        disabled={isDeactivatingRole}
+                        title="Снять статус сотрудника и вернуться к обычному аккаунту покупателя"
+                      >
+                        <LogOut size={16} />
+                        {isDeactivatingRole ? 'Снятие статуса...' : 'Выйти из режима сотрудника'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <select
+                        id="edit-clientType"
+                        value={editClientType}
+                        onChange={(e) => setEditClientType(e.target.value)}
+                        className={styles.select}
+                      >
+                        <option value="retail">Розничный клиент</option>
+                        <option value="wholesale">Оптовый клиент</option>
+                        <option value="staff_code">Ввести код сотрудника</option>
+                      </select>
+
+                      {editClientType === 'staff_code' && (
+                        <div className={styles.codeActivationBox}>
+                          <label style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-navy)', display: 'block', marginBottom: '8px' }}>
+                            24-значный шифр сотрудника
+                          </label>
+                          <input
+                            type="text"
+                            maxLength={24}
+                            placeholder="Введите 24-значный шифр"
+                            value={staffTokenInput}
+                            onChange={(e) => setStaffTokenInput(e.target.value.trim())}
+                            className={`${styles.input} ${styles.codeActivationInput}`}
+                            style={{ marginBottom: '10px' }}
+                          />
+                          <button
+                            type="button"
+                            className={styles.submitBtn}
+                            style={{ width: '100%', margin: 0 }}
+                            disabled={isActivatingRole || staffTokenInput.trim().length !== 24}
+                            onClick={handleActivateStaffRole}
+                          >
+                            {isActivatingRole ? 'Проверка шифра...' : 'Активировать роль сотрудника'}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
 
                 <div className={styles.modalActions} style={{ marginTop: '30px' }}>
                   <button 

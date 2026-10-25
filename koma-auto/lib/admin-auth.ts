@@ -13,6 +13,38 @@ export interface StaffAuthResult {
   };
 }
 
+// In-memory cache for cryptographically verified Google ID tokens (10 min TTL)
+const VERIFIED_TOKEN_CACHE = new Map<string, { uid: string; expiresAt: number }>();
+
+async function verifyFirebaseIdToken(token: string): Promise<string | null> {
+  const cached = VERIFIED_TOKEN_CACHE.get(token);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.uid;
+  }
+
+  const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken: token }),
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    const localId = data.users?.[0]?.localId;
+    if (localId) {
+      VERIFIED_TOKEN_CACHE.set(token, { uid: localId, expiresAt: Date.now() + 10 * 60 * 1000 });
+      return localId;
+    }
+  } catch (err) {
+    console.error('[VerifyFirebaseIdToken Error]:', err);
+  }
+  return null;
+}
+
 /**
  * Server-side Zero-Trust Staff & Role Verification Guard
  * Verifies that the requesting user exists in PostgreSQL `users` table,
@@ -26,17 +58,39 @@ export async function verifyStaffSession(
   try {
     const ip = request.headers.get('x-forwarded-for') || 'unknown-ip';
 
-    // 1. Extract userId from headers, query parameters, or explicit argument
-    let userId = explicitUserId;
+    // 1. Check for cryptographic Google/Firebase Bearer token
+    let userId: string | null = explicitUserId || null;
+    const authHeader = request.headers.get('authorization');
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const bearerToken = authHeader.slice(7).trim();
+      // If it is a JWT (contains dots)
+      if (bearerToken.includes('.')) {
+        const verifiedUid = await verifyFirebaseIdToken(bearerToken);
+        if (!verifiedUid) {
+          logAuditEvent({
+            userId: null,
+            action: 'UNAUTHORIZED_ADMIN_ACCESS_ATTEMPT',
+            entityType: 'admin_api',
+            entityId: 'invalid_bearer_jwt',
+            details: { ip, reason: 'google_jwt_verification_failed' },
+          });
+          return {
+            authorized: false,
+            status: 401,
+            error: 'Доступ отклонен: недействительный или поддельный токен сессии (Google Auth)',
+          };
+        }
+        userId = verifiedUid;
+      } else {
+        userId = bearerToken;
+      }
+    }
+
     if (!userId) {
       userId = request.headers.get('x-staff-user-id');
     }
-    if (!userId) {
-      const authHeader = request.headers.get('authorization');
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        userId = authHeader.slice(7).trim();
-      }
-    }
+
     if (!userId) {
       try {
         const url = new URL(request.url);

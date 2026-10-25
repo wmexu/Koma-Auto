@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { client, isDbConfigured } from '@/db';
+import { db } from '@/lib/firebase';
+import { doc, setDoc } from 'firebase/firestore';
 import { checkRateLimit, recordFailedAttempt, resetRateLimit } from '@/lib/rate-limiter';
 import { logAuditEvent } from '@/lib/audit';
 
@@ -92,6 +94,17 @@ export async function POST(request: Request) {
           INSERT INTO users (id, email, full_name, role, updated_at)
           VALUES (${userId}, ${userEmail}, ${displayName}, ${t.role}, NOW());
         `;
+      }
+
+      // Synchronize role to Firestore for real-time frontend session reflection
+      try {
+        await setDoc(
+          doc(db, 'users', targetUserId),
+          { role: t.role, updatedAt: new Date().toISOString() },
+          { merge: true }
+        );
+      } catch (fbErr) {
+        console.warn('[RoleActivate] Firestore sync notice:', fbErr);
       }
 
       // 2. Mark token usage: single-use consumes the token (records used_by), passive updates last used timestamp

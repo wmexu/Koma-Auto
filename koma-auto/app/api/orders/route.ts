@@ -6,9 +6,19 @@ import { createMoySkladOrder, notifyMoySkladOrderPaid, markMoySkladOrderCancelle
 import { verifyEpayPayment } from '@/lib/epay-refund';
 import { client, isDbConfigured } from '@/db';
 import { verifyStaffSession } from '@/lib/admin-auth';
+import { isKillSwitchActive } from '@/lib/system-settings';
 
 export async function POST(request: Request) {
   try {
+    // 0. Emergency Kill-Switch Check
+    const killSwitch = await isKillSwitchActive();
+    if (killSwitch) {
+      return NextResponse.json(
+        { error: 'Приём заказов на сайте временно приостановлен администрацией магазина.' },
+        { status: 503 }
+      );
+    }
+
     const order = (await request.json()) as Order;
 
     if (!order || !order.id) {

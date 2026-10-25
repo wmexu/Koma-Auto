@@ -6,7 +6,7 @@ interface CacheEntry {
 }
 
 const MEMORY_CACHE = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 30 * 1000; // 30 seconds
+const CACHE_TTL_MS = 2 * 1000; // 2 seconds high-reactivity cache
 
 /**
  * Retrieves a system setting with 30-second in-memory caching to prevent DB load
