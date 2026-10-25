@@ -1,9 +1,16 @@
 import { NextResponse } from 'next/server';
 import { client, isDbConfigured } from '@/db';
 import { logAuditEvent } from '@/lib/audit';
+import { verifyStaffSession } from '@/lib/admin-auth';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // Strict Server-Side Authorization: Only Director can list internal promo codes & bound users
+    const auth = await verifyStaffSession(request, ['director']);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
+
     if (!isDbConfigured() || !client) {
       return NextResponse.json({ error: 'База данных недоступна' }, { status: 503 });
     }
@@ -32,6 +39,12 @@ export async function POST(request: Request) {
       code, type, value, minCartTotal, maxDiscount, 
       targetAudience, boundUserId, boundEmails, usageLimit, staffUserId 
     } = body;
+
+    // Strict Server-Side Authorization: Only Director can create promo codes
+    const auth = await verifyStaffSession(request, ['director'], staffUserId);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
     if (!code || !type || value === undefined) {
       return NextResponse.json({ error: 'Укажите код, тип скидки и размер' }, { status: 400 });
@@ -97,6 +110,12 @@ export async function DELETE(request: Request) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const staffUserId = searchParams.get('staffUserId');
+
+    // Strict Server-Side Authorization: Only Director can delete promo codes
+    const auth = await verifyStaffSession(request, ['director'], staffUserId);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
     if (!id) {
       return NextResponse.json({ error: 'ID промокода не указан' }, { status: 400 });

@@ -1,13 +1,18 @@
 import { NextResponse } from 'next/server';
 import { client, isDbConfigured } from '@/db';
 import { logAuditEvent } from '@/lib/audit';
+import { verifyStaffSession } from '@/lib/admin-auth';
 
 export async function GET(request: Request) {
   try {
+    // 1. Strict Server-Side Authorization: Courier, Manager, or Director
+    const auth = await verifyStaffSession(request, ['courier', 'manager', 'director']);
+    if (!auth.authorized || !auth.user) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
+
     const { searchParams } = new URL(request.url);
     const period = searchParams.get('period') || '30'; // 30, 60, 360, all
-    const role = searchParams.get('role') || 'manager';
-    const userId = searchParams.get('userId');
     const status = searchParams.get('status');
 
     if (!isDbConfigured() || !client) {
@@ -21,8 +26,8 @@ export async function GET(request: Request) {
 
     let ordersList: any[] = [];
 
-    if (role === 'courier' && userId) {
-      // Courier only sees their assigned orders
+    // Courier can ONLY EVER see their own assigned orders (enforced by server from authenticated user.id)
+    if (auth.user.role === 'courier') {
       ordersList = await client`
         SELECT 
           id, invoice_id, user_id, amount, items_price, delivery_cost,
@@ -31,7 +36,7 @@ export async function GET(request: Request) {
           kaspi_phone, delivery_address, city, items, warehouse_id,
           completed_at, created_at, updated_at
         FROM orders
-        WHERE assigned_courier_id = ${userId}
+        WHERE assigned_courier_id = ${auth.user.id}
         ORDER BY created_at DESC;
       `;
     } else {
@@ -78,6 +83,12 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json();
     const { action, orderId, courierId, courierName, status, staffUserId } = body;
+
+    // Strict Server-Side Authorization: Only Managers and Directors can reassign or modify orders
+    const auth = await verifyStaffSession(request, ['manager', 'director'], staffUserId);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
     if (!orderId || !action) {
       return NextResponse.json({ error: 'Некорректные параметры' }, { status: 400 });

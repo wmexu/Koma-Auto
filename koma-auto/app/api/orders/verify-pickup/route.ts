@@ -3,6 +3,7 @@ import { client, isDbConfigured } from '@/db';
 import { verifyPickupCode } from '@/lib/crypto-security';
 import { checkRateLimit, recordFailedAttempt, resetRateLimit } from '@/lib/rate-limiter';
 import { logAuditEvent } from '@/lib/audit';
+import { verifyStaffSession } from '@/lib/admin-auth';
 
 export async function POST(request: Request) {
   try {
@@ -17,6 +18,17 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const { orderId, code, staffUserId } = body;
+
+    // Strict Server-Side Authorization: Only verified Staff members can complete orders
+    const auth = await verifyStaffSession(request, ['courier', 'manager', 'director'], staffUserId);
+    if (!auth.authorized || !auth.user) {
+      return NextResponse.json(
+        { error: 'Отказано: верификация заказов доступна только действующим сотрудникам (курьер, менеджер, директор)' },
+        { status: 403 }
+      );
+    }
+
+    const staffUser = auth.user;
 
     if (!orderId || !code) {
       return NextResponse.json({ error: 'Укажите номер заказа и 12-значный код получения' }, { status: 400 });
@@ -35,7 +47,7 @@ export async function POST(request: Request) {
     const result = await client.begin(async (sql) => {
       // 1. Lock the row
       const rows = await sql`
-        SELECT id, fulfillment_status, pickup_code_hash, pickup_code_salt, customer_name, amount
+        SELECT id, fulfillment_status, pickup_code_hash, pickup_code_salt, customer_name, amount, assigned_courier_id
         FROM orders
         WHERE id = ${String(orderId)}
         FOR UPDATE;
@@ -50,6 +62,11 @@ export async function POST(request: Request) {
       // 2. Check if already completed
       if (order.fulfillment_status === 'completed') {
         return { success: false, status: 400, error: 'Заказ уже был выдан и завершен ранее' };
+      }
+
+      // Check if courier is assigned to this order
+      if (staffUser.role === 'courier' && order.assigned_courier_id && order.assigned_courier_id !== staffUser.id) {
+        return { success: false, status: 403, error: 'Этот заказ закреплен за другим курьером' };
       }
 
       // 3. Verify code

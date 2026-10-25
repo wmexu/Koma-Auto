@@ -91,7 +91,11 @@ export async function fetchUserOrders(userId?: string | null): Promise<Order[]> 
   }
 
   try {
-    const res = await fetch(`/api/orders?userId=${encodeURIComponent(userId)}`);
+    const res = await fetch(`/api/orders?userId=${encodeURIComponent(userId)}`, {
+      headers: {
+        'x-user-id': userId,
+      },
+    });
     if (res.ok) {
       const serverOrders: Order[] = await res.json();
       // Merge unique orders

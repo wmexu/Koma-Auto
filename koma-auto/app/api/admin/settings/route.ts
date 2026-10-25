@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSystemSetting, setSystemSetting } from '@/lib/system-settings';
 import { logAuditEvent } from '@/lib/audit';
+import { verifyStaffSession } from '@/lib/admin-auth';
 
 export async function GET() {
   try {
@@ -27,6 +28,12 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { key, value, staffUserId } = body;
+
+    // Strict Server-Side Authorization: Only Director can modify system settings (Kill Switch, Warehouse)
+    const auth = await verifyStaffSession(request, ['director'], staffUserId);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
     if (!key || value === undefined) {
       return NextResponse.json({ error: 'Не указан ключ или значение' }, { status: 400 });

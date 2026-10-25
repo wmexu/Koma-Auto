@@ -5,6 +5,7 @@ import { Order, OrderStatus } from '@/lib/order-types';
 import { createMoySkladOrder, notifyMoySkladOrderPaid, markMoySkladOrderCancelled } from '@/lib/moysklad-order';
 import { verifyEpayPayment } from '@/lib/epay-refund';
 import { client, isDbConfigured } from '@/db';
+import { verifyStaffSession } from '@/lib/admin-auth';
 
 export async function POST(request: Request) {
   try {
@@ -13,6 +14,11 @@ export async function POST(request: Request) {
     if (!order || !order.id) {
       return NextResponse.json({ error: 'Некорректные данные заказа' }, { status: 400 });
     }
+
+    // Strict Financial Security: On creation, orders MUST ALWAYS have status 'pending'
+    // A client can never inject or bypass payment by sending { status: 'paid' }
+    order.status = 'pending';
+    order.notificationSent = false;
 
     // 1. Save in Firestore
     try {
@@ -72,7 +78,7 @@ export async function POST(request: Request) {
             ${order.deliveryCost || 0},
             ${order.deliveryMethod || 'pickup'},
             ${order.paymentMethod || 'online'},
-            ${order.status === 'paid' ? 'paid' : 'pending'},
+            'pending',
             'assembling',
             ${customerName},
             ${customerPhone},
@@ -116,14 +122,20 @@ export async function GET(request: Request) {
     const orderId = searchParams.get('orderId');
 
     if (orderId) {
-      // Require admin authorization for direct lookup of customer order data by ID
+      // Require staff or admin authorization for direct lookup of customer order data by ID
       const authHeader = request.headers.get('authorization');
       const customKey = request.headers.get('x-admin-key');
       const adminKey = process.env.ADMIN_SECRET_KEY;
       const providedKey = customKey || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null);
 
-      if (!adminKey || providedKey !== adminKey) {
-        return NextResponse.json({ error: 'Доступ ограничен: требуются права администратора' }, { status: 403 });
+      let isAuthorized = Boolean(adminKey && providedKey === adminKey);
+      if (!isAuthorized) {
+        const staffAuth = await verifyStaffSession(request, ['courier', 'manager', 'director']);
+        isAuthorized = staffAuth.authorized;
+      }
+
+      if (!isAuthorized) {
+        return NextResponse.json({ error: 'Доступ ограничен: требуются права администратора или сотрудника' }, { status: 403 });
       }
 
       const docSnap = await getDoc(doc(db, 'orders', orderId));
@@ -135,6 +147,20 @@ export async function GET(request: Request) {
 
     if (!userId) {
       return NextResponse.json({ error: 'Параметр userId обязателен' }, { status: 400 });
+    }
+
+    // Verify caller ownership or staff permissions
+    const reqUserId = request.headers.get('x-user-id');
+    const staffId = request.headers.get('x-staff-user-id');
+    let isOwnerOrStaff = Boolean(reqUserId && reqUserId === userId);
+
+    if (!isOwnerOrStaff && (staffId || request.headers.get('authorization'))) {
+      const staffAuth = await verifyStaffSession(request, ['courier', 'manager', 'director']);
+      isOwnerOrStaff = staffAuth.authorized;
+    }
+
+    if (!isOwnerOrStaff) {
+      return NextResponse.json({ error: 'Доступ запрещен: просмотр чужих заказов ограничен' }, { status: 403 });
     }
 
     const ordersCol = collection(db, 'orders');
@@ -192,8 +218,19 @@ export async function PATCH(request: Request) {
       console.warn('[Orders PATCH] Firestore access skipped/failed (will proceed with MoySklad & Telegram):', fbErr);
     }
 
-    // 2. Security Check: If client attempts to set status to 'paid', verify with Halyk ePay bank API first!
+    // 2. Security Check: If client attempts to set status to 'declined', verify authority
     if (status === 'declined') {
+      const staffAuth = await verifyStaffSession(request, ['director', 'manager']);
+      const reqUserId = request.headers.get('x-user-id') || request.headers.get('x-staff-user-id');
+      const isOwner = Boolean(targetOrder?.userId && reqUserId && targetOrder.userId === reqUserId);
+
+      if (!staffAuth.authorized && !isOwner) {
+        return NextResponse.json(
+          { error: 'Отказано: отменять заказ могут только уполномоченные сотрудники или владелец заказа' },
+          { status: 403 }
+        );
+      }
+
       try {
         await markMoySkladOrderCancelled(orderId, 'Оплата не прошла');
       } catch (e) {

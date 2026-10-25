@@ -4,6 +4,7 @@ import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { Order } from '@/lib/order-types';
 import { syncOrderToMoySklad, markMoySkladOrderCancelled } from '@/lib/moysklad-order';
 import { verifyEpayPayment } from '@/lib/epay-refund';
+import { client, isDbConfigured } from '@/db';
 
 export async function POST(request: Request) {
   try {
@@ -118,6 +119,19 @@ export async function POST(request: Request) {
         await syncOrderToMoySklad(updatedOrder);
       } catch (syncErr) {
         console.error('[Halyk Postlink] Error syncing to MoySklad/Telegram:', syncErr);
+      }
+
+      // Synchronize verified payment to Neon PostgreSQL for real-time CRM visibility
+      if (isDbConfigured() && client) {
+        try {
+          await client`
+            UPDATE orders
+            SET payment_status = 'paid', updated_at = NOW()
+            WHERE id = ${String(invoiceId)} OR invoice_id = ${String(invoiceId)};
+          `;
+        } catch (neonErr) {
+          console.error('[Halyk Postlink] Failed to update Neon order payment_status:', neonErr);
+        }
       }
     } else {
       console.warn(`[Halyk ePay Payment NOT SUCCESS]: Order ${invoiceId}, code=${code}, reason=${reason}, reasonCode=${reasonCode}`);

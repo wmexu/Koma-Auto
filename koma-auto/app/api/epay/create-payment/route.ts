@@ -9,6 +9,7 @@ import {
 } from '@/lib/epay';
 import { getTestPromoConfig } from '@/lib/promocode';
 import { getProductsByIdsFromDb } from '@/lib/products-db';
+import { client, isDbConfigured } from '@/db';
 
 export async function POST(request: Request) {
   try {
@@ -55,6 +56,44 @@ export async function POST(request: Request) {
           const genuinePrice = dbItem ? dbItem.price : (Number(item.price) || 0);
           const qty = Math.max(1, Number(item.quantity) || 1);
           calculatedItemsTotal += genuinePrice * qty;
+        }
+
+        // Secure Production Promocode verification against Neon PostgreSQL
+        if (promoCode && typeof promoCode === 'string' && isDbConfigured() && client) {
+          try {
+            const promoRows = await client`
+              SELECT id, code, type, value, min_cart_total, max_discount, is_active, bound_emails, bound_user_id, usage_limit, used_count
+              FROM promocodes
+              WHERE LOWER(code) = LOWER(${promoCode.trim()}) AND is_active = true
+              LIMIT 1;
+            `;
+            if (promoRows && promoRows.length > 0) {
+              const p = promoRows[0];
+              const minCart = Number(p.min_cart_total) || 0;
+              const meetsMin = calculatedItemsTotal >= minCart;
+              const notExhausted = !p.usage_limit || Number(p.used_count) < Number(p.usage_limit);
+
+              const boundEmails: string[] = Array.isArray(p.bound_emails)
+                ? p.bound_emails.map((e: any) => String(e).toLowerCase().trim())
+                : [];
+              const emailAllowed = boundEmails.length === 0 || (email && boundEmails.includes(email.toLowerCase().trim()));
+
+              if (meetsMin && notExhausted && emailAllowed) {
+                let discount = 0;
+                if (p.type === 'percent') {
+                  discount = (calculatedItemsTotal * Number(p.value)) / 100;
+                  if (p.max_discount && discount > Number(p.max_discount)) {
+                    discount = Number(p.max_discount);
+                  }
+                } else {
+                  discount = Math.min(calculatedItemsTotal, Number(p.value));
+                }
+                calculatedItemsTotal = Math.max(0, calculatedItemsTotal - discount);
+              }
+            }
+          } catch (promoErr) {
+            console.warn('[Epay create-payment] Promocode verification notice:', promoErr);
+          }
         }
 
         const isCourier = deliveryMethod === 'courier';

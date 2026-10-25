@@ -29,9 +29,27 @@ export async function GET(request: Request, { params }: Props) {
       console.warn('[PickupCode] Firestore lookup failed, falling back to DB:', e);
     }
 
-    // If order has a userId, enforce ownership
-    if (orderData?.userId && userId && orderData.userId !== userId) {
-      return NextResponse.json({ error: 'Доступ к чужому заказу запрещен' }, { status: 403 });
+    // 1. If order was placed by an authenticated user, strictly require matching userId
+    if (orderData?.userId) {
+      if (!userId || String(orderData.userId).trim() !== String(userId).trim()) {
+        return NextResponse.json({ error: 'Доступ к чужому заказу запрещен' }, { status: 403 });
+      }
+    } else {
+      // 2. If it is an unauthenticated/guest order, require customer phone or email verification
+      const reqPhone = (searchParams.get('phone') || '').replace(/\D/g, '');
+      const reqEmail = (searchParams.get('email') || '').trim().toLowerCase();
+      const orderPhone = (orderData?.customer?.phone || '').replace(/\D/g, '');
+      const orderEmail = (orderData?.customer?.email || '').trim().toLowerCase();
+
+      const phoneMatches = Boolean(orderPhone && reqPhone && orderPhone.endsWith(reqPhone.slice(-10)));
+      const emailMatches = Boolean(orderEmail && reqEmail && orderEmail === reqEmail);
+
+      if (!phoneMatches && !emailMatches) {
+        return NextResponse.json(
+          { error: 'Для доступа к коду получения подтвердите номер телефона или email получателя' },
+          { status: 403 }
+        );
+      }
     }
 
     const code = orderData?.pickupCode;

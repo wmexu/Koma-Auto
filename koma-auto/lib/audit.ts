@@ -11,12 +11,16 @@ export type AuditAction =
   | 'WAREHOUSE_CHANGED'
   | 'PROMOCODE_CREATED'
   | 'PROMOCODE_DELETED'
-  | 'PICKUP_CODE_VIEWED';
+  | 'PICKUP_CODE_VIEWED'
+  | 'UNAUTHORIZED_ADMIN_ACCESS_ATTEMPT'
+  | 'FORBIDDEN_ADMIN_ACCESS_ATTEMPT'
+  | 'BLOCKED_USER_ACCESS_ATTEMPT'
+  | 'INSUFFICIENT_PRIVILEGES_ATTEMPT';
 
 export interface AuditParams {
   userId?: string | null;
   action: AuditAction;
-  entityType: 'order' | 'user' | 'promocode' | 'system' | 'token';
+  entityType: 'order' | 'user' | 'promocode' | 'system' | 'token' | 'admin_api';
   entityId?: string | null;
   details?: Record<string, any>;
   ipAddress?: string | null;

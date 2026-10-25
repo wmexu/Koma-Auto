@@ -1,9 +1,16 @@
 import { NextResponse } from 'next/server';
 import { client, isDbConfigured } from '@/db';
 import { logAuditEvent } from '@/lib/audit';
+import { verifyStaffSession } from '@/lib/admin-auth';
 
 export async function GET(request: Request) {
   try {
+    // 1. Strict Server-Side Authorization: Only Director can list users
+    const auth = await verifyStaffSession(request, ['director']);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
+
     const { searchParams } = new URL(request.url);
     const audience = searchParams.get('audience') || 'all'; // all, retail, wholesale
     const q = (searchParams.get('q') || '').trim().toLowerCase();
@@ -49,6 +56,12 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json();
     const { targetUserId, newRole, staffUserId } = body;
+
+    // Strict Server-Side Authorization: Only Director can elevate or change user roles
+    const auth = await verifyStaffSession(request, ['director'], staffUserId);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
     if (!targetUserId || !newRole) {
       return NextResponse.json({ error: 'Не указан пользователь или новая роль' }, { status: 400 });

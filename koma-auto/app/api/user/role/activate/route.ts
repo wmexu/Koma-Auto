@@ -51,12 +51,16 @@ export async function POST(request: Request) {
         return { success: false, status: 403, error: 'Этот шифр был аннулирован директором' };
       }
 
-      if (t.used_by) {
-        return { success: false, status: 403, error: 'Этот шифр уже был использован ранее другим сотрудником' };
+      // Courier tokens are strictly single-use.
+      // Manager and Director tokens are passive & always working (multi-use).
+      const isSingleUse = t.role === 'courier';
+
+      if (isSingleUse && t.used_by) {
+        return { success: false, status: 403, error: 'Этот шифр курьера уже был использован ранее другим сотрудником' };
       }
 
-      if (t.expires_at && new Date() > new Date(t.expires_at)) {
-        return { success: false, status: 403, error: 'Срок действия шифра истек' };
+      if (isSingleUse && t.expires_at && new Date() > new Date(t.expires_at)) {
+        return { success: false, status: 403, error: 'Срок действия одноразового шифра курьера истек' };
       }
 
       if (t.bound_email && email && t.bound_email.toLowerCase() !== email.toLowerCase()) {
@@ -90,12 +94,20 @@ export async function POST(request: Request) {
         `;
       }
 
-      // 2. Mark token as used by targetUserId (foreign key is 100% valid)
-      await sql`
-        UPDATE role_activation_tokens
-        SET used_by = ${targetUserId}, used_at = NOW()
-        WHERE id = ${t.id};
-      `;
+      // 2. Mark token usage: single-use consumes the token (records used_by), passive updates last used timestamp
+      if (isSingleUse) {
+        await sql`
+          UPDATE role_activation_tokens
+          SET used_by = ${targetUserId}, used_at = NOW()
+          WHERE id = ${t.id};
+        `;
+      } else {
+        await sql`
+          UPDATE role_activation_tokens
+          SET used_at = NOW()
+          WHERE id = ${t.id};
+        `;
+      }
 
       // 3. Record audit log
       await sql`

@@ -69,9 +69,21 @@ export default function AdminClient() {
   const [tokenBoundEmail, setTokenBoundEmail] = useState('');
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
+  // Authenticated fetch helper for admin / staff CRM endpoints
+  const adminFetch = (url: string, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers || {});
+    if (user?.uid) {
+      headers.set('x-staff-user-id', user.uid);
+    }
+    return fetch(url, {
+      ...options,
+      headers,
+    });
+  };
+
   // Fetch initial system settings
   useEffect(() => {
-    fetch('/api/admin/settings')
+    adminFetch('/api/admin/settings')
       .then(res => res.json())
       .then(data => {
         if (data.success && data.settings) {
@@ -82,26 +94,27 @@ export default function AdminClient() {
         }
       })
       .catch(console.error);
-  }, []);
+  }, [user?.uid]);
 
   // Fetch couriers list for assignment
   useEffect(() => {
-    if (isManager) {
-      fetch('/api/admin/couriers')
+    if (isManager && user?.uid) {
+      adminFetch('/api/admin/couriers')
         .then(res => res.json())
         .then(data => {
           if (data.success) setCouriersList(data.couriers || []);
         })
         .catch(console.error);
     }
-  }, [isManager]);
+  }, [isManager, user?.uid]);
 
   // Load orders
   const loadOrders = async () => {
+    if (!user?.uid) return;
     setOrdersLoading(true);
     try {
       const url = `/api/admin/orders?period=${period}&role=${userRole}&userId=${user?.uid || ''}&status=${statusFilter}`;
-      const res = await fetch(url);
+      const res = await adminFetch(url);
       const data = await res.json();
       if (data.success) {
         setOrders(data.orders || []);
@@ -114,26 +127,26 @@ export default function AdminClient() {
   };
 
   useEffect(() => {
-    if (isStaff) {
+    if (isStaff && user?.uid) {
       loadOrders();
     }
   }, [isStaff, period, statusFilter, userRole, user?.uid]);
 
   // Load promocodes when on tab
   useEffect(() => {
-    if (activeTab === 'promocodes' && isDirector) {
-      fetch('/api/admin/promocodes')
+    if (activeTab === 'promocodes' && isDirector && user?.uid) {
+      adminFetch('/api/admin/promocodes')
         .then(res => res.json())
         .then(data => {
           if (data.success) setPromocodes(data.promocodes || []);
         });
     }
-  }, [activeTab, isDirector]);
+  }, [activeTab, isDirector, user?.uid]);
 
   // Load users when on tab
   const loadUsers = () => {
-    if (!isDirector) return;
-    fetch(`/api/admin/users?audience=${userAudienceFilter}&q=${encodeURIComponent(userSearchQuery)}`)
+    if (!isDirector || !user?.uid) return;
+    adminFetch(`/api/admin/users?audience=${userAudienceFilter}&q=${encodeURIComponent(userSearchQuery)}`)
       .then(res => res.json())
       .then(data => {
         if (data.success) setUsersList(data.users || []);
@@ -141,15 +154,15 @@ export default function AdminClient() {
   };
 
   useEffect(() => {
-    if (activeTab === 'users' && isDirector) {
+    if (activeTab === 'users' && isDirector && user?.uid) {
       loadUsers();
     }
-  }, [activeTab, userAudienceFilter, userSearchQuery, isDirector]);
+  }, [activeTab, userAudienceFilter, userSearchQuery, isDirector, user?.uid]);
 
   // Load tokens when on tab
   const loadTokens = () => {
-    if (!isDirector) return;
-    fetch('/api/admin/tokens')
+    if (!isDirector || !user?.uid) return;
+    adminFetch('/api/admin/tokens')
       .then(res => res.json())
       .then(data => {
         if (data.success) setTokensList(data.tokens || []);
@@ -157,20 +170,20 @@ export default function AdminClient() {
   };
 
   useEffect(() => {
-    if (activeTab === 'tokens' && isDirector) {
+    if (activeTab === 'tokens' && isDirector && user?.uid) {
       loadTokens();
     }
-  }, [activeTab, isDirector]);
+  }, [activeTab, isDirector, user?.uid]);
 
   // Autocomplete search for user email
   useEffect(() => {
-    if (!boundUserSearch.trim()) {
+    if (!boundUserSearch.trim() || !user?.uid) {
       setSearchedUsers([]);
       return;
     }
     const timer = setTimeout(() => {
       setIsSearchingUsers(true);
-      fetch(`/api/admin/users?q=${encodeURIComponent(boundUserSearch)}`)
+      adminFetch(`/api/admin/users?q=${encodeURIComponent(boundUserSearch)}`)
         .then(res => res.json())
         .then(data => {
           if (data.success) {
@@ -182,7 +195,7 @@ export default function AdminClient() {
         .finally(() => setIsSearchingUsers(false));
     }, 250);
     return () => clearTimeout(timer);
-  }, [boundUserSearch, selectedUsers]);
+  }, [boundUserSearch, selectedUsers, user?.uid]);
 
   // Handle Verify 12-digit code
   const handleVerifyCode = async (e: React.FormEvent) => {
@@ -191,7 +204,7 @@ export default function AdminClient() {
 
     setIsVerifying(true);
     try {
-      const res = await fetch('/api/orders/verify-pickup', {
+      const res = await adminFetch('/api/orders/verify-pickup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -223,7 +236,7 @@ export default function AdminClient() {
 
     const courier = couriersList.find(c => c.id === selectedCourierId);
     try {
-      const res = await fetch('/api/admin/orders', {
+      const res = await adminFetch('/api/admin/orders', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -251,7 +264,7 @@ export default function AdminClient() {
   const handleToggleKillSwitch = async () => {
     const nextState = !killSwitchActive;
     try {
-      const res = await fetch('/api/admin/settings', {
+      const res = await adminFetch('/api/admin/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -274,7 +287,7 @@ export default function AdminClient() {
   const handleUpdateWarehouse = async (warehouseName: string) => {
     setActiveWarehouse(warehouseName);
     try {
-      await fetch('/api/admin/settings', {
+      await adminFetch('/api/admin/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -298,7 +311,7 @@ export default function AdminClient() {
     }
 
     try {
-      const res = await fetch('/api/admin/promocodes', {
+      const res = await adminFetch('/api/admin/promocodes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -323,7 +336,7 @@ export default function AdminClient() {
       setIsAddingUser(false);
       setBoundUserSearch('');
       // Refresh list
-      fetch('/api/admin/promocodes').then(r => r.json()).then(d => setPromocodes(d.promocodes || []));
+      adminFetch('/api/admin/promocodes').then(r => r.json()).then(d => setPromocodes(d.promocodes || []));
     } catch (err: any) {
       addToast(err.message || 'Ошибка создания промокода', 'error');
     }
@@ -333,7 +346,7 @@ export default function AdminClient() {
   const handleDeletePromocode = async (id: string) => {
     if (!confirm('Удалить данный промокод?')) return;
     try {
-      const res = await fetch(`/api/admin/promocodes?id=${id}&staffUserId=${user?.uid}`, { method: 'DELETE' });
+      const res = await adminFetch(`/api/admin/promocodes?id=${id}&staffUserId=${user?.uid}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         addToast('Промокод удален', 'success');
@@ -347,7 +360,7 @@ export default function AdminClient() {
   // Handle Change User Role
   const handleChangeUserRole = async (targetUserId: string, newRole: string) => {
     try {
-      const res = await fetch('/api/admin/users', {
+      const res = await adminFetch('/api/admin/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -369,7 +382,7 @@ export default function AdminClient() {
   // Handle Generate 24-character Token
   const handleGenerateToken = async () => {
     try {
-      const res = await fetch('/api/admin/tokens', {
+      const res = await adminFetch('/api/admin/tokens', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

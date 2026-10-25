@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server';
 import { client, isDbConfigured } from '@/db';
+import { verifyStaffSession } from '@/lib/admin-auth';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // Strict Server-Side Authorization: Only Managers and Directors can list couriers
+    const auth = await verifyStaffSession(request, ['manager', 'director']);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
+
     if (!isDbConfigured() || !client) {
       return NextResponse.json({ error: 'База данных недоступна' }, { status: 503 });
     }

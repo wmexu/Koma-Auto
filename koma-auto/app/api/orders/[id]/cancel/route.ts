@@ -1,21 +1,33 @@
 import { NextResponse } from 'next/server';
 import { cancelAndRefundOrder } from '@/lib/order-cancellation';
+import { verifyStaffSession } from '@/lib/admin-auth';
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // 1. Strict Security Authentication: require valid ADMIN_SECRET_KEY
+    // 1. Strict Security Authentication: require valid ADMIN_SECRET_KEY or verified Director/Manager session
     const authHeader = request.headers.get('authorization');
     const customKey = request.headers.get('x-admin-key');
     const adminKey = process.env.ADMIN_SECRET_KEY;
 
     const providedKey = customKey || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null);
 
-    if (!adminKey || !providedKey || providedKey !== adminKey) {
+    let isAuthorized = Boolean(adminKey && providedKey === adminKey);
+    let cancelledBy: 'admin' | 'user' | 'system' = 'admin';
+
+    if (!isAuthorized) {
+      const staffAuth = await verifyStaffSession(request, ['director', 'manager']);
+      if (staffAuth.authorized && staffAuth.user) {
+        isAuthorized = true;
+        cancelledBy = 'admin';
+      }
+    }
+
+    if (!isAuthorized) {
       return NextResponse.json(
-        { error: 'Отказано в доступе: требуются права администратора для отмены заказа и возврата средств' },
+        { error: 'Отказано в доступе: требуются права администратора или руководителя для отмены заказа' },
         { status: 401 }
       );
     }
@@ -33,7 +45,7 @@ export async function POST(
     const result = await cancelAndRefundOrder({
       orderId: id,
       reason,
-      cancelledBy: 'admin',
+      cancelledBy,
     });
 
     if (!result.success) {
