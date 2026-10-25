@@ -72,6 +72,11 @@ export default function ProfileClient() {
       if (userProfile) {
         setUserProfile({ ...userProfile, role: data.role });
       }
+      try {
+        await setDoc(doc(db, 'users', user.uid), { role: data.role }, { merge: true });
+      } catch (e) {
+        console.warn('Firestore role sync notice:', e);
+      }
       setIsEditModalOpen(false);
       setStaffTokenInput('');
     } catch (err: any) {

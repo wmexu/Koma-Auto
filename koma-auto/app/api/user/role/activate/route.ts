@@ -63,34 +63,50 @@ export async function POST(request: Request) {
         return { success: false, status: 403, error: `Этот шифр предназначен только для аккаунта ${t.bound_email}` };
       }
 
-      // Mark token as used
+      // 1. First ensure user exists in `users` table so Foreign Key role_activation_tokens_used_by_fkey is satisfied
+      const userEmail = email && email.includes('@') ? email.trim().toLowerCase() : `user_${userId}@koma.kz`;
+      const displayName = fullName || 'Сотрудник';
+
+      const existingUsers = await sql`
+        SELECT id, email FROM users WHERE id = ${userId} OR email = ${userEmail} LIMIT 1;
+      `;
+
+      let targetUserId = userId;
+
+      if (existingUsers && existingUsers.length > 0) {
+        targetUserId = existingUsers[0].id;
+        await sql`
+          UPDATE users
+          SET role = ${t.role},
+              full_name = COALESCE(${displayName}, full_name),
+              email = COALESCE(${userEmail}, email),
+              updated_at = NOW()
+          WHERE id = ${targetUserId};
+        `;
+      } else {
+        await sql`
+          INSERT INTO users (id, email, full_name, role, updated_at)
+          VALUES (${userId}, ${userEmail}, ${displayName}, ${t.role}, NOW());
+        `;
+      }
+
+      // 2. Mark token as used by targetUserId (foreign key is 100% valid)
       await sql`
         UPDATE role_activation_tokens
-        SET used_by = ${userId}, used_at = NOW()
+        SET used_by = ${targetUserId}, used_at = NOW()
         WHERE id = ${t.id};
       `;
 
-      // Upsert user with new role
-      await sql`
-        INSERT INTO users (id, email, full_name, role, updated_at)
-        VALUES (${userId}, ${email || `user_${userId}`}, ${fullName || 'Сотрудник'}, ${t.role}, NOW())
-        ON CONFLICT (id) DO UPDATE SET
-          role = ${t.role},
-          full_name = COALESCE(EXCLUDED.full_name, users.full_name),
-          email = COALESCE(EXCLUDED.email, users.email),
-          updated_at = NOW();
-      `;
-
-      // Record audit log
+      // 3. Record audit log
       await sql`
         INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, ip_address, created_at)
         VALUES (
           gen_random_uuid(),
-          ${userId},
+          ${targetUserId},
           'ROLE_ACTIVATED',
           'user',
-          ${userId},
-          ${JSON.stringify({ role: t.role, token: cleanToken, email })}::jsonb,
+          ${targetUserId},
+          ${JSON.stringify({ role: t.role, token: cleanToken, email: userEmail })}::jsonb,
           ${ip},
           NOW()
         );
