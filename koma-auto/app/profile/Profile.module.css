@@ -274,24 +274,27 @@
   height: 100dvh;
   background-color: rgba(0, 0, 0, 0.5);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 1000;
   backdrop-filter: blur(4px);
   animation: fadeIn 0.2s ease;
   overflow-y: auto;
-  padding: 20px;
+  -webkit-overflow-scrolling: touch;
+  padding: 32px 16px;
 }
 
 .modalContent {
+  margin: auto;
   background: white;
   padding: 32px;
   border-radius: var(--radius-md);
-  width: 90%;
-  max-width: 400px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 440px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
   text-align: center;
   animation: slideUp 0.3s ease;
+  flex-shrink: 0;
 }
 
 .modalTitle {
@@ -582,6 +585,14 @@
   .dashboardContainer {
     padding-top: 40px; /* Fix margin for header */
   }
+
+  .modalOverlay {
+    padding: 20px 12px;
+  }
+
+  .modalContent {
+    padding: 24px 18px;
+  }
 }
 
 
@@ -654,7 +665,7 @@
 
 .codeActivationInput {
   font-family: var(--font-geist-sans), sans-serif;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 500;
   letter-spacing: 0;
 }

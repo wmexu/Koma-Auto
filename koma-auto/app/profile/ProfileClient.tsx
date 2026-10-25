@@ -813,8 +813,8 @@ export default function ProfileClient() {
 
                 {editClientType === 'staff_code' && (
                   <div className={styles.codeActivationBox}>
-                    <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-navy)', display: 'block', marginBottom: '6px' }}>
-                      24-значный шифр сотрудника (Курьер / Менеджер / Директор)
+                    <label style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-navy)', display: 'block', marginBottom: '8px' }}>
+                      24-значный шифр сотрудника
                     </label>
                     <input
                       type="text"
