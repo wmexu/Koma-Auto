@@ -4,14 +4,8 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Order, OrderStatus, getEffectiveOrderStatus, getOrderStatusLabel } from '@/lib/order-types';
 import { fetchUserOrders } from '@/lib/orders';
+import { formatPickupCode, getOrderPickupCode } from '@/lib/pickup-code';
 import styles from './OrdersHistory.module.css';
-
-function formatPickupCode(code?: string): string {
-  if (!code) return '4829 - 1057 - 3912';
-  const clean = code.replace(/\D/g, '');
-  if (clean.length !== 12) return code;
-  return `${clean.slice(0, 4)} - ${clean.slice(4, 8)} - ${clean.slice(8, 12)}`;
-}
 import {
   Package,
   Clock,
@@ -30,8 +24,6 @@ import {
   User,
   AlertCircle,
   KeyRound,
-  Eye,
-  EyeOff,
 } from 'lucide-react';
 
 interface OrdersHistoryProps {
@@ -43,7 +35,6 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
-  const [showPickupCode, setShowPickupCode] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
 
   // 1. Load orders on mount and sync
@@ -159,144 +150,248 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
     );
   }
 
-  return (
-    <div className={styles.ordersContainer}>
-      {orders.map((order) => {
-        const effectiveStatus = getEffectiveOrderStatus(order);
-        const remData = effectiveStatus === 'pending' ? getRemainingTimeData(order) : null;
-        const totalItemsCount = order.items.reduce((acc, i) => acc + i.quantity, 0);
+  // Split into Active and Closed orders according to user specification
+  const isOrderClosed = (o: Order) => {
+    const eff = getEffectiveOrderStatus(o);
+    return o.fulfillmentStatus === 'completed' || o.fulfillmentStatus === 'cancelled' || eff === 'declined';
+  };
 
-        return (
-          <div key={order.id} className={styles.orderCard}>
-            {/* Header: Number, Date, Status */}
-            <div className={styles.orderHeader}>
-              <div className={styles.orderTitleCol}>
-                <div className={styles.orderNumber}>Заказ №{order.id}</div>
-                <div className={styles.orderDate}>
-                  <Calendar size={14} />
-                  <span>{formatDate(order.createdAt)}</span>
-                </div>
-              </div>
+  const getActivePriority = (o: Order): number => {
+    const eff = getEffectiveOrderStatus(o);
+    if (eff === 'pending') return 1; // 1st: Ждущие платежа
+    if (o.fulfillmentStatus === 'ready_for_pickup' || o.fulfillmentStatus === 'out_for_delivery') return 2; // 2nd: Готовые к получению / курьер
+    return 3; // 3rd: В сборке
+  };
 
-              <div>
-                {effectiveStatus === 'paid' && (
-                  <span className={`${styles.statusBadge} ${styles.statusPaid}`}>
-                    <CheckCircle size={15} />
-                    <span>Оплачен</span>
-                  </span>
-                )}
-                {effectiveStatus === 'pending' && (
-                  <span className={`${styles.statusBadge} ${styles.statusPending}`}>
-                    <Clock size={15} />
-                    <span>Не оплачен {remData ? `(${remData.prefix} ${remData.text})` : ''}</span>
-                  </span>
-                )}
-                {effectiveStatus === 'declined' && (
-                  <span className={`${styles.statusBadge} ${styles.statusDeclined}`}>
-                    <XCircle size={15} />
-                    <span>{order.cancelledBy === 'admin' ? 'Отменен магазином' : 'Отклонен'}</span>
-                  </span>
-                )}
-              </div>
-            </div>
+  const getClosedPriority = (o: Order): number => {
+    if (o.fulfillmentStatus === 'completed') return 1; // 1st: Забранные (Выдан)
+    return 2; // 2nd: Отклоненные / Отменен
+  };
 
-            {/* Admin cancellation banner on order card */}
-            {effectiveStatus === 'declined' && (order.cancellationReason || order.refundMessage) && (
-              <div className={styles.cancellationBanner}>
-                <div className={styles.cancellationHeader}>
-                  <AlertCircle size={15} />
-                  <span>Заказ отменен администратором</span>
-                </div>
-                {order.cancellationReason && (
-                  <div className={styles.cancellationReason}>
-                    <strong>Причина:</strong> {order.cancellationReason}
-                  </div>
-                )}
-                {order.refundMessage && (
-                  <div className={styles.cancellationRefund}>
-                    💳 {order.refundMessage}
-                  </div>
-                )}
-              </div>
-            )}
+  const activeOrders = orders
+    .filter(o => !isOrderClosed(o))
+    .sort((a, b) => {
+      const pDiff = getActivePriority(a) - getActivePriority(b);
+      if (pDiff !== 0) return pDiff;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
-            {/* Delivery address / method */}
-            <div className={styles.deliveryBanner}>
-              {order.deliveryMethod === 'courier' ? (
-                <Truck size={16} color="var(--color-navy)" />
-              ) : (
-                <MapPin size={16} color="var(--color-navy)" />
-              )}
-              <span style={{ fontWeight: 500 }}>
-                {order.deliveryMethod === 'courier' ? 'Доставка: ' : 'Самовывоз: '}
-              </span>
-              <span style={{ color: '#334155' }}>{order.address}</span>
-            </div>
+  const closedOrders = orders
+    .filter(o => isOrderClosed(o))
+    .sort((a, b) => {
+      const pDiff = getClosedPriority(a) - getClosedPriority(b);
+      if (pDiff !== 0) return pDiff;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
-            {/* Thumbnails row (WB/Ozon style) */}
-            <div className={styles.thumbnailsRow}>
-              {order.items.slice(0, 4).map((item, idx) => (
-                <div key={idx} className={styles.thumbnailBox} title={`${item.name} (${item.quantity} шт)`}>
-                  {item.image ? (
-                    <img src={item.image} alt={item.name} className={styles.thumbnailImg} />
-                  ) : (
-                    <Package size={22} color="#94a3b8" />
-                  )}
-                </div>
-              ))}
-              {order.items.length > 4 && (
-                <div className={styles.moreItemsBox}>
-                  +{order.items.length - 4}
-                </div>
-              )}
-            </div>
+  const renderStatusBadge = (order: Order) => {
+    const effectiveStatus = getEffectiveOrderStatus(order);
+    const isCancelled = effectiveStatus === 'declined' || order.fulfillmentStatus === 'cancelled';
+    const isCompleted = order.fulfillmentStatus === 'completed';
 
-            {/* Footer with Price and Actions */}
-            <div className={styles.orderFooter}>
-              <div className={styles.totalCol}>
-                <span className={styles.totalLabel}>Итого</span>
-                <span className={styles.totalAmount}>
-                  {order.amount.toLocaleString('ru-RU')} ₸
-                </span>
-              </div>
+    if (isCompleted) {
+      return (
+        <span className={`${styles.statusBadge} ${styles.statusCompleted}`}>
+          <CheckCircle size={15} />
+          <span>Выдан</span>
+        </span>
+      );
+    }
 
-              <div className={styles.actionsGroup}>
-                <button
-                  className={styles.detailsBtn}
-                  onClick={() => setSelectedOrder(order)}
-                >
-                  <span>Состав заказа ({totalItemsCount} шт)</span>
-                  <ChevronRight size={16} />
-                </button>
+    if (isCancelled) {
+      return (
+        <span className={`${styles.statusBadge} ${styles.statusDeclined}`}>
+          <XCircle size={15} />
+          <span>{order.cancelledBy === 'admin' ? 'Отменен магазином' : 'Отклонен'}</span>
+        </span>
+      );
+    }
 
-                {effectiveStatus === 'pending' && order.paymentUrl && (
-                  <button
-                    className={styles.payBtn}
-                    onClick={() => {
-                      if (order.paymentUrl) {
-                        window.location.href = order.paymentUrl;
-                      }
-                    }}
-                  >
-                    <CreditCard size={16} />
-                    <span>Оплатить (Halyk ePay)</span>
-                  </button>
-                )}
+    if (effectiveStatus === 'pending') {
+      const remData = getRemainingTimeData(order);
+      return (
+        <span className={`${styles.statusBadge} ${styles.statusPending}`}>
+          <Clock size={15} />
+          <span>Не оплачен {remData ? `(${remData.prefix} ${remData.text})` : ''}</span>
+        </span>
+      );
+    }
 
-                {effectiveStatus === 'paid' && (
-                  <button
-                    className={styles.receiptBtn}
-                    onClick={() => setReceiptOrder(order)}
-                  >
-                    <Receipt size={16} />
-                    <span>Электронный чек</span>
-                  </button>
-                )}
-              </div>
+    if (order.fulfillmentStatus === 'ready_for_pickup') {
+      return (
+        <span className={`${styles.statusBadge} ${styles.statusReady}`}>
+          <Package size={15} />
+          <span>Готов к получению</span>
+        </span>
+      );
+    }
+
+    if (order.fulfillmentStatus === 'out_for_delivery') {
+      return (
+        <span className={`${styles.statusBadge} ${styles.statusOutForDelivery}`}>
+          <Truck size={15} />
+          <span>Выдан курьеру</span>
+        </span>
+      );
+    }
+
+    // Default paid / in assembly
+    return (
+      <span className={`${styles.statusBadge} ${styles.statusAssembling}`}>
+        <Clock size={15} />
+        <span>В сборке</span>
+      </span>
+    );
+  };
+
+  const renderOrderCard = (order: Order) => {
+    const effectiveStatus = getEffectiveOrderStatus(order);
+    const totalItemsCount = order.items.reduce((acc, i) => acc + i.quantity, 0);
+
+    return (
+      <div key={order.id} className={styles.orderCard}>
+        {/* Header: Number, Date, Status */}
+        <div className={styles.orderHeader}>
+          <div className={styles.orderTitleCol}>
+            <div className={styles.orderNumber}>Заказ №{order.id}</div>
+            <div className={styles.orderDate}>
+              <Calendar size={14} />
+              <span>{formatDate(order.createdAt)}</span>
             </div>
           </div>
-        );
-      })}
+
+          <div>{renderStatusBadge(order)}</div>
+        </div>
+
+        {/* Admin cancellation banner on order card */}
+        {(effectiveStatus === 'declined' || order.fulfillmentStatus === 'cancelled') && (order.cancellationReason || order.refundMessage) && (
+          <div className={styles.cancellationBanner}>
+            <div className={styles.cancellationHeader}>
+              <AlertCircle size={15} />
+              <span>Заказ отменен магазином</span>
+            </div>
+            {order.cancellationReason && (
+              <div className={styles.cancellationReason}>
+                <strong>Причина:</strong> {order.cancellationReason}
+              </div>
+            )}
+            {order.refundMessage && (
+              <div className={styles.cancellationRefund}>
+                💳 {order.refundMessage}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Delivery address / method */}
+        <div className={styles.deliveryBanner}>
+          {order.deliveryMethod === 'courier' ? (
+            <Truck size={16} color="var(--color-navy)" />
+          ) : (
+            <MapPin size={16} color="var(--color-navy)" />
+          )}
+          <span style={{ fontWeight: 500 }}>
+            {order.deliveryMethod === 'courier' ? 'Доставка: ' : 'Самовывоз: '}
+          </span>
+          <span style={{ color: '#334155' }}>{order.address}</span>
+        </div>
+
+        {/* Thumbnails row */}
+        <div className={styles.thumbnailsRow}>
+          {order.items.slice(0, 4).map((item, idx) => (
+            <div key={idx} className={styles.thumbnailBox} title={`${item.name} (${item.quantity} шт)`}>
+              {item.image ? (
+                <img src={item.image} alt={item.name} className={styles.thumbnailImg} />
+              ) : (
+                <Package size={22} color="#94a3b8" />
+              )}
+            </div>
+          ))}
+          {order.items.length > 4 && (
+            <div className={styles.moreItemsBox}>
+              +{order.items.length - 4}
+            </div>
+          )}
+        </div>
+
+        {/* Footer with Price and Actions */}
+        <div className={styles.orderFooter}>
+          <div className={styles.totalCol}>
+            <span className={styles.totalLabel}>Итого</span>
+            <span className={styles.totalAmount}>
+              {order.amount.toLocaleString('ru-RU')} ₸
+            </span>
+          </div>
+
+          <div className={styles.actionsGroup}>
+            <button
+              className={styles.detailsBtn}
+              onClick={() => setSelectedOrder(order)}
+            >
+              <span>Состав заказа ({totalItemsCount} шт)</span>
+              <ChevronRight size={16} />
+            </button>
+
+            {effectiveStatus === 'pending' && order.paymentUrl && (
+              <button
+                className={styles.payBtn}
+                onClick={() => {
+                  if (order.paymentUrl) {
+                    window.location.href = order.paymentUrl;
+                  }
+                }}
+              >
+                <CreditCard size={16} />
+                <span>Оплатить (Halyk ePay)</span>
+              </button>
+            )}
+
+            {(effectiveStatus === 'paid' || order.fulfillmentStatus === 'completed') && (
+              <button
+                className={styles.receiptBtn}
+                onClick={() => setReceiptOrder(order)}
+              >
+                <Receipt size={16} />
+                <span>Электронный чек</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className={styles.ordersContainer}>
+      {activeOrders.length > 0 && (
+        <section className={styles.ordersSection}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>
+              <Package size={20} color="var(--color-navy)" />
+              <span>Активные заказы</span>
+              <span className={styles.sectionCount}>({activeOrders.length})</span>
+            </h2>
+          </div>
+          <div className={styles.ordersListGrid}>
+            {activeOrders.map(renderOrderCard)}
+          </div>
+        </section>
+      )}
+
+      {closedOrders.length > 0 && (
+        <section className={styles.ordersSection} style={{ marginTop: activeOrders.length > 0 ? '36px' : '0' }}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>
+              <CheckCircle size={20} color="#15803d" />
+              <span>Закрытые заказы</span>
+              <span className={styles.sectionCount}>({closedOrders.length})</span>
+            </h2>
+          </div>
+          <div className={styles.ordersListGrid}>
+            {closedOrders.map(renderOrderCard)}
+          </div>
+        </section>
+      )}
 
       {/* 3. ORDER DETAILS MODAL (WB / Ozon style) */}
       {selectedOrder && (
@@ -601,42 +696,21 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
             {/* 12-digit Secure Pickup Verification Code */}
             <div className={styles.pickupCodeSection}>
               <div className={styles.pickupCodeHeader}>
-                <KeyRound size={16} />
+                <KeyRound size={17} />
                 <span>Код верификации получения</span>
               </div>
               <p className={styles.pickupCodeDesc}>
-                Предъявите этот код сотруднику магазина в Car City или курьеру при получении заказа.
+                Предъявите этот код сотруднику магазина в Car City или курьеру при получении заказа
               </p>
               
-              {!showPickupCode ? (
-                <button
-                  type="button"
-                  className={styles.showCodeBtn}
-                  onClick={() => setShowPickupCode(true)}
-                >
-                  <Eye size={16} />
-                  <span>Показать 12-значный код</span>
-                </button>
-              ) : (
-                <div className={styles.codeRevealBox}>
-                  <div className={styles.codeNumber}>
-                    {formatPickupCode(receiptOrder.pickupCode || '482910573912')}
-                  </div>
-                  <div className={styles.animatedTimerBar}>
-                    <div className={styles.timerProgress} />
-                  </div>
-                  <div className={styles.codeWarning}>
-                    Код активен для сверки кассиром Car City / курьером
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.hideCodeBtn}
-                    onClick={() => setShowPickupCode(false)}
-                  >
-                    Скрыть код
-                  </button>
+              <div className={styles.codeRevealBox}>
+                <div className={styles.codeNumber}>
+                  {formatPickupCode(getOrderPickupCode(receiptOrder.id, receiptOrder.pickupCode))}
                 </div>
-              )}
+                <div className={styles.codeWarning}>
+                  Код активен для сверки сотрудником магазина / курьером
+                </div>
+              </div>
             </div>
 
             <div className={styles.receiptFooterActions}>

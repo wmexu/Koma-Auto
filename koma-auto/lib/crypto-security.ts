@@ -14,15 +14,7 @@ export function generatePickupCode(): string {
   return code.slice(0, 12);
 }
 
-/**
- * Formats 12-digit code into user-friendly blocks
- * e.g. "4829 - 1057 - 3912"
- */
-export function formatPickupCode(code: string): string {
-  const clean = code.replace(/\D/g, '');
-  if (clean.length !== 12) return code;
-  return `${clean.slice(0, 4)} - ${clean.slice(4, 8)} - ${clean.slice(8, 12)}`;
-}
+export { formatPickupCode, getOrderPickupCode } from './pickup-code';
 
 /**
  * Generates random 32-character hex salt

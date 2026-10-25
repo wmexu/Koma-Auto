@@ -3,6 +3,8 @@ import { client, isDbConfigured } from '@/db';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { logAuditEvent } from '@/lib/audit';
+import { getOrderPickupCode } from '@/lib/pickup-code';
+import { verifyStaffSession, getVerifiedCallerUid } from '@/lib/admin-auth';
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -29,33 +31,73 @@ export async function GET(request: Request, { params }: Props) {
       console.warn('[PickupCode] Firestore lookup failed, falling back to DB:', e);
     }
 
-    // 1. If order was placed by an authenticated user, strictly require matching userId
+    // If not found in Firestore, check Neon PostgreSQL
+    if (!orderData && isDbConfigured() && client) {
+      try {
+        const rows = await client`
+          SELECT id, user_id, customer_name, customer_phone, customer_email, fulfillment_status
+          FROM orders
+          WHERE id = ${String(id)}
+          LIMIT 1;
+        `;
+        if (rows && rows.length > 0) {
+          const row = rows[0];
+          orderData = {
+            id: row.id,
+            userId: row.user_id,
+            customer: {
+              name: row.customer_name,
+              phone: row.customer_phone,
+              email: row.customer_email,
+            },
+            fulfillmentStatus: row.fulfillment_status,
+          };
+        }
+      } catch (dbErr) {
+        console.warn('[PickupCode] Postgres lookup error:', dbErr);
+      }
+    }
+
+    if (!orderData) {
+      return NextResponse.json({ error: 'Заказ не найден' }, { status: 404 });
+    }
+
+    // 1. If order was placed by an authenticated user, strictly require matching verified token or staff
     if (orderData?.userId) {
-      if (!userId || String(orderData.userId).trim() !== String(userId).trim()) {
-        return NextResponse.json({ error: 'Доступ к чужому заказу запрещен' }, { status: 403 });
+      const verifiedUid = await getVerifiedCallerUid(request);
+      const isOwner = Boolean(verifiedUid && verifiedUid === orderData.userId);
+      let isStaff = false;
+      if (!isOwner) {
+        const staffAuth = await verifyStaffSession(request, ['courier', 'manager', 'director']);
+        isStaff = staffAuth.authorized;
+      }
+
+      if (!isOwner && !isStaff) {
+        return NextResponse.json({ error: 'Доступ к чужому коду получения запрещен' }, { status: 403 });
       }
     } else {
-      // 2. If it is an unauthenticated/guest order, require customer phone or email verification
-      const reqPhone = (searchParams.get('phone') || '').replace(/\D/g, '');
-      const reqEmail = (searchParams.get('email') || '').trim().toLowerCase();
-      const orderPhone = (orderData?.customer?.phone || '').replace(/\D/g, '');
-      const orderEmail = (orderData?.customer?.email || '').trim().toLowerCase();
+      // 2. If it is an unauthenticated/guest order, require customer phone or email verification OR staff
+      const staffAuth = await verifyStaffSession(request, ['courier', 'manager', 'director']);
+      if (!staffAuth.authorized) {
+        const reqPhone = (searchParams.get('phone') || '').replace(/\D/g, '');
+        const reqEmail = (searchParams.get('email') || '').trim().toLowerCase();
+        const orderPhone = (orderData?.customer?.phone || '').replace(/\D/g, '');
+        const orderEmail = (orderData?.customer?.email || '').trim().toLowerCase();
 
-      const phoneMatches = Boolean(orderPhone && reqPhone && orderPhone.endsWith(reqPhone.slice(-10)));
-      const emailMatches = Boolean(orderEmail && reqEmail && orderEmail === reqEmail);
+        const phoneMatches = Boolean(orderPhone && reqPhone && orderPhone.endsWith(reqPhone.slice(-10)));
+        const emailMatches = Boolean(orderEmail && reqEmail && orderEmail === reqEmail);
 
-      if (!phoneMatches && !emailMatches) {
-        return NextResponse.json(
-          { error: 'Для доступа к коду получения подтвердите номер телефона или email получателя' },
-          { status: 403 }
-        );
+        if (!phoneMatches && !emailMatches) {
+          return NextResponse.json(
+            { error: 'Для доступа к коду получения подтвердите номер телефона или email получателя' },
+            { status: 403 }
+          );
+        }
       }
     }
 
-    const code = orderData?.pickupCode;
-    if (!code) {
-      return NextResponse.json({ error: 'Код получения ещё не сформирован для данного заказа' }, { status: 404 });
-    }
+    // Always get a valid 12-digit code
+    const code = getOrderPickupCode(id, orderData?.pickupCode);
 
     // Log security view event
     logAuditEvent({

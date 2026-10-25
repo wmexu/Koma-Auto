@@ -16,7 +16,7 @@ export interface StaffAuthResult {
 // In-memory cache for cryptographically verified Google ID tokens (10 min TTL)
 const VERIFIED_TOKEN_CACHE = new Map<string, { uid: string; expiresAt: number }>();
 
-async function verifyFirebaseIdToken(token: string): Promise<string | null> {
+export async function verifyFirebaseIdToken(token: string): Promise<string | null> {
   const cached = VERIFIED_TOKEN_CACHE.get(token);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.uid;
@@ -46,6 +46,29 @@ async function verifyFirebaseIdToken(token: string): Promise<string | null> {
 }
 
 /**
+ * Extracts and cryptographically verifies caller UID from Authorization Bearer token
+ */
+export async function getVerifiedCallerUid(request: Request): Promise<string | null> {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  const token = authHeader.slice(7).trim();
+  if (!token) return null;
+
+  const adminKey = process.env.ADMIN_SECRET_KEY;
+  if (adminKey && token === adminKey) {
+    return 'admin_secret_user';
+  }
+
+  if (token.includes('.')) {
+    return await verifyFirebaseIdToken(token);
+  }
+
+  return null;
+}
+
+/**
  * Server-side Zero-Trust Staff & Role Verification Guard
  * Verifies that the requesting user exists in PostgreSQL `users` table,
  * is not blocked, and possesses one of the allowed staff roles.
@@ -58,13 +81,29 @@ export async function verifyStaffSession(
   try {
     const ip = request.headers.get('x-forwarded-for') || 'unknown-ip';
 
-    // 1. Check for cryptographic Google/Firebase Bearer token
-    let userId: string | null = explicitUserId || null;
+    // 1. Strict Cryptographic Google/Firebase Bearer Token or ADMIN_SECRET_KEY Check
+    let userId: string | null = null;
     const authHeader = request.headers.get('authorization');
+    const adminKey = process.env.ADMIN_SECRET_KEY;
     
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const bearerToken = authHeader.slice(7).trim();
-      // If it is a JWT (contains dots)
+      
+      // Allow internal admin secret key (for server-to-server tasks)
+      if (adminKey && bearerToken === adminKey) {
+        return {
+          authorized: true,
+          status: 200,
+          user: {
+            id: explicitUserId || 'admin_secret_user',
+            email: 'admin@koma.com.kz',
+            fullName: 'Системный Администратор',
+            role: 'director',
+          },
+        };
+      }
+
+      // Cryptographically verify Google/Firebase ID Token via Google Identity Toolkit
       if (bearerToken.includes('.')) {
         const verifiedUid = await verifyFirebaseIdToken(bearerToken);
         if (!verifiedUid) {
@@ -78,24 +117,36 @@ export async function verifyStaffSession(
           return {
             authorized: false,
             status: 401,
-            error: 'Доступ отклонен: недействительный или поддельный токен сессии (Google Auth)',
+            error: 'Доступ отклонен: недействительный или просроченный токен сессии (Google Auth)',
           };
         }
         userId = verifiedUid;
-      } else {
-        userId = bearerToken;
       }
     }
 
+    // Zero-Trust: If no valid cryptographic token is present, reject immediately
     if (!userId) {
-      userId = request.headers.get('x-staff-user-id');
+      logAuditEvent({
+        userId: null,
+        action: 'UNAUTHORIZED_ADMIN_ACCESS_ATTEMPT',
+        entityType: 'admin_api',
+        entityId: 'unauthenticated',
+        details: { ip, reason: 'missing_bearer_token' },
+      });
+      return {
+        authorized: false,
+        status: 401,
+        error: 'Доступ отклонен: требуется авторизованный токен сотрудника (Bearer)',
+      };
     }
 
-    if (!userId) {
-      try {
-        const url = new URL(request.url);
-        userId = url.searchParams.get('staffUserId') || url.searchParams.get('userId');
-      } catch {}
+    // Prevent token spoofing: caller cannot claim a different staffUserId than what the token proves
+    if (explicitUserId && String(explicitUserId).trim() !== String(userId).trim()) {
+      return {
+        authorized: false,
+        status: 403,
+        error: 'Доступ запрещен: несоответствие токена и идентификатора сотрудника',
+      };
     }
 
     if (!userId) {

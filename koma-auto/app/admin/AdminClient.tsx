@@ -6,8 +6,10 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { useToastStore } from '@/store/useToastStore';
 import { 
   Shield, Package, Truck, Users, Tag, Settings, KeyRound, 
-  ArrowLeft, CheckCircle, AlertTriangle, Search, Copy, Check, Clock, Eye 
+  ArrowLeft, CheckCircle, AlertTriangle, Search, Copy, Check, Clock, Eye,
+  MoreVertical, Archive, XCircle, X
 } from 'lucide-react';
+import { formatPickupCode, getOrderPickupCode } from '@/lib/pickup-code';
 import styles from './Admin.module.css';
 
 export default function AdminClient() {
@@ -30,9 +32,13 @@ export default function AdminClient() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [couriersList, setCouriersList] = useState<any[]>([]);
 
+  // Orders search & sub-tab state
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [orderSection, setOrderSection] = useState<'active' | 'archive'>('active');
+  const [activeMenuOrderId, setActiveMenuOrderId] = useState<string | null>(null);
+
   // Modals state
   const [verifyingOrder, setVerifyingOrder] = useState<any | null>(null);
-  const [pickupCodeInput, setPickupCodeInput] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
 
   const [assigningOrder, setAssigningOrder] = useState<any | null>(null);
@@ -205,10 +211,10 @@ export default function AdminClient() {
     return () => clearTimeout(timer);
   }, [boundUserSearch, selectedUsers, user?.uid]);
 
-  // Handle Verify 12-digit code
-  const handleVerifyCode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!verifyingOrder || !pickupCodeInput) return;
+  // Handle Verify Order (visual code match confirmed by staff)
+  const handleVerifyCode = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!verifyingOrder) return;
 
     setIsVerifying(true);
     try {
@@ -217,8 +223,8 @@ export default function AdminClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId: verifyingOrder.id,
-          code: pickupCodeInput,
           staffUserId: user?.uid,
+          confirmMatch: true,
         }),
       });
 
@@ -229,10 +235,9 @@ export default function AdminClient() {
 
       addToast('Заказ успешно верифицирован и выдан клиенту!', 'success');
       setVerifyingOrder(null);
-      setPickupCodeInput('');
       loadOrders();
     } catch (err: any) {
-      addToast(err.message || 'Неверный код получения', 'error');
+      addToast(err.message || 'Ошибка верификации заказа', 'error');
     } finally {
       setIsVerifying(false);
     }
@@ -267,6 +272,71 @@ export default function AdminClient() {
       addToast(err.message || 'Ошибка назначения курьера', 'error');
     }
   };
+
+  // Handle Cancel Order (three-dots menu)
+  const handleCancelOrder = async (order: any) => {
+    setActiveMenuOrderId(null);
+    const confirmed = window.confirm(`Вы уверены, что хотите отклонить заказ №${order.id}? Заказ будет перемещен в архив.`);
+    if (!confirmed) return;
+
+    try {
+      const res = await adminFetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'cancel_order',
+          orderId: order.id,
+          staffUserId: user?.uid,
+          reason: 'Отклонен менеджером/директором в CRM',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Ошибка отклонения заказа');
+
+      addToast(data.message || 'Заказ успешно отклонен и перемещен в архив', 'success');
+      loadOrders();
+    } catch (err: any) {
+      addToast(err.message || 'Ошибка отклонения заказа', 'error');
+    }
+  };
+
+  // Handle Archive Order (three-dots menu)
+  const handleArchiveOrder = async (order: any) => {
+    setActiveMenuOrderId(null);
+    const confirmed = window.confirm(`Перенести заказ №${order.id} в архив?`);
+    if (!confirmed) return;
+
+    try {
+      const res = await adminFetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'archive_order',
+          orderId: order.id,
+          staffUserId: user?.uid,
+          reason: 'Перенесен в архив менеджером/директором в CRM',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Ошибка переноса в архив');
+
+      addToast(data.message || 'Заказ перемещен в архив', 'success');
+      loadOrders();
+    } catch (err: any) {
+      addToast(err.message || 'Ошибка архивации заказа', 'error');
+    }
+  };
+
+  // Close three dots dropdown on outside click
+  useEffect(() => {
+    const handleOutsideClick = () => setActiveMenuOrderId(null);
+    if (activeMenuOrderId) {
+      window.addEventListener('click', handleOutsideClick);
+    }
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, [activeMenuOrderId]);
 
   // Handle Kill Switch Toggle
   const handleToggleKillSwitch = async () => {
@@ -460,7 +530,7 @@ export default function AdminClient() {
         {/* Top Bar */}
         <div className={styles.topBar}>
           <div className={styles.topBarLeft}>
-            <h1 style={{ fontFamily: 'var(--font-geist-sans), sans-serif', fontSize: '24px', fontWeight: 800, color: 'var(--color-navy)', margin: '0 0 6px 0' }}>
+            <h1 style={{ fontFamily: "var(--font-geist-sans), 'Geist', sans-serif", fontSize: '24px', fontWeight: 800, color: 'var(--color-navy)', margin: '0 0 6px 0', letterSpacing: '-0.02em' }}>
               Панель управления
             </h1>
             <p className={styles.topBarSubtitle}>
@@ -566,107 +636,248 @@ export default function AdminClient() {
               </div>
             </div>
 
-            {/* Orders List */}
-            {ordersLoading ? (
-              <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
-                Загрузка заказов...
-              </div>
-            ) : orders.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', color: '#64748b' }}>
-                Заказов не найдено по выбранным фильтрам
-              </div>
-            ) : (
-              <div className={styles.ordersGrid}>
-                {orders.map(order => (
-                  <div key={order.id} className={styles.orderCard}>
-                    <div className={styles.orderCardHeader}>
-                      <div className={styles.orderIdBlock}>
-                        <span className={styles.orderNumber}>Заказ №{order.id}</span>
-                        <span className={`${styles.statusBadge} ${
-                          order.fulfillment_status === 'completed' ? styles.statusCompleted :
-                          order.fulfillment_status === 'out_for_delivery' ? styles.statusOutForDelivery :
-                          order.fulfillment_status === 'ready_for_pickup' ? styles.statusReady :
-                          order.fulfillment_status === 'cancelled' ? styles.statusCancelled :
-                          styles.statusAssembling
-                        }`}>
-                          {order.fulfillment_status === 'completed' ? 'Выдан' :
-                           order.fulfillment_status === 'out_for_delivery' ? 'Выдан курьеру' :
-                           order.fulfillment_status === 'ready_for_pickup' ? 'Готов к получению' :
-                           order.fulfillment_status === 'cancelled' ? 'Отменен' :
-                           'В сборке'}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '13px', color: '#64748b' }}>
-                        {new Date(order.created_at).toLocaleString('ru-RU')}
-                      </div>
+            {/* Search Bar & Order Sub-Tabs */}
+            {(() => {
+              const isOrderArchived = (o: any) => {
+                return o.fulfillment_status === 'completed' || 
+                       o.fulfillment_status === 'cancelled' || 
+                       o.payment_status === 'declined' || 
+                       o.payment_status === 'cancelled' ||
+                       o.status === 'declined';
+              };
+
+              const activeOrdersCount = orders.filter(o => !isOrderArchived(o)).length;
+              const archivedOrdersCount = orders.filter(o => isOrderArchived(o)).length;
+
+              const cleanSearch = orderSearchQuery.trim().toLowerCase();
+              let displayedOrders = orders;
+
+              if (cleanSearch) {
+                // COMMON GLOBAL SEARCH: searches all orders
+                // Orders matching Order ID go FIRST!
+                displayedOrders = orders
+                  .filter(o => {
+                    const idMatch = String(o.id || '').toLowerCase().includes(cleanSearch);
+                    const nameMatch = String(o.customer_name || '').toLowerCase().includes(cleanSearch);
+                    const phoneMatch = String(o.customer_phone || '').replace(/\D/g, '').includes(cleanSearch.replace(/\D/g, ''));
+                    const emailMatch = String(o.customer_email || '').toLowerCase().includes(cleanSearch);
+                    return idMatch || nameMatch || phoneMatch || emailMatch;
+                  })
+                  .sort((a, b) => {
+                    const aId = String(a.id || '').toLowerCase();
+                    const bId = String(b.id || '').toLowerCase();
+                    const aExact = aId === cleanSearch;
+                    const bExact = bId === cleanSearch;
+                    if (aExact && !bExact) return -1;
+                    if (!aExact && bExact) return 1;
+                    const aStarts = aId.startsWith(cleanSearch);
+                    const bStarts = bId.startsWith(cleanSearch);
+                    if (aStarts && !bStarts) return -1;
+                    if (!aStarts && bStarts) return 1;
+                    const aIncludes = aId.includes(cleanSearch);
+                    const bIncludes = bId.includes(cleanSearch);
+                    if (aIncludes && !bIncludes) return -1;
+                    if (!aIncludes && bIncludes) return 1;
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                  });
+              } else {
+                displayedOrders = orderSection === 'active' 
+                  ? orders.filter(o => !isOrderArchived(o))
+                  : orders.filter(o => isOrderArchived(o));
+              }
+
+              return (
+                <>
+                  <div className={styles.searchBarContainer}>
+                    <div className={styles.searchInputWrapper}>
+                      <Search size={18} className={styles.searchIcon} />
+                      <input
+                        type="text"
+                        className={styles.ordersSearchInput}
+                        placeholder="Поиск по номеру заказа, ФИО покупателя, телефону..."
+                        value={orderSearchQuery}
+                        onChange={e => setOrderSearchQuery(e.target.value)}
+                      />
+                      {orderSearchQuery && (
+                        <button
+                          type="button"
+                          className={styles.clearSearchBtn}
+                          onClick={() => setOrderSearchQuery('')}
+                          title="Очистить поиск"
+                        >
+                          <X size={15} />
+                        </button>
+                      )}
                     </div>
 
-                    <div className={styles.orderCardBody}>
-                      <div>
-                        <div className={styles.customerInfoTitle}>Получатель</div>
-                        <p className={styles.customerInfoText}>
-                          <strong>{order.customer_name}</strong> • {order.customer_phone}
-                        </p>
-                        <p className={styles.customerInfoText} style={{ color: '#475569' }}>
-                          Способ: {order.delivery_method === 'pickup' ? 'Самовывоз (Car City 1 ярус)' : `Доставка: ${order.delivery_address || 'Алматы'}`}
-                        </p>
-                        {order.kaspi_phone && (
-                          <p className={styles.customerInfoText} style={{ color: '#b91c1c' }}>
-                            Телефон Kaspi Pay: {order.kaspi_phone}
-                          </p>
-                        )}
-
-                        <div className={styles.orderItemsList}>
-                          {Array.isArray(order.items) && order.items.map((it: any, idx: number) => (
-                            <div key={idx} className={styles.orderItemRow}>
-                              <span>{it.name || it.title} ({it.quantity} шт)</span>
-                              <span>{(Number(it.price) * Number(it.quantity)).toLocaleString('ru-RU')} ₸</span>
-                            </div>
-                          ))}
-                        </div>
+                    {!cleanSearch && (
+                      <div className={styles.orderSubTabs}>
+                        <button
+                          type="button"
+                          className={`${styles.subTabBtn} ${orderSection === 'active' ? styles.subTabBtnActive : ''}`}
+                          onClick={() => setOrderSection('active')}
+                        >
+                          Активные заказы
+                          <span className={styles.subTabBadge}>{activeOrdersCount}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`${styles.subTabBtn} ${orderSection === 'archive' ? styles.subTabBtnActive : ''}`}
+                          onClick={() => setOrderSection('archive')}
+                        >
+                          Архив заказов
+                          <span className={styles.subTabBadge}>{archivedOrdersCount}</span>
+                        </button>
                       </div>
-
-                      <div className={styles.orderCardRight}>
-                        <div>
-                          <div style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Сумма к оплате</div>
-                          <div className={styles.orderAmountText}>{Number(order.amount).toLocaleString('ru-RU')} ₸</div>
-                        </div>
-
-                        <div className={styles.actionButtons}>
-                          {order.fulfillment_status !== 'completed' && (
-                            <button
-                              type="button"
-                              className={styles.verifyCodeBtn}
-                              onClick={() => {
-                                setVerifyingOrder(order);
-                                setPickupCodeInput('');
-                              }}
-                            >
-                              <KeyRound size={15} />
-                              Ввести 12-значный код
-                            </button>
-                          )}
-
-                          {isManager && order.delivery_method === 'courier' && order.fulfillment_status !== 'completed' && (
-                            <button
-                              type="button"
-                              className={styles.assignBtn}
-                              onClick={() => {
-                                setAssigningOrder(order);
-                                setSelectedCourierId(order.assigned_courier_id || '');
-                              }}
-                            >
-                              <Truck size={15} />
-                              {order.assigned_courier_id ? 'Сменить курьера' : 'Передать курьеру'}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
+
+                  {/* Orders List */}
+                  {ordersLoading ? (
+                    <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                      Загрузка заказов...
+                    </div>
+                  ) : displayedOrders.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', color: '#64748b' }}>
+                      {cleanSearch ? 'Заказов не найдено по поисковому запросу' : 'В данном разделе нет заказов'}
+                    </div>
+                  ) : (
+                    <div className={styles.ordersGrid}>
+                      {displayedOrders.map(order => {
+                        const isCancelled = order.fulfillment_status === 'cancelled' || order.payment_status === 'declined' || order.payment_status === 'cancelled' || order.status === 'declined';
+                        const isCompleted = order.fulfillment_status === 'completed';
+
+                        return (
+                          <div key={order.id} className={styles.orderCard}>
+                            <div className={styles.orderCardHeader}>
+                              <div className={styles.orderIdBlock}>
+                                <span className={styles.orderNumber}>Заказ №{order.id}</span>
+                                <span className={`${styles.statusBadge} ${
+                                  isCompleted ? styles.statusCompleted :
+                                  isCancelled ? styles.statusCancelled :
+                                  order.fulfillment_status === 'out_for_delivery' ? styles.statusOutForDelivery :
+                                  order.fulfillment_status === 'ready_for_pickup' ? styles.statusReady :
+                                  styles.statusAssembling
+                                }`}>
+                                  {isCompleted ? 'Выдан' :
+                                   isCancelled ? 'Отменен' :
+                                   order.fulfillment_status === 'out_for_delivery' ? (isCourier ? 'К доставке' : 'Выдан курьеру') :
+                                   order.fulfillment_status === 'ready_for_pickup' ? 'Готов к получению' :
+                                   'В сборке'}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '13px', color: '#64748b' }}>
+                                {new Date(order.created_at).toLocaleString('ru-RU')}
+                              </div>
+                            </div>
+
+                            <div className={styles.orderCardBody}>
+                              <div>
+                                <div className={styles.customerInfoTitle}>Получатель</div>
+                                <p className={styles.customerInfoText}>
+                                  <strong>{order.customer_name}</strong> • {order.customer_phone}
+                                </p>
+                                <p className={styles.customerInfoText} style={{ color: '#475569' }}>
+                                  Способ: {order.delivery_method === 'pickup' ? 'Самовывоз (Car City 1 ярус)' : `Доставка: ${order.delivery_address || 'Алматы'}`}
+                                </p>
+                                {order.kaspi_phone && (
+                                  <p className={styles.customerInfoText} style={{ color: '#b91c1c' }}>
+                                    Телефон Kaspi Pay: {order.kaspi_phone}
+                                  </p>
+                                )}
+
+                                <div className={styles.orderItemsList}>
+                                  {Array.isArray(order.items) && order.items.map((it: any, idx: number) => (
+                                    <div key={idx} className={styles.orderItemRow}>
+                                      <span>{it.name || it.title} ({it.quantity} шт)</span>
+                                      <span>{(Number(it.price) * Number(it.quantity)).toLocaleString('ru-RU')} ₸</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className={styles.orderCardRight}>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase' }}>Сумма к оплате</div>
+                                  <div className={styles.orderAmountText}>{Number(order.amount).toLocaleString('ru-RU')} ₸</div>
+                                </div>
+
+                                <div className={styles.actionButtons}>
+                                  {order.fulfillment_status !== 'completed' && !isCancelled && (
+                                    <button
+                                      type="button"
+                                      className={styles.verifyCodeBtn}
+                                      onClick={() => setVerifyingOrder(order)}
+                                    >
+                                      <KeyRound size={15} />
+                                      <span>Перейти к выдаче заказа</span>
+                                    </button>
+                                  )}
+
+                                  {isManager && order.delivery_method === 'courier' && order.fulfillment_status !== 'completed' && !isCancelled && (
+                                    <button
+                                      type="button"
+                                      className={styles.assignBtn}
+                                      onClick={() => {
+                                        setAssigningOrder(order);
+                                        setSelectedCourierId(order.assigned_courier_id || '');
+                                      }}
+                                    >
+                                      <Truck size={15} />
+                                      <span>{order.assigned_courier_id ? 'Сменить курьера' : 'Передать курьеру'}</span>
+                                    </button>
+                                  )}
+
+                                  {/* Three dots (⋮) menu for Manager / Director */}
+                                  {isManager && (
+                                    <div style={{ position: 'relative' }}>
+                                      <button
+                                        type="button"
+                                        className={styles.moreOptionsBtn}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setActiveMenuOrderId(activeMenuOrderId === order.id ? null : order.id);
+                                        }}
+                                        title="Действия с заказом"
+                                      >
+                                        <MoreVertical size={17} />
+                                      </button>
+
+                                      {activeMenuOrderId === order.id && (
+                                        <div className={styles.optionsDropdown} onClick={e => e.stopPropagation()}>
+                                          {!isCancelled && (
+                                            <button
+                                              type="button"
+                                              className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`}
+                                              onClick={() => handleCancelOrder(order)}
+                                            >
+                                              <XCircle size={15} />
+                                              <span>Отклонить заказ</span>
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            className={styles.dropdownItem}
+                                            onClick={() => handleArchiveOrder(order)}
+                                          >
+                                            <Archive size={15} />
+                                            <span>Перенести в архив</span>
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
 
@@ -690,10 +901,10 @@ export default function AdminClient() {
                       value={promoCode}
                       onChange={e => setPromoCode(e.target.value.toUpperCase())}
                       style={{
-                        fontFamily: 'var(--font-geist-sans), sans-serif',
+                        fontFamily: "var(--font-geist-sans), 'Geist', sans-serif !important",
                         textTransform: 'uppercase',
                         fontWeight: 700,
-                        letterSpacing: '0',
+                        letterSpacing: '0.02em',
                       }}
                       required
                     />
@@ -707,7 +918,7 @@ export default function AdminClient() {
                       className={styles.inputField}
                       value={promoType}
                       onChange={e => setPromoType(e.target.value as any)}
-                      style={{ fontFamily: 'var(--font-geist-sans), sans-serif' }}
+                      style={{ fontFamily: "var(--font-geist-sans), 'Geist', sans-serif !important" }}
                     >
                       <option value="percent">В процентах (%)</option>
                       <option value="fixed">Фиксированная сумма (₸)</option>
@@ -865,7 +1076,7 @@ export default function AdminClient() {
                       <input
                         type="text"
                         className={styles.inputField}
-                        placeholder="Начните вводить email для поиска (например aco или nurg)..."
+                        placeholder="Введите email или имя покупателя для поиска..."
                         value={boundUserSearch}
                         onChange={e => setBoundUserSearch(e.target.value)}
                         style={{ margin: 0, fontFamily: 'var(--font-geist-sans), sans-serif' }}
@@ -1170,48 +1381,85 @@ export default function AdminClient() {
           </div>
         )}
 
-        {/* MODAL 1: VERIFY 12-DIGIT PICKUP CODE */}
+        {/* MODAL 1: ISSUE ORDER (VERIFY CODE) */}
         {verifyingOrder && (
           <div className={styles.modalOverlay} onClick={() => !isVerifying && setVerifyingOrder(null)}>
-            <div className={styles.modalCard} onClick={e => e.stopPropagation()}>
-              <h3 className={styles.modalTitle}>Верификация кода получения</h3>
-              <p className={styles.modalDesc}>
-                Клиент должен показать 12-значный код в электронном чеке на своем смартфоне. Введите эти 12 цифр для сверки:
+            <div className={styles.modalCard} onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+              <h3 className={styles.modalTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <KeyRound size={20} color="var(--color-navy)" />
+                Выдача заказа №{verifyingOrder.id}
+              </h3>
+              <p className={styles.modalDesc} style={{ marginBottom: '14px' }}>
+                Покупатель: <strong>{verifyingOrder.customer_name || 'Не указан'}</strong> {verifyingOrder.customer_phone ? `(${verifyingOrder.customer_phone})` : ''} • Сумма: <strong>{Number(verifyingOrder.amount).toLocaleString('ru-RU')} ₸</strong>
               </p>
 
-              <form onSubmit={handleVerifyCode}>
-                <input
-                  type="text"
-                  maxLength={14}
-                  placeholder="7492 1058 3824"
-                  value={pickupCodeInput}
-                  onChange={e => {
-                    const clean = e.target.value.replace(/\D/g, '').slice(0, 12);
-                    setPickupCodeInput(clean);
-                  }}
-                  className={`${styles.inputField} ${styles.codeInputLarge}`}
-                  autoFocus
-                  required
-                />
-
-                <div className={styles.modalFooter}>
-                  <button
-                    type="button"
-                    className={styles.cancelBtn}
-                    onClick={() => setVerifyingOrder(null)}
-                    disabled={isVerifying}
-                  >
-                    Отмена
-                  </button>
-                  <button
-                    type="submit"
-                    className={styles.submitBtn}
-                    disabled={isVerifying || pickupCodeInput.replace(/\D/g, '').length !== 12}
-                  >
-                    {isVerifying ? 'Сверка...' : 'Подтвердить выдачу'}
-                  </button>
+              <div style={{
+                background: '#f8fafc',
+                border: '1.5px solid #cbd5e1',
+                borderRadius: '12px',
+                padding: '20px 16px',
+                textAlign: 'center',
+                marginBottom: '18px',
+              }}>
+                <div style={{
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: '#64748b',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  marginBottom: '8px',
+                  fontFamily: "var(--font-geist-sans), 'Geist', sans-serif",
+                }}>
+                  Код подтверждения в системе
                 </div>
-              </form>
+                <div style={{
+                  fontFamily: "var(--font-geist-mono, monospace)",
+                  fontSize: '28px',
+                  fontWeight: 900,
+                  letterSpacing: '3px',
+                  color: 'var(--color-navy)',
+                  margin: '6px 0',
+                }}>
+                  {formatPickupCode(verifyingOrder.pickup_code || getOrderPickupCode(verifyingOrder.id))}
+                </div>
+                <div style={{
+                  fontSize: '13px',
+                  color: '#0f766e',
+                  fontWeight: 600,
+                  marginTop: '10px',
+                  fontFamily: "var(--font-geist-sans), 'Geist', sans-serif",
+                }}>
+                  Сверьте данный 12-значный код с кодом в электронном чеке на телефоне клиента (или запросите устно)
+                </div>
+              </div>
+
+              <div className={styles.modalFooter} style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className={styles.cancelBtn}
+                  onClick={() => setVerifyingOrder(null)}
+                  disabled={isVerifying}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  className={styles.submitBtn}
+                  onClick={() => handleVerifyCode()}
+                  disabled={isVerifying}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: '#15803d',
+                    padding: '10px 22px',
+                    fontWeight: 700,
+                  }}
+                >
+                  <CheckCircle size={16} />
+                  {isVerifying ? 'Завершение...' : 'Выдать'}
+                </button>
+              </div>
             </div>
           </div>
         )}

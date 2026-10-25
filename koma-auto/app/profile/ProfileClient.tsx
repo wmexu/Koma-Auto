@@ -52,9 +52,13 @@ export default function ProfileClient() {
 
     setIsActivatingRole(true);
     try {
+      const idToken = await user.getIdToken().catch(() => null);
       const res = await fetch('/api/user/role/activate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+        },
         body: JSON.stringify({
           token: staffTokenInput,
           userId: user.uid,
@@ -96,11 +100,13 @@ export default function ProfileClient() {
 
     setIsDeactivatingRole(true);
     try {
+      const idToken = await user.getIdToken().catch(() => null);
       const res = await fetch('/api/user/role/deactivate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-user-id': user.uid,
+          ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
         },
         body: JSON.stringify({
           userId: user.uid,
@@ -115,11 +121,18 @@ export default function ProfileClient() {
 
       const updatedRole = data.role || 'customer';
       const updatedClientType = data.clientType || 'retail';
-      setUserProfile({
+      const newProf = {
         ...userProfile,
         role: updatedRole,
         clientType: updatedClientType,
-      });
+      };
+      setUserProfile(newProf);
+
+      try {
+        await setDoc(doc(db, 'users', user.uid), { role: updatedRole, clientType: updatedClientType }, { merge: true });
+      } catch (e) {
+        console.warn('Direct firestore sync error:', e);
+      }
 
       addToast('Вы успешно вышли из статуса сотрудника', 'success');
       setIsEditModalOpen(false);
@@ -481,9 +494,14 @@ export default function ProfileClient() {
 
       // If a staff member chose to switch back to retail or wholesale
       if (isCurrentStaff && (editClientType === 'retail' || editClientType === 'wholesale')) {
+        const idToken = await user.getIdToken().catch(() => null);
         await fetch('/api/user/role/deactivate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-user-id': user.uid },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': user.uid,
+            ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+          },
           body: JSON.stringify({ userId: user.uid, targetClientType: editClientType }),
         });
         newRole = editClientType === 'wholesale' ? 'wholesale' : 'customer';

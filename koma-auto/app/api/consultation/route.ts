@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { checkGeneralRateLimit } from '@/lib/rate-limiter';
 
 const MOYSKLAD_API_URL = process.env.MOYSKLAD_API_URL || 'https://api.moysklad.ru/api/remap/1.2';
 const MOYSKLAD_TOKEN = process.env.MOYSKLAD_TOKEN;
@@ -27,6 +28,15 @@ function getGetHeaders() {
 
 export async function POST(request: Request) {
   try {
+    const ip = request.headers.get('x-forwarded-for') || 'unknown-ip';
+    const rateCheck = checkGeneralRateLimit(ip, 5, 10 * 60 * 1000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: `Слишком много запросов. Пожалуйста, повторите через ${rateCheck.remainingSeconds || 600} сек.` },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const { name, phone, vin, clientInfo } = body;
 

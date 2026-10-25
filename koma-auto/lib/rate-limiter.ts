@@ -79,3 +79,34 @@ export function recordFailedAttempt(key: string): { blocked: boolean; remainingA
 export function resetRateLimit(key: string): void {
   LIMITS_STORE.delete(key);
 }
+
+/**
+ * General rate limiter for forms and public actions (e.g. consultations, searches)
+ */
+export function checkGeneralRateLimit(
+  key: string,
+  maxAttempts = 10,
+  windowMs = 15 * 60 * 1000
+): { allowed: boolean; remainingSeconds?: number } {
+  const now = Date.now();
+  let record = LIMITS_STORE.get(`gen_${key}`);
+
+  if (!record || now - record.firstAttemptAt > windowMs) {
+    LIMITS_STORE.set(`gen_${key}`, { attempts: 1, blockedUntil: null, firstAttemptAt: now });
+    return { allowed: true };
+  }
+
+  if (record.blockedUntil && record.blockedUntil > now) {
+    return { allowed: false, remainingSeconds: Math.ceil((record.blockedUntil - now) / 1000) };
+  }
+
+  record.attempts += 1;
+  if (record.attempts > maxAttempts) {
+    record.blockedUntil = now + windowMs;
+    LIMITS_STORE.set(`gen_${key}`, record);
+    return { allowed: false, remainingSeconds: Math.ceil(windowMs / 1000) };
+  }
+
+  LIMITS_STORE.set(`gen_${key}`, record);
+  return { allowed: true };
+}

@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { client, isDbConfigured } from '@/db';
 import { logAuditEvent } from '@/lib/audit';
 import { verifyStaffSession } from '@/lib/admin-auth';
+import { getOrderPickupCode } from '@/lib/pickup-code';
+import { db } from '@/lib/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 
 export async function GET(request: Request) {
   try {
@@ -72,7 +75,13 @@ export async function GET(request: Request) {
       ordersList = ordersList.filter(o => o.fulfillment_status === status);
     }
 
-    return NextResponse.json({ success: true, count: ordersList.length, orders: ordersList });
+    // Attach deterministic pickup code for authorized staff
+    const sanitizedOrders = ordersList.map((order: any) => ({
+      ...order,
+      pickup_code: getOrderPickupCode(order.id, order.pickup_code || null),
+    }));
+
+    return NextResponse.json({ success: true, count: sanitizedOrders.length, orders: sanitizedOrders });
   } catch (error: any) {
     console.error('[AdminOrders Error]:', error);
     return NextResponse.json({ error: error?.message || 'Ошибка загрузки заказов' }, { status: 500 });
@@ -124,6 +133,50 @@ export async function PATCH(request: Request) {
       });
 
       return NextResponse.json({ success: true, message: `Заказ успешно передан курьеру ${courierName || ''}` });
+    }
+
+    if (action === 'cancel_order' || action === 'archive_order') {
+      const isCancel = action === 'cancel_order';
+      const reason = body.reason || (isCancel ? 'Отменен администратором в CRM' : 'Перенесен в архив');
+
+      await client`
+        UPDATE orders
+        SET 
+          fulfillment_status = 'cancelled',
+          payment_status = CASE 
+            WHEN payment_status = 'pending' THEN 'cancelled'
+            ELSE payment_status
+          END,
+          updated_at = NOW()
+        WHERE id = ${String(orderId)};
+      `;
+
+      // Sync Firestore
+      try {
+        const orderRef = doc(db, 'orders', String(orderId));
+        await updateDoc(orderRef, {
+          status: 'declined',
+          fulfillmentStatus: 'cancelled',
+          cancelledBy: 'admin',
+          cancelledAt: new Date().toISOString(),
+          cancellationReason: reason,
+        });
+      } catch (fsErr) {
+        console.warn('[AdminOrders] Firestore cancel sync warning:', fsErr);
+      }
+
+      logAuditEvent({
+        userId: staffUserId || null,
+        action: 'ORDER_STATUS_CHANGED',
+        entityType: 'order',
+        entityId: String(orderId),
+        details: { action: isCancel ? 'ORDER_CANCELLED' : 'ORDER_ARCHIVED', reason },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: isCancel ? 'Заказ успешно отклонен и перемещен в архив' : 'Заказ перемещен в архив',
+      });
     }
 
     if (action === 'change_status') {

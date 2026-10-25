@@ -5,8 +5,9 @@ import { Order, OrderStatus } from '@/lib/order-types';
 import { createMoySkladOrder, notifyMoySkladOrderPaid, markMoySkladOrderCancelled } from '@/lib/moysklad-order';
 import { verifyEpayPayment } from '@/lib/epay-refund';
 import { client, isDbConfigured } from '@/db';
-import { verifyStaffSession } from '@/lib/admin-auth';
+import { verifyStaffSession, getVerifiedCallerUid } from '@/lib/admin-auth';
 import { isKillSwitchActive } from '@/lib/system-settings';
+import { getOrderPickupCode } from '@/lib/pickup-code';
 
 export async function POST(request: Request) {
   try {
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
     // A client can never inject or bypass payment by sending { status: 'paid' }
     order.status = 'pending';
     order.notificationSent = false;
+    order.pickupCode = getOrderPickupCode(order.id, order.pickupCode);
 
     // 1. Save in Firestore
     try {
@@ -132,39 +134,39 @@ export async function GET(request: Request) {
     const orderId = searchParams.get('orderId');
 
     if (orderId) {
-      // Require staff or admin authorization for direct lookup of customer order data by ID
-      const authHeader = request.headers.get('authorization');
-      const customKey = request.headers.get('x-admin-key');
-      const adminKey = process.env.ADMIN_SECRET_KEY;
-      const providedKey = customKey || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null);
-
-      let isAuthorized = Boolean(adminKey && providedKey === adminKey);
-      if (!isAuthorized) {
-        const staffAuth = await verifyStaffSession(request, ['courier', 'manager', 'director']);
-        isAuthorized = staffAuth.authorized;
-      }
-
-      if (!isAuthorized) {
-        return NextResponse.json({ error: 'Доступ ограничен: требуются права администратора или сотрудника' }, { status: 403 });
-      }
-
       const docSnap = await getDoc(doc(db, 'orders', orderId));
       if (!docSnap.exists()) {
         return NextResponse.json({ error: 'Заказ не найден' }, { status: 404 });
       }
-      return NextResponse.json(docSnap.data());
+      const orderData = docSnap.data() as Order;
+
+      // Require staff session or verified order owner
+      const staffAuth = await verifyStaffSession(request, ['courier', 'manager', 'director']);
+      const verifiedUid = await getVerifiedCallerUid(request);
+      const isOwner = Boolean(orderData.userId && verifiedUid && orderData.userId === verifiedUid);
+
+      if (!staffAuth.authorized && !isOwner) {
+        return NextResponse.json(
+          { error: 'Доступ ограничен: требуются права администратора или владельца заказа' },
+          { status: 403 }
+        );
+      }
+
+      return NextResponse.json({
+        ...orderData,
+        pickupCode: orderData.pickupCode || getOrderPickupCode(orderData.id),
+      });
     }
 
     if (!userId) {
       return NextResponse.json({ error: 'Параметр userId обязателен' }, { status: 400 });
     }
 
-    // Verify caller ownership or staff permissions
-    const reqUserId = request.headers.get('x-user-id');
-    const staffId = request.headers.get('x-staff-user-id');
-    let isOwnerOrStaff = Boolean(reqUserId && reqUserId === userId);
+    // Zero-Trust: Caller must cryptographically prove ownership of this userId OR be authorized staff
+    const verifiedUid = await getVerifiedCallerUid(request);
+    let isOwnerOrStaff = Boolean(verifiedUid && verifiedUid === userId);
 
-    if (!isOwnerOrStaff && (staffId || request.headers.get('authorization'))) {
+    if (!isOwnerOrStaff) {
       const staffAuth = await verifyStaffSession(request, ['courier', 'manager', 'director']);
       isOwnerOrStaff = staffAuth.authorized;
     }
@@ -179,7 +181,11 @@ export async function GET(request: Request) {
 
     const orders: Order[] = [];
     snapshot.forEach((doc) => {
-      orders.push(doc.data() as Order);
+      const data = doc.data() as Order;
+      orders.push({
+        ...data,
+        pickupCode: data.pickupCode || getOrderPickupCode(data.id),
+      });
     });
 
     return NextResponse.json(orders);
@@ -202,52 +208,23 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'orderId и status обязательны' }, { status: 400 });
     }
 
-    let targetOrder: Order | null = clientOrder ? { ...clientOrder, status } : null;
-
-    // 1. Try to update Firestore (best-effort, ignoring permission errors on server)
+    // Fetch existing order from Firestore (or fallback from clientOrder)
+    let targetOrder: Order | null = clientOrder ? { ...clientOrder, id: orderId } : null;
     try {
       const orderRef = doc(db, 'orders', orderId);
       const snap = await getDoc(orderRef);
       if (snap.exists()) {
-        const data = snap.data() as Order;
-        targetOrder = { ...data, status };
-        await updateDoc(orderRef, {
-          status,
-          ...(status === 'paid' ? { notificationSent: true } : {}),
-        }).catch(() => {});
-
-        if (data.userId) {
-          const userOrderRef = doc(db, 'users', data.userId, 'orders', orderId);
-          await updateDoc(userOrderRef, {
-            status,
-            ...(status === 'paid' ? { notificationSent: true } : {}),
-          }).catch(() => {});
-        }
+        targetOrder = snap.data() as Order;
       }
     } catch (fbErr) {
-      console.warn('[Orders PATCH] Firestore access skipped/failed (will proceed with MoySklad & Telegram):', fbErr);
+      console.warn('[Orders PATCH] Firestore read failed:', fbErr);
     }
 
-    // 2. Security Check: If client attempts to set status to 'declined', verify authority
-    if (status === 'declined') {
-      const staffAuth = await verifyStaffSession(request, ['director', 'manager']);
-      const reqUserId = request.headers.get('x-user-id') || request.headers.get('x-staff-user-id');
-      const isOwner = Boolean(targetOrder?.userId && reqUserId && targetOrder.userId === reqUserId);
-
-      if (!staffAuth.authorized && !isOwner) {
-        return NextResponse.json(
-          { error: 'Отказано: отменять заказ могут только уполномоченные сотрудники или владелец заказа' },
-          { status: 403 }
-        );
-      }
-
-      try {
-        await markMoySkladOrderCancelled(orderId, 'Оплата не прошла');
-      } catch (e) {
-        console.warn('Failed to mark MoySklad order as cancelled:', e);
-      }
-    }
-
+    // STRICT ZERO-TRUST SECURITY GATE:
+    // Only two status transitions are permitted via this endpoint:
+    // 1. 'paid' -> MUST be verified directly against Halyk Bank ePay processing API!
+    // 2. 'declined' -> MUST be authorized by verified staff or verified order owner!
+    // Any other status change (e.g. 'in_assembly', 'ready', 'picked_up') MUST go through /api/admin/orders or /api/orders/verify-pickup!
     if (status === 'paid') {
       const epayCheck = await verifyEpayPayment(orderId);
       if (!epayCheck.paid) {
@@ -264,15 +241,14 @@ export async function PATCH(request: Request) {
         }
         await notifyMoySkladOrderPaid(targetOrder);
       } else {
-        // Fallback: construct minimum valid order for invoiceId
         const fallbackOrder: Order = {
           id: orderId,
           invoiceId: orderId,
           createdAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
           status: 'paid',
-          amount: 0,
-          itemsPrice: 0,
+          amount: epayCheck.amount || 0,
+          itemsPrice: epayCheck.amount || 0,
           deliveryCost: 0,
           deliveryMethod: 'pickup',
           address: 'Адрес из заказа',
@@ -283,9 +259,50 @@ export async function PATCH(request: Request) {
         };
         await notifyMoySkladOrderPaid(fallbackOrder);
       }
+    } else if (status === 'declined') {
+      const staffAuth = await verifyStaffSession(request, ['director', 'manager']);
+      const verifiedUid = await getVerifiedCallerUid(request);
+      const isOwner = Boolean(targetOrder?.userId && verifiedUid && targetOrder.userId === verifiedUid);
+
+      if (!staffAuth.authorized && !isOwner) {
+        return NextResponse.json(
+          { error: 'Отказано: отменять заказ могут только уполномоченные сотрудники или владелец заказа' },
+          { status: 403 }
+        );
+      }
+
+      try {
+        await markMoySkladOrderCancelled(orderId, 'Оплата не прошла или заказ отклонен');
+      } catch (e) {
+        console.warn('Failed to mark MoySklad order as cancelled:', e);
+      }
+    } else {
+      return NextResponse.json(
+        { error: 'Недопустимый переход статуса через публичный интерфейс. Используйте служебный терминал.' },
+        { status: 403 }
+      );
     }
 
-    // 3. Mirror status to Neon DB
+    // ONLY NOW — after all cryptographic & bank verification checks have succeeded — update Firestore!
+    try {
+      const orderRef = doc(db, 'orders', orderId);
+      await updateDoc(orderRef, {
+        status,
+        ...(status === 'paid' ? { notificationSent: true } : {}),
+      }).catch(() => {});
+
+      if (targetOrder?.userId) {
+        const userOrderRef = doc(db, 'users', targetOrder.userId, 'orders', orderId);
+        await updateDoc(userOrderRef, {
+          status,
+          ...(status === 'paid' ? { notificationSent: true } : {}),
+        }).catch(() => {});
+      }
+    } catch (fbErr) {
+      console.warn('[Orders PATCH] Firestore access skipped/failed:', fbErr);
+    }
+
+    // Mirror status to Neon DB
     if (isDbConfigured() && client) {
       try {
         await client`

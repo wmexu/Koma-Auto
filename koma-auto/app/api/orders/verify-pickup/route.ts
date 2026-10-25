@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import { client, isDbConfigured } from '@/db';
 import { verifyPickupCode } from '@/lib/crypto-security';
+import { getOrderPickupCode } from '@/lib/pickup-code';
 import { checkRateLimit, recordFailedAttempt, resetRateLimit } from '@/lib/rate-limiter';
 import { logAuditEvent } from '@/lib/audit';
 import { verifyStaffSession } from '@/lib/admin-auth';
+import { db } from '@/lib/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 
 export async function POST(request: Request) {
   try {
@@ -17,7 +20,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { orderId, code, staffUserId } = body;
+    const { orderId, code, staffUserId, confirmMatch } = body;
 
     // Strict Server-Side Authorization: Only verified Staff members can complete orders
     const auth = await verifyStaffSession(request, ['courier', 'manager', 'director'], staffUserId);
@@ -30,13 +33,8 @@ export async function POST(request: Request) {
 
     const staffUser = auth.user;
 
-    if (!orderId || !code) {
-      return NextResponse.json({ error: 'Укажите номер заказа и 12-значный код получения' }, { status: 400 });
-    }
-
-    const cleanCode = String(code).replace(/\D/g, '');
-    if (cleanCode.length !== 12) {
-      return NextResponse.json({ error: 'Код получения должен состоять ровно из 12 цифр' }, { status: 400 });
+    if (!orderId) {
+      return NextResponse.json({ error: 'Укажите номер заказа' }, { status: 400 });
     }
 
     if (!isDbConfigured() || !client) {
@@ -69,16 +67,20 @@ export async function POST(request: Request) {
         return { success: false, status: 403, error: 'Этот заказ закреплен за другим курьером' };
       }
 
-      // 3. Verify code
-      if (!order.pickup_code_hash || !order.pickup_code_salt) {
-        return { success: false, status: 400, error: 'Для данного заказа не сформирован код получения' };
-      }
-
-      const isValid = verifyPickupCode(cleanCode, order.pickup_code_salt, order.pickup_code_hash);
-
-      if (!isValid) {
-        recordFailedAttempt(ip);
-        return { success: false, status: 400, error: 'Неверный код получения' };
+      // 3. Verify code or visual match confirmation
+      const expectedCode = getOrderPickupCode(String(orderId));
+      if (code) {
+        const cleanCode = String(code).replace(/\D/g, '');
+        let codeMatches = cleanCode === expectedCode;
+        if (!codeMatches && order.pickup_code_salt && order.pickup_code_hash) {
+          codeMatches = verifyPickupCode(cleanCode, order.pickup_code_salt, order.pickup_code_hash);
+        }
+        if (!codeMatches) {
+          recordFailedAttempt(ip);
+          return { success: false, status: 400, error: 'Неверный код получения' };
+        }
+      } else if (!confirmMatch) {
+        return { success: false, status: 400, error: 'Подтвердите сверку кода получения' };
       }
 
       // 4. Update order status atomically
@@ -87,7 +89,7 @@ export async function POST(request: Request) {
         SET 
           fulfillment_status = 'completed',
           completed_at = NOW(),
-          completed_by_user_id = ${staffUserId || null},
+          completed_by_user_id = ${staffUserId || staffUser.id},
           updated_at = NOW()
         WHERE id = ${String(orderId)};
       `;
@@ -97,22 +99,41 @@ export async function POST(request: Request) {
         INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, ip_address, created_at)
         VALUES (
           gen_random_uuid(),
-          ${staffUserId || null},
+          ${staffUserId || staffUser.id},
           'ORDER_COMPLETED',
           'order',
           ${String(orderId)},
-          ${JSON.stringify({ orderId, customer: order.customer_name, amount: order.amount })}::jsonb,
+          ${JSON.stringify({
+            orderId: String(orderId),
+            verifiedBy: staffUser.email,
+            role: staffUser.role,
+            customer: order.customer_name,
+            amount: order.amount,
+            method: code ? 'typed_code' : 'visual_match',
+          })}::jsonb,
           ${ip},
           NOW()
         );
       `;
 
       resetRateLimit(ip);
-      return { success: true, status: 200, message: 'Заказ успешно верифицирован и выдан клиенту!' };
+      return { success: true, status: 200, message: 'Заказ успешно выдан клиенту!' };
     });
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: result.status });
+    }
+
+    // Sync status with Firestore (best effort)
+    try {
+      const orderRef = doc(db, 'orders', String(orderId));
+      await updateDoc(orderRef, {
+        fulfillmentStatus: 'completed',
+        completedAt: new Date().toISOString(),
+        completedByUserId: staffUserId || staffUser.id,
+      });
+    } catch (fsErr) {
+      console.warn('[VerifyPickup] Firestore sync warning:', fsErr);
     }
 
     return NextResponse.json({ success: true, message: result.message });

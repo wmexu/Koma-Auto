@@ -4,6 +4,7 @@ import { db } from '@/lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { checkRateLimit, recordFailedAttempt, resetRateLimit } from '@/lib/rate-limiter';
 import { logAuditEvent } from '@/lib/audit';
+import { getVerifiedCallerUid } from '@/lib/admin-auth';
 
 export async function POST(request: Request) {
   try {
@@ -21,6 +22,15 @@ export async function POST(request: Request) {
 
     if (!token || !userId) {
       return NextResponse.json({ error: 'Укажите 24-значный шифр доступа' }, { status: 400 });
+    }
+
+    // Zero-Trust: Caller must cryptographically prove ownership of this account
+    const verifiedUid = await getVerifiedCallerUid(request);
+    if (!verifiedUid || verifiedUid !== userId) {
+      return NextResponse.json(
+        { error: 'Доступ запрещен: требуется действующая авторизованная сессия' },
+        { status: 401 }
+      );
     }
 
     const cleanToken = String(token).trim();

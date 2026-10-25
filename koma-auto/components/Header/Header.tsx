@@ -9,7 +9,7 @@ import { useCartStore } from '../../store/useCartStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { auth, db } from '../../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import GooeyInput from '../ui/GooeyInput';
 import styles from './Header.module.css';
 
@@ -48,11 +48,33 @@ export default function Header() {
       if (currentUser) {
         try {
           const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          if (userDoc.exists()) {
-            setUserProfile(userDoc.data() as any);
-          } else {
-            setUserProfile(null);
+          let profile = userDoc.exists() ? (userDoc.data() as any) : null;
+
+          // Verify authoritative role from Postgres
+          try {
+            const idToken = await currentUser.getIdToken().catch(() => null);
+            const roleRes = await fetch(`/api/user/role?userId=${currentUser.uid}`, {
+              headers: {
+                'x-user-id': currentUser.uid,
+                ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+              },
+            });
+            if (roleRes.ok) {
+              const roleData = await roleRes.json();
+              if (roleData.role) {
+                if (!profile) profile = {};
+                if (profile.role !== roleData.role) {
+                  profile.role = roleData.role;
+                  // sync to Firestore
+                  setDoc(doc(db, 'users', currentUser.uid), { role: roleData.role }, { merge: true }).catch(() => {});
+                }
+              }
+            }
+          } catch (rErr) {
+            console.warn('Role sync warning:', rErr);
           }
+
+          setUserProfile(profile);
         } catch (error) {
           console.error('Error fetching user profile:', error);
           setUserProfile(null);

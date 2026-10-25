@@ -3,6 +3,7 @@ import { client, isDbConfigured } from '@/db';
 import { db } from '@/lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { logAuditEvent } from '@/lib/audit';
+import { verifyStaffSession, getVerifiedCallerUid } from '@/lib/admin-auth';
 
 export async function POST(request: Request) {
   try {
@@ -13,13 +14,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Идентификатор пользователя не указан' }, { status: 400 });
     }
 
-    const headerUserId = request.headers.get('x-user-id');
-    const authHeader = request.headers.get('authorization');
-    const bearerUid = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    // Zero-Trust: Caller must cryptographically prove ownership of this account OR be Director
+    const verifiedUid = await getVerifiedCallerUid(request);
+    let isAuthorized = Boolean(verifiedUid && verifiedUid === userId);
+    if (!isAuthorized) {
+      const staffAuth = await verifyStaffSession(request, ['director']);
+      isAuthorized = staffAuth.authorized;
+    }
 
-    // Verify session
-    const effectiveCallerId = headerUserId || bearerUid || userId;
-    if (effectiveCallerId !== userId) {
+    if (!isAuthorized) {
       return NextResponse.json({ error: 'Доступ запрещен: нельзя снять роль с чужого аккаунта' }, { status: 403 });
     }
 

@@ -91,10 +91,23 @@ export async function fetchUserOrders(userId?: string | null): Promise<Order[]> 
   }
 
   try {
+    let token: string | null = null;
+    try {
+      const { auth } = await import('@/lib/firebase');
+      if (auth?.currentUser) {
+        token = await auth.currentUser.getIdToken().catch(() => null);
+      }
+    } catch {}
+
+    const headers: Record<string, string> = {
+      'x-user-id': userId,
+    };
+    if (token) {
+      headers['authorization'] = `Bearer ${token}`;
+    }
+
     const res = await fetch(`/api/orders?userId=${encodeURIComponent(userId)}`, {
-      headers: {
-        'x-user-id': userId,
-      },
+      headers,
     });
     if (res.ok) {
       const serverOrders: Order[] = await res.json();
