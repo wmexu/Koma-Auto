@@ -653,8 +653,8 @@
 }
 
 .codeActivationInput {
-  font-family: var(--font-geist-mono, monospace);
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 1px;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0;
 }

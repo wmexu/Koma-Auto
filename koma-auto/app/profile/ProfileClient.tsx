@@ -819,7 +819,7 @@ export default function ProfileClient() {
                     <input
                       type="text"
                       maxLength={24}
-                      placeholder="Например: 7k$W#mP2!xL8@vQ7^zR4+yT1"
+                      placeholder="Введите 24-значный шифр"
                       value={staffTokenInput}
                       onChange={(e) => setStaffTokenInput(e.target.value.trim())}
                       className={`${styles.input} ${styles.codeActivationInput}`}
