@@ -819,9 +819,9 @@ export default function ProfileClient() {
                     <input
                       type="text"
                       maxLength={24}
-                      placeholder="KOMA-XXXX-XXXX-XXXX-XXXX"
+                      placeholder="Например: 7k$W#mP2!xL8@vQ7^zR4+yT1"
                       value={staffTokenInput}
-                      onChange={(e) => setStaffTokenInput(e.target.value.toUpperCase())}
+                      onChange={(e) => setStaffTokenInput(e.target.value.trim())}
                       className={`${styles.input} ${styles.codeActivationInput}`}
                       style={{ marginBottom: '10px' }}
                     />

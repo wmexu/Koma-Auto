@@ -21,10 +21,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Укажите 24-значный шифр доступа' }, { status: 400 });
     }
 
-    const cleanToken = String(token).trim().toUpperCase();
-    if (cleanToken.length !== 24 || !cleanToken.startsWith('KOMA-')) {
+    const cleanToken = String(token).trim();
+    if (cleanToken.length !== 24) {
       recordFailedAttempt(ip);
-      return NextResponse.json({ error: 'Неверный формат шифра (требуется 24 символа вида KOMA-XXXX-XXXX-XXXX-XXXX)' }, { status: 400 });
+      return NextResponse.json({ error: 'Неверный формат: шифр должен содержать ровно 24 символа' }, { status: 400 });
     }
 
     if (!isDbConfigured() || !client) {

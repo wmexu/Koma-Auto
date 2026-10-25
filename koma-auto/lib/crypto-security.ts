@@ -55,19 +55,16 @@ export function verifyPickupCode(enteredCode: string, salt: string, expectedHash
 }
 
 /**
- * Generates a 24-character single-use role activation token
- * Format: KOMA-XXXX-XXXX-XXXX-XXXX (24 characters total)
+ * Generates a high-entropy 24-character cryptographically secure cipher
+ * Combines uppercase letters, lowercase letters, digits, and symbols
+ * e.g. "k9$W#mP2!xL8@vQ7^zR4+yT1"
  */
 export function generateRoleActivationToken(): string {
-  // Use readable charset avoiding ambiguous characters
-  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const getRandomBlock = (len: number) => {
-    let res = '';
-    for (let i = 0; i < len; i++) {
-      res += charset[crypto.randomInt(0, charset.length)];
-    }
-    return res;
-  };
-
-  return `KOMA-${getRandomBlock(4)}-${getRandomBlock(4)}-${getRandomBlock(4)}-${getRandomBlock(4)}`;
+  // 70+ diverse characters: uppercase, lowercase, numbers, and symbols
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*_+=-?';
+  let token = '';
+  for (let i = 0; i < 24; i++) {
+    token += charset[crypto.randomInt(0, charset.length)];
+  }
+  return token;
 }
