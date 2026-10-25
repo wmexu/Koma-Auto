@@ -6,6 +6,7 @@ interface UserProfile {
   email: string;
   dob: string;
   clientType: string;
+  role?: 'customer' | 'wholesale' | 'courier' | 'manager' | 'director' | string;
   createdAt: string;
 }
 

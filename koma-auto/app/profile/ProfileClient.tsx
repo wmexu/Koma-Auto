@@ -17,7 +17,7 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
-import { User as UserIcon, Mail, Calendar, Briefcase, Clock, LogOut, Package, Pencil, Eye, EyeOff } from 'lucide-react';
+import { User as UserIcon, Mail, Calendar, Briefcase, Clock, LogOut, Package, Pencil, Eye, EyeOff, Shield, ArrowRight, KeyRound } from 'lucide-react';
 import OrdersHistory from '@/components/Orders/OrdersHistory';
 import styles from './Profile.module.css';
 
@@ -43,6 +43,43 @@ export default function ProfileClient() {
   const [editName, setEditName] = useState('');
   const [editDob, setEditDob] = useState('');
   const [editClientType, setEditClientType] = useState('retail');
+  const [staffTokenInput, setStaffTokenInput] = useState('');
+  const [isActivatingRole, setIsActivatingRole] = useState(false);
+
+  const handleActivateStaffRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!staffTokenInput.trim() || !user) return;
+
+    setIsActivatingRole(true);
+    try {
+      const res = await fetch('/api/user/role/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: staffTokenInput,
+          userId: user.uid,
+          email: user.email,
+          fullName: userProfile?.name || user.displayName,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Ошибка активации шифра');
+      }
+
+      addToast(data.message || 'Роль успешно активирована!', 'success');
+      if (userProfile) {
+        setUserProfile({ ...userProfile, role: data.role });
+      }
+      setIsEditModalOpen(false);
+      setStaffTokenInput('');
+    } catch (err: any) {
+      addToast(err.message || 'Неверный шифр доступа', 'error');
+    } finally {
+      setIsActivatingRole(false);
+    }
+  };
 
   // Validation errors state
   const [errors, setErrors] = useState<{name?: string, dob?: string, email?: string, password?: string, confirmPassword?: string}>({});
@@ -596,6 +633,28 @@ export default function ProfileClient() {
           </button>
         </div>
 
+        {/* Staff Management Panel Banner */}
+        {Boolean(userProfile?.role && ['courier', 'manager', 'director'].includes(userProfile.role)) && (
+          <div className={styles.staffPanelBanner}>
+            <div className={styles.staffPanelLeft}>
+              <Shield size={22} color="var(--color-navy)" />
+              <div>
+                <div className={styles.staffPanelTitle}>Перейти в управляющую панель</div>
+                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                  Доступен рабочий интерфейс CRM Koma Auto
+                </div>
+              </div>
+              <span className={styles.staffRolePill}>
+                {userProfile.role === 'director' ? 'Директор' : userProfile.role === 'manager' ? 'Менеджер' : 'Курьер'}
+              </span>
+            </div>
+            <Link href="/admin" className={styles.staffPanelActionBtn}>
+              <span>Перейти</span>
+              <ArrowRight size={16} />
+            </Link>
+          </div>
+        )}
+
         <div className={styles.dashboardLayout}>
           <div className={styles.dashboardTopRow}>
             {/* Main Info Column */}
@@ -748,8 +807,35 @@ export default function ProfileClient() {
                   >
                     <option value="retail">Розничный клиент</option>
                     <option value="wholesale">Оптовый клиент</option>
+                    <option value="staff_code">Ввести код профиля (сотрудник)</option>
                   </select>
                 </div>
+
+                {editClientType === 'staff_code' && (
+                  <div className={styles.codeActivationBox}>
+                    <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-navy)', display: 'block', marginBottom: '6px' }}>
+                      24-значный шифр сотрудника (Курьер / Менеджер / Директор)
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={24}
+                      placeholder="KOMA-XXXX-XXXX-XXXX-XXXX"
+                      value={staffTokenInput}
+                      onChange={(e) => setStaffTokenInput(e.target.value.toUpperCase())}
+                      className={`${styles.input} ${styles.codeActivationInput}`}
+                      style={{ marginBottom: '10px' }}
+                    />
+                    <button
+                      type="button"
+                      className={styles.submitBtn}
+                      style={{ width: '100%', margin: 0 }}
+                      disabled={isActivatingRole || staffTokenInput.trim().length !== 24}
+                      onClick={handleActivateStaffRole}
+                    >
+                      {isActivatingRole ? 'Проверка шифра...' : 'Активировать роль сотрудника'}
+                    </button>
+                  </div>
+                )}
 
                 <div className={styles.modalActions} style={{ marginTop: '30px' }}>
                   <button 

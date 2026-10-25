@@ -873,6 +873,14 @@ export default function CheckoutClient() {
               </label>
             </div>
 
+            {formData.deliveryMethod === 'pickup' && (
+              <div className={styles.pickupNotice}>
+                <AlertTriangle size={18} />
+                <span>
+                  Товары хранятся на складе 14 дней. По истечению срока заказ будет отменен, а деньги будут возвращены на карту в течении 1-5 дней.
+                </span>
+              </div>
+            )}
           </div>
 
           <div className={styles.section}>

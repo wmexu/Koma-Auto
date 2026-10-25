@@ -58,6 +58,39 @@ export interface Order {
   refundAmount?: number;
   refundTransactionId?: string;
   refundMessage?: string;
+  // CRM & Verification attributes
+  pickupCode?: string;
+  pickupCodeHash?: string;
+  fulfillmentStatus?: OrderFulfillmentStatus;
+  assignedCourierId?: string;
+  assignedCourierName?: string;
+  completedAt?: string;
+  completedByUserId?: string;
+  warehouseId?: string;
+}
+
+export type OrderFulfillmentStatus = 
+  | 'assembling'
+  | 'ready_for_pickup'
+  | 'out_for_delivery'
+  | 'completed'
+  | 'cancelled';
+
+export function getFulfillmentStatusLabel(status?: OrderFulfillmentStatus): string {
+  switch (status) {
+    case 'assembling':
+      return 'В сборке';
+    case 'ready_for_pickup':
+      return 'Готов к получению';
+    case 'out_for_delivery':
+      return 'Выдан курьеру';
+    case 'completed':
+      return 'Выдан';
+    case 'cancelled':
+      return 'Отменен';
+    default:
+      return 'В сборке';
+  }
 }
 
 /**

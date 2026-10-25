@@ -798,3 +798,24 @@
 .kaspiModalSubmitBtn:active {
   transform: translateY(0);
 }
+
+
+.pickupNotice {
+  margin-top: 14px;
+  padding: 12px 16px;
+  background-color: #fefce8;
+  border: 1px solid #fef08a;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 13px;
+  color: #854d0e;
+  line-height: 1.5;
+}
+
+.pickupNotice svg {
+  flex-shrink: 0;
+  color: #d97706;
+  margin-top: 1px;
+}

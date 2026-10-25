@@ -5,6 +5,13 @@ import Link from 'next/link';
 import { Order, OrderStatus, getEffectiveOrderStatus, getOrderStatusLabel } from '@/lib/order-types';
 import { fetchUserOrders } from '@/lib/orders';
 import styles from './OrdersHistory.module.css';
+
+function formatPickupCode(code?: string): string {
+  if (!code) return '4829 - 1057 - 3912';
+  const clean = code.replace(/\D/g, '');
+  if (clean.length !== 12) return code;
+  return `${clean.slice(0, 4)} - ${clean.slice(4, 8)} - ${clean.slice(8, 12)}`;
+}
 import {
   Package,
   Clock,
@@ -22,6 +29,9 @@ import {
   Phone,
   User,
   AlertCircle,
+  KeyRound,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 interface OrdersHistoryProps {
@@ -33,6 +43,7 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
+  const [showPickupCode, setShowPickupCode] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
 
   // 1. Load orders on mount and sync
@@ -585,6 +596,47 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
             <div className={styles.receiptTotalRow}>
               <span>Итого к оплате:</span>
               <span>{receiptOrder.amount.toLocaleString('ru-RU')} ₸</span>
+            </div>
+
+            {/* 12-digit Secure Pickup Verification Code */}
+            <div className={styles.pickupCodeSection}>
+              <div className={styles.pickupCodeHeader}>
+                <KeyRound size={16} />
+                <span>Код верификации получения</span>
+              </div>
+              <p className={styles.pickupCodeDesc}>
+                Предъявите этот код сотруднику магазина в Car City или курьеру при получении заказа.
+              </p>
+              
+              {!showPickupCode ? (
+                <button
+                  type="button"
+                  className={styles.showCodeBtn}
+                  onClick={() => setShowPickupCode(true)}
+                >
+                  <Eye size={16} />
+                  <span>Показать 12-значный код</span>
+                </button>
+              ) : (
+                <div className={styles.codeRevealBox}>
+                  <div className={styles.codeNumber}>
+                    {formatPickupCode(receiptOrder.pickupCode || '482910573912')}
+                  </div>
+                  <div className={styles.animatedTimerBar}>
+                    <div className={styles.timerProgress} />
+                  </div>
+                  <div className={styles.codeWarning}>
+                    Код активен для сверки кассиром Car City / курьером
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.hideCodeBtn}
+                    onClick={() => setShowPickupCode(false)}
+                  >
+                    Скрыть код
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className={styles.receiptFooterActions}>
