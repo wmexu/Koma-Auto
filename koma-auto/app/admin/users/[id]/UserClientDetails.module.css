@@ -88,26 +88,10 @@
   gap: 20px;
 }
 
-.profileAvatarBlock {
+.profileInfoBlock {
   display: flex;
   align-items: center;
-  gap: 20px;
-}
-
-.avatarCircle {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: var(--color-navy-gradient);
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 26px;
-  font-weight: 800;
-  box-shadow: 0 4px 14px rgba(6, 15, 72, 0.25);
-  flex-shrink: 0;
-  text-transform: uppercase;
+  gap: 16px;
 }
 
 .profileTitleBlock h1 {

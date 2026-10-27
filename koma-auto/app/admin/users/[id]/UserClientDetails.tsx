@@ -243,10 +243,7 @@ export default function UserClientDetails({ userId }: UserClientDetailsProps) {
         {/* Profile Hero Card */}
         <div className={styles.profileHeroCard}>
           <div className={styles.profileHeroTop}>
-            <div className={styles.profileAvatarBlock}>
-              <div className={styles.avatarCircle}>
-                {targetUser.full_name ? targetUser.full_name.charAt(0).toUpperCase() : targetUser.email.charAt(0).toUpperCase()}
-              </div>
+            <div className={styles.profileInfoBlock}>
               <div className={styles.profileTitleBlock}>
                 <h1>{targetUser.full_name || 'Без имени'}</h1>
                 <div className={styles.profileMetaRow}>

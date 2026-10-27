@@ -563,17 +563,6 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
                   </button>
                 )}
 
-                {!isCancelled && !isDeleted && (
-                  <button
-                    type="button"
-                    className={`${styles.actionBtn} ${styles.dangerActionBtn}`}
-                    onClick={handleCancelOrder}
-                  >
-                    <XCircle size={16} />
-                    <span>Отклонить заказ</span>
-                  </button>
-                )}
-
                 {!isCompleted && !isDeleted && (
                   <button
                     type="button"
@@ -582,6 +571,17 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
                   >
                     <Archive size={16} />
                     <span>Перенести в архив</span>
+                  </button>
+                )}
+
+                {!isCancelled && !isDeleted && (
+                  <button
+                    type="button"
+                    className={`${styles.actionBtn} ${styles.dangerActionBtn}`}
+                    onClick={handleCancelOrder}
+                  >
+                    <XCircle size={16} />
+                    <span>Отклонить заказ</span>
                   </button>
                 )}
 
@@ -755,28 +755,11 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
                 Сверьте код выдачи с экрана смартфона покупателя. Коды должны совпадать:
               </p>
 
-              <div
-                style={{
-                  background: '#f8fafc',
-                  border: '2px dashed #cbd5e1',
-                  borderRadius: '12px',
-                  padding: '18px',
-                  textAlign: 'center',
-                  marginBottom: '24px',
-                }}
-              >
-                <div style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
+              <div className={styles.modalPickupCodeBox}>
+                <div className={styles.modalPickupCodeLabel}>
                   12-значный код клиента
                 </div>
-                <div
-                  style={{
-                    fontSize: '28px',
-                    fontWeight: 900,
-                    letterSpacing: '0.15em',
-                    fontFamily: 'monospace',
-                    color: 'var(--color-navy)',
-                  }}
-                >
+                <div className={styles.modalPickupCodeValue}>
                   {formatPickupCode(pickupCode)}
                 </div>
               </div>

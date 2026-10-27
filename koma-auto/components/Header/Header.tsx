@@ -22,9 +22,34 @@ export default function Header() {
   const { user, setUser, setUserProfile, isLoading: isAuthLoading, setLoading: setAuthLoading } = useAuthStore();
 
   const [isMounted, setIsMounted] = useState(false);
+  const [cachedVisualName, setCachedVisualName] = useState<string | null>(null);
 
   useEffect(() => {
     setIsMounted(true);
+
+    // Initial visual name hydration from localStorage to eliminate 2-3s blank/spinner delay on reload
+    try {
+      const savedVisualName = localStorage.getItem('koma_cached_user_name');
+      if (savedVisualName) {
+        setCachedVisualName(savedVisualName);
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+
+    // Listen for custom visual name sync events from profile edits or logout
+    const handleNameSync = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const newName = customEvent.detail;
+      if (newName && typeof newName === 'string') {
+        setCachedVisualName(newName);
+        try { localStorage.setItem('koma_cached_user_name', newName); } catch {}
+      } else {
+        setCachedVisualName(null);
+        try { localStorage.removeItem('koma_cached_user_name'); } catch {}
+      }
+    };
+    window.addEventListener('koma_cached_name_change', handleNameSync);
 
     // Initial search sync from sessionStorage
     const saved = sessionStorage.getItem('koma_search');
@@ -95,12 +120,21 @@ export default function Header() {
           }
 
           setUserProfile(profile);
+
+          // Update cached visual name for instant zero-lag rendering
+          const resolvedName = profile?.name || currentUser.displayName || currentUser.email || 'Мой профиль';
+          if (resolvedName) {
+            setCachedVisualName(resolvedName);
+            try { localStorage.setItem('koma_cached_user_name', resolvedName); } catch {}
+          }
         } catch (error) {
           console.error('Error fetching user profile:', error);
           setUserProfile(null);
         }
       } else {
         setUserProfile(null);
+        setCachedVisualName(null);
+        try { localStorage.removeItem('koma_cached_user_name'); } catch {}
       }
 
       setAuthLoading(false);
@@ -108,6 +142,7 @@ export default function Header() {
 
     return () => {
       window.removeEventListener('koma_header_search', handleGlobalSearch);
+      window.removeEventListener('koma_cached_name_change', handleNameSync);
       unsubscribe();
     };
   }, [setUser, setAuthLoading]);
@@ -185,7 +220,9 @@ export default function Header() {
             <User size={20} color="#fff" />
           </div>
           <span className={styles.userText}>
-            {isMounted && !isAuthLoading && user ? (
+            {isMounted && cachedVisualName ? (
+              cachedVisualName
+            ) : isMounted && !isAuthLoading && user ? (
               user.displayName || user.email || 'Мой профиль'
             ) : (
               'Регистрация / Вход в аккаунт'

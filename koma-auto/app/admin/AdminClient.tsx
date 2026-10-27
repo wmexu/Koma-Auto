@@ -11,6 +11,8 @@ import {
   MoreVertical, Archive, XCircle, X, RotateCcw, Trash2, Lock
 } from 'lucide-react';
 import { formatPickupCode, getOrderPickupCode } from '@/lib/pickup-code';
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import styles from './Admin.module.css';
 
 export default function AdminClient() {
@@ -164,14 +166,45 @@ export default function AdminClient() {
     }
   }, [activeTab, isDirector, user?.uid]);
 
-  // Load users when on tab
-  const loadUsers = () => {
+  // Load users when on tab with dynamic auto-discovery from Firestore
+  const loadUsers = async () => {
     if (!isDirector || !user?.uid) return;
+
+    try {
+      // 1. Direct discovery from Firestore users collection
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const foundUsers: any[] = [];
+      usersSnap.forEach(d => {
+        const data = d.data();
+        if (data.email) {
+          foundUsers.push({
+            id: d.id,
+            email: data.email,
+            fullName: data.name || data.fullName || null,
+            phone: data.phone || null,
+            role: data.role || (data.clientType === 'wholesale' ? 'wholesale' : 'customer'),
+            createdAt: data.createdAt || null
+          });
+        }
+      });
+
+      if (foundUsers.length > 0) {
+        await adminFetch('/api/admin/users/sync-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ users: foundUsers })
+        });
+      }
+    } catch (e) {
+      // Quiet failover if client security rules disallow list
+    }
+
     adminFetch(`/api/admin/users?audience=${userAudienceFilter}&q=${encodeURIComponent(userSearchQuery)}`)
       .then(res => res.json())
       .then(data => {
         if (data.success) setUsersList(data.users || []);
-      });
+      })
+      .catch(console.error);
   };
 
   useEffect(() => {
@@ -1382,44 +1415,46 @@ export default function AdminClient() {
             </div>
 
             {/* List of active promocodes */}
-            <table className={styles.dataTable}>
-              <thead>
-                <tr>
-                  <th>Код</th>
-                  <th>Скидка</th>
-                  <th>Мин. заказ</th>
-                  <th>Аудитория</th>
-                  <th>Привязан к Email</th>
-                  <th>Использован</th>
-                  <th>Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {promocodes.map(p => (
-                  <tr key={p.id}>
-                    <td><strong>{p.code}</strong></td>
-                    <td>{p.type === 'percent' ? `${p.value}%` : `${Number(p.value).toLocaleString()} ₸`}</td>
-                    <td>{Number(p.min_cart_total).toLocaleString()} ₸</td>
-                    <td>{p.target_audience === 'wholesale' ? 'Оптовики' : p.target_audience === 'retail' ? 'Розница' : 'Все'}</td>
-                    <td>
-                      {p.bound_emails && Array.isArray(p.bound_emails) && p.bound_emails.length > 0
-                        ? p.bound_emails.join(', ')
-                        : (p.bound_user_email || '—')}
-                    </td>
-                    <td>{p.used_count} раз</td>
-                    <td>
-                      <button
-                        type="button"
-                        onClick={() => handleDeletePromocode(p.id)}
-                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}
-                      >
-                        Удалить
-                      </button>
-                    </td>
+            <div className={styles.tableResponsiveWrapper}>
+              <table className={styles.dataTable}>
+                <thead>
+                  <tr>
+                    <th>Код</th>
+                    <th>Скидка</th>
+                    <th>Мин. заказ</th>
+                    <th>Аудитория</th>
+                    <th>Привязан к Email</th>
+                    <th>Использован</th>
+                    <th>Действия</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {promocodes.map(p => (
+                    <tr key={p.id}>
+                      <td><strong>{p.code}</strong></td>
+                      <td>{p.type === 'percent' ? `${p.value}%` : `${Number(p.value).toLocaleString()} ₸`}</td>
+                      <td>{Number(p.min_cart_total).toLocaleString()} ₸</td>
+                      <td>{p.target_audience === 'wholesale' ? 'Оптовики' : p.target_audience === 'retail' ? 'Розница' : 'Все'}</td>
+                      <td>
+                        {p.bound_emails && Array.isArray(p.bound_emails) && p.bound_emails.length > 0
+                          ? p.bound_emails.join(', ')
+                          : (p.bound_user_email || '—')}
+                      </td>
+                      <td>{p.used_count} раз</td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePromocode(p.id)}
+                          style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 600, fontSize: '12px' }}
+                        >
+                          Удалить
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -1461,57 +1496,59 @@ export default function AdminClient() {
               </div>
             </div>
 
-            <table className={styles.dataTable}>
-              <thead>
-                <tr>
-                  <th>Email (Username)</th>
-                  <th>Имя</th>
-                  <th>Телефон</th>
-                  <th>Текущая роль</th>
-                  <th>Заказов</th>
-                  <th>Дата регистрации</th>
-                  <th>Сменить роль</th>
-                </tr>
-              </thead>
-              <tbody>
-                {usersList.map(u => (
-                  <tr
-                    key={u.id}
-                    className={styles.userTableRowClickable}
-                    onClick={() => router.push(`/admin/users/${u.id}`)}
-                    title="Нажмите для просмотра профиля и заказов пользователя"
-                  >
-                    <td><strong>{u.email}</strong></td>
-                    <td>{u.full_name || '—'}</td>
-                    <td>{u.phone || '—'}</td>
-                    <td>
-                      <span className={`${styles.roleBadge} ${roleBadgeClass[u.role as keyof typeof roleBadgeClass] || ''}`}>
-                        {roleLabels[u.role as keyof typeof roleLabels] || u.role}
-                      </span>
-                    </td>
-                    <td>{u.orders_count || 0}</td>
-                    <td>{new Date(u.created_at).toLocaleDateString('ru-RU')}</td>
-                    <td onClick={e => e.stopPropagation()}>
-                      <select
-                        value={u.role}
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => {
-                          e.stopPropagation();
-                          handleChangeUserRole(u.id, e.target.value);
-                        }}
-                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', cursor: 'pointer' }}
-                      >
-                        <option value="customer">Розничный</option>
-                        <option value="wholesale">Оптовый</option>
-                        <option value="courier">Курьер</option>
-                        <option value="manager">Менеджер</option>
-                        <option value="director">Директор</option>
-                      </select>
-                    </td>
+            <div className={styles.tableResponsiveWrapper}>
+              <table className={styles.dataTable}>
+                <thead>
+                  <tr>
+                    <th>Email (Username)</th>
+                    <th>Имя</th>
+                    <th>Телефон</th>
+                    <th>Текущая роль</th>
+                    <th>Заказов</th>
+                    <th>Дата регистрации</th>
+                    <th>Сменить роль</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {usersList.map(u => (
+                    <tr
+                      key={u.id}
+                      className={styles.userTableRowClickable}
+                      onClick={() => router.push(`/admin/users/${u.id}`)}
+                      title="Нажмите для просмотра профиля и заказов пользователя"
+                    >
+                      <td><strong>{u.email}</strong></td>
+                      <td>{u.full_name || '—'}</td>
+                      <td>{u.phone || '—'}</td>
+                      <td>
+                        <span className={`${styles.roleBadge} ${roleBadgeClass[u.role as keyof typeof roleBadgeClass] || ''}`}>
+                          {roleLabels[u.role as keyof typeof roleLabels] || u.role}
+                        </span>
+                      </td>
+                      <td>{u.orders_count || 0}</td>
+                      <td>{new Date(u.created_at).toLocaleDateString('ru-RU')}</td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <select
+                          value={u.role}
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => {
+                            e.stopPropagation();
+                            handleChangeUserRole(u.id, e.target.value);
+                          }}
+                          style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', cursor: 'pointer' }}
+                        >
+                          <option value="customer">Розничный</option>
+                          <option value="wholesale">Оптовый</option>
+                          <option value="courier">Курьер</option>
+                          <option value="manager">Менеджер</option>
+                          <option value="director">Директор</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -1549,59 +1586,61 @@ export default function AdminClient() {
               </div>
             </div>
 
-            <table className={styles.dataTable}>
-              <thead>
-                <tr>
-                  <th>24-значный шифр</th>
-                  <th>Роль</th>
-                  <th>Привязан к Email</th>
-                  <th>Статус</th>
-                  <th>Использован</th>
-                  <th>Действует до</th>
-                  <th>Копировать</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tokensList.map(t => (
-                  <tr key={t.id}>
-                    <td>
-                      <code style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-navy)' }}>
-                        {t.token}
-                      </code>
-                    </td>
-                    <td>
-                      <span className={`${styles.roleBadge} ${roleBadgeClass[t.role as keyof typeof roleBadgeClass] || ''}`}>
-                        {roleLabels[t.role as keyof typeof roleLabels] || t.role}
-                      </span>
-                    </td>
-                    <td>{t.bound_email || 'Для любого'}</td>
-                    <td>
-                      {t.is_revoked ? (
-                        <span style={{ color: '#ef4444', fontWeight: 700 }}>Отозван</span>
-                      ) : t.used_at ? (
-                        <span style={{ color: '#10b981', fontWeight: 700 }}>Использован</span>
-                      ) : new Date(t.expires_at) < new Date() ? (
-                        <span style={{ color: '#64748b' }}>Истек</span>
-                      ) : (
-                        <span style={{ color: '#0284c7', fontWeight: 700 }}>Активен (одноразовый)</span>
-                      )}
-                    </td>
-                    <td>{t.used_by_email || '—'}</td>
-                    <td>{new Date(t.expires_at).toLocaleDateString('ru-RU')}</td>
-                    <td>
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(t.token)}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                      >
-                        {copiedToken === t.token ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
-                        {copiedToken === t.token ? 'Скопировано' : 'Копировать'}
-                      </button>
-                    </td>
+            <div className={styles.tableResponsiveWrapper}>
+              <table className={styles.dataTable}>
+                <thead>
+                  <tr>
+                    <th>24-значный шифр</th>
+                    <th>Роль</th>
+                    <th>Привязан к Email</th>
+                    <th>Статус</th>
+                    <th>Использован</th>
+                    <th>Действует до</th>
+                    <th>Копировать</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {tokensList.map(t => (
+                    <tr key={t.id}>
+                      <td>
+                        <code style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-navy)' }}>
+                          {t.token}
+                        </code>
+                      </td>
+                      <td>
+                        <span className={`${styles.roleBadge} ${roleBadgeClass[t.role as keyof typeof roleBadgeClass] || ''}`}>
+                          {roleLabels[t.role as keyof typeof roleLabels] || t.role}
+                        </span>
+                      </td>
+                      <td>{t.bound_email || 'Для любого'}</td>
+                      <td>
+                        {t.is_revoked ? (
+                          <span style={{ color: '#ef4444', fontWeight: 700 }}>Отозван</span>
+                        ) : t.used_at ? (
+                          <span style={{ color: '#10b981', fontWeight: 700 }}>Использован</span>
+                        ) : new Date(t.expires_at) < new Date() ? (
+                          <span style={{ color: '#64748b' }}>Истек</span>
+                        ) : (
+                          <span style={{ color: '#0284c7', fontWeight: 700 }}>Активен (одноразовый)</span>
+                        )}
+                      </td>
+                      <td>{t.used_by_email || '—'}</td>
+                      <td>{new Date(t.expires_at).toLocaleDateString('ru-RU')}</td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(t.token)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                        >
+                          {copiedToken === t.token ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+                          {copiedToken === t.token ? 'Скопировано' : 'Копировать'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -1722,7 +1761,7 @@ export default function AdminClient() {
                     В корзине удаленных заказов пусто
                   </div>
                 ) : (
-                  <div style={{ overflowX: 'auto' }}>
+                  <div className={styles.tableResponsiveWrapper}>
                     <table className={styles.dataTable}>
                       <thead>
                         <tr>
@@ -1786,42 +1825,14 @@ export default function AdminClient() {
                   Покупатель: <strong>{verifyingOrder.customer_name || 'Не указан'}</strong> {verifyingOrder.customer_phone ? `(${verifyingOrder.customer_phone})` : ''} • Сумма: <strong>{Number(verifyingOrder.amount).toLocaleString('ru-RU')} ₸</strong>
                 </p>
 
-                <div style={{
-                  background: '#f8fafc',
-                  border: '1.5px solid #cbd5e1',
-                  borderRadius: '12px',
-                  padding: '20px 16px',
-                  textAlign: 'center',
-                  marginBottom: '18px',
-                }}>
-                  <div style={{
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    color: '#64748b',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                    marginBottom: '8px',
-                    fontFamily: "var(--font-geist-sans), 'Geist', sans-serif",
-                  }}>
+                <div className={styles.modalPickupCodeBox}>
+                  <div className={styles.modalPickupCodeLabel}>
                     Код подтверждения в системе
                   </div>
-                  <div style={{
-                    fontFamily: "var(--font-geist-mono, monospace)",
-                    fontSize: '28px',
-                    fontWeight: 900,
-                    letterSpacing: '3px',
-                    color: 'var(--color-navy)',
-                    margin: '6px 0',
-                  }}>
+                  <div className={styles.modalPickupCodeValue}>
                     {formatPickupCode(verifyingOrder.pickup_code || getOrderPickupCode(verifyingOrder.id))}
                   </div>
-                  <div style={{
-                    fontSize: '13px',
-                    color: '#0f766e',
-                    fontWeight: 600,
-                    marginTop: '10px',
-                    fontFamily: "var(--font-geist-sans), 'Geist', sans-serif",
-                  }}>
+                  <div className={styles.modalPickupCodeHint}>
                     {isCompletedOrCancelled 
                       ? '12-значный код верификации заказа' 
                       : 'Сверьте данный 12-значный код с кодом в электронном чеке на телефоне клиента (или запросите устно)'}

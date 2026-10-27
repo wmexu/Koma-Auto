@@ -67,6 +67,38 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
     return () => clearInterval(interval);
   }, []);
 
+  // Split into Active, Closed, and Cancelled orders according to user specification
+  const isOrderCancelled = (o: Order) => {
+    const eff = getEffectiveOrderStatus(o);
+    return o.fulfillmentStatus === 'cancelled' || eff === 'declined';
+  };
+
+  const isOrderClosed = (o: Order) => {
+    return !isOrderCancelled(o) && (o.fulfillmentStatus === 'completed' || (getEffectiveOrderStatus(o) as any) === 'completed');
+  };
+
+  const isOrderActive = (o: Order) => {
+    return !isOrderCancelled(o) && !isOrderClosed(o);
+  };
+
+  // Strict sorting: Newest orders ALWAYS appear first at the top
+  const activeOrders = orders
+    .filter(isOrderActive)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const closedOrders = orders
+    .filter(isOrderClosed)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const cancelledOrders = orders
+    .filter(isOrderCancelled)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  // Top-level hook: Always runs before any early returns to strictly satisfy React Rules of Hooks
+  useEffect(() => {
+    onActiveCountChange?.(activeOrders.length);
+  }, [activeOrders.length, onActiveCountChange]);
+
   // Format date helper
   const formatDate = (isoString: string) => {
     try {
@@ -154,37 +186,6 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
       </div>
     );
   }
-
-  // Split into Active, Closed, and Cancelled orders according to user specification
-  const isOrderCancelled = (o: Order) => {
-    const eff = getEffectiveOrderStatus(o);
-    return o.fulfillmentStatus === 'cancelled' || eff === 'declined';
-  };
-
-  const isOrderClosed = (o: Order) => {
-    return !isOrderCancelled(o) && (o.fulfillmentStatus === 'completed' || (getEffectiveOrderStatus(o) as any) === 'completed');
-  };
-
-  const isOrderActive = (o: Order) => {
-    return !isOrderCancelled(o) && !isOrderClosed(o);
-  };
-
-  // Strict sorting: Newest orders ALWAYS appear first at the top
-  const activeOrders = orders
-    .filter(isOrderActive)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-  const closedOrders = orders
-    .filter(isOrderClosed)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-  const cancelledOrders = orders
-    .filter(isOrderCancelled)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-  useEffect(() => {
-    onActiveCountChange?.(activeOrders.length);
-  }, [activeOrders.length, onActiveCountChange]);
 
   const renderStatusBadge = (order: Order) => {
     const effectiveStatus = getEffectiveOrderStatus(order);

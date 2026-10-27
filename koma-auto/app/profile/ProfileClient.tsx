@@ -261,7 +261,27 @@ export default function ProfileClient() {
 
     try {
       if (activeTab === 'login') {
-        await signInWithEmailAndPassword(auth, email, password);
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const signedUser = userCredential.user;
+        if (signedUser && signedUser.email) {
+          signedUser.getIdToken().then(idToken => {
+            fetch('/api/user/sync', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-user-id': signedUser.uid,
+                ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+              },
+              body: JSON.stringify({
+                userId: signedUser.uid,
+                email: signedUser.email,
+                fullName: signedUser.displayName || null,
+                phone: signedUser.phoneNumber || null,
+                clientType: 'retail',
+              }),
+            }).catch(console.warn);
+          }).catch(console.warn);
+        }
         sessionStorage.setItem('koma-just-logged-in', 'true');
         addToast('Вы успешно вошли в аккаунт!', 'success');
         setEmail('');
@@ -336,7 +356,28 @@ export default function ProfileClient() {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       
-      // Note: we do NOT save to Firestore here anymore.
+      // Auto-sync Google user to PostgreSQL database
+      if (user && user.email) {
+        user.getIdToken().then(idToken => {
+          fetch('/api/user/sync', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-user-id': user.uid,
+              ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+            },
+            body: JSON.stringify({
+              userId: user.uid,
+              email: user.email,
+              fullName: user.displayName || null,
+              phone: user.phoneNumber || null,
+              clientType: 'retail',
+            }),
+          }).catch(console.warn);
+        }).catch(console.warn);
+      }
+
+      // Note: we do NOT save full profile to Firestore here yet.
       // The Header listener will fetch the doc, find it missing, and set userProfile to null,
       // which will trigger the "incomplete registration" form.
 
@@ -368,6 +409,10 @@ export default function ProfileClient() {
 
   const handleSignOut = async () => {
     try {
+      try {
+        localStorage.removeItem('koma_cached_user_name');
+        window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: null }));
+      } catch {}
       await signOut(auth);
       addToast('Вы вышли из аккаунта', 'success');
     } catch (error) {
@@ -451,6 +496,12 @@ export default function ProfileClient() {
       
       await setDoc(doc(db, 'users', user.uid), profileData);
       setUserProfile(profileData as any);
+
+      try {
+        const visualName = name || user.displayName || user.email || 'Мой профиль';
+        localStorage.setItem('koma_cached_user_name', visualName);
+        window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: visualName }));
+      } catch {}
 
       // Authoritatively sync user to PostgreSQL
       try {
@@ -566,6 +617,11 @@ export default function ProfileClient() {
       
       await setDoc(doc(db, 'users', user.uid), updatedProfile, { merge: true });
       setUserProfile(updatedProfile as any);
+
+      try {
+        localStorage.setItem('koma_cached_user_name', editName);
+        window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: editName }));
+      } catch {}
 
       // Sync changes to PostgreSQL
       try {

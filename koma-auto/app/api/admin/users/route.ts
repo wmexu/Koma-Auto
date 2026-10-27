@@ -44,6 +44,54 @@ export async function GET(request: Request) {
       console.warn('[AdminUsers] Auto backfill notice:', backfillErr);
     }
 
+    // Auto-discover users from Firestore via REST API if caller has ID token
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+
+    if (token && projectId && token.includes('.')) {
+      try {
+        const firestoreRes = await fetch(
+          `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        if (firestoreRes.ok) {
+          const fsData = await firestoreRes.json();
+          const docs = fsData.documents || [];
+          for (const doc of docs) {
+            const pathParts = (doc.name || '').split('/');
+            const uid = pathParts[pathParts.length - 1];
+            const f = doc.fields || {};
+            const email = f.email?.stringValue;
+            if (uid && email) {
+              const cleanEmail = String(email).trim().toLowerCase();
+              const fullName = f.name?.stringValue || f.fullName?.stringValue || null;
+              const phone = f.phone?.stringValue || null;
+              const role = f.role?.stringValue || (f.clientType?.stringValue === 'wholesale' ? 'wholesale' : 'customer');
+              const createdAt = doc.createTime ? new Date(doc.createTime) : new Date();
+
+              await client`
+                INSERT INTO users (id, email, full_name, phone, role, is_blocked, failed_code_attempts, created_at, updated_at)
+                VALUES (${uid}, ${cleanEmail}, ${fullName}, ${phone}, ${role}, false, 0, ${createdAt}, NOW())
+                ON CONFLICT (id) DO UPDATE SET
+                  email = EXCLUDED.email,
+                  full_name = COALESCE(EXCLUDED.full_name, users.full_name),
+                  phone = COALESCE(EXCLUDED.phone, users.phone),
+                  updated_at = NOW();
+              `;
+            }
+          }
+        }
+      } catch (fsErr) {
+        // Safe failover if firestore rules or network prevents direct REST list
+      }
+    }
+
     let usersList: any[] = await client`
       SELECT 
         u.id, u.email, u.full_name, u.phone, u.role, u.is_blocked, u.created_at,
