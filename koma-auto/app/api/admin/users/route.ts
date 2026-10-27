@@ -5,18 +5,43 @@ import { verifyStaffSession } from '@/lib/admin-auth';
 
 export async function GET(request: Request) {
   try {
-    // 1. Strict Server-Side Authorization: Only Director can list users
-    const auth = await verifyStaffSession(request, ['director']);
+    // 1. Strict Server-Side Authorization: Director and Manager can list users
+    const auth = await verifyStaffSession(request, ['director', 'manager']);
     if (!auth.authorized) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
     const { searchParams } = new URL(request.url);
-    const audience = searchParams.get('audience') || 'all'; // all, retail, wholesale
+    const audience = searchParams.get('audience') || 'all'; // all, retail, wholesale, courier, manager, director
     const q = (searchParams.get('q') || '').trim().toLowerCase();
 
     if (!isDbConfigured() || !client) {
       return NextResponse.json({ error: 'База данных недоступна' }, { status: 503 });
+    }
+
+    // Auto backfill: ensure any customer from orders who does not yet have a record is populated
+    try {
+      await client`
+        INSERT INTO users (id, email, full_name, phone, role, is_blocked, failed_code_attempts, created_at, updated_at)
+        SELECT DISTINCT ON (LOWER(o.customer_email))
+          COALESCE(o.user_id, 'cust_' || SUBSTRING(MD5(LOWER(o.customer_email)), 1, 20)),
+          LOWER(o.customer_email),
+          o.customer_name,
+          o.customer_phone,
+          'customer',
+          false,
+          0,
+          o.created_at,
+          NOW()
+        FROM orders o
+        WHERE o.customer_email IS NOT NULL 
+          AND o.customer_email != ''
+          AND NOT EXISTS (
+            SELECT 1 FROM users u WHERE LOWER(u.email) = LOWER(o.customer_email) OR (o.user_id IS NOT NULL AND u.id = o.user_id)
+          );
+      `;
+    } catch (backfillErr) {
+      console.warn('[AdminUsers] Auto backfill notice:', backfillErr);
     }
 
     let usersList: any[] = await client`
@@ -29,11 +54,17 @@ export async function GET(request: Request) {
       ORDER BY u.created_at DESC;
     `;
 
-    // Filter by audience
+    // Filter by audience: all, retail, wholesale, courier, manager, director
     if (audience === 'retail') {
       usersList = usersList.filter(u => u.role === 'customer');
     } else if (audience === 'wholesale') {
       usersList = usersList.filter(u => u.role === 'wholesale');
+    } else if (audience === 'courier') {
+      usersList = usersList.filter(u => u.role === 'courier');
+    } else if (audience === 'manager') {
+      usersList = usersList.filter(u => u.role === 'manager');
+    } else if (audience === 'director') {
+      usersList = usersList.filter(u => u.role === 'director');
     }
 
     // Filter by search query

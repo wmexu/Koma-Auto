@@ -995,3 +995,142 @@
   margin-top: 8px;
 }
 
+/* Card clickability */
+.orderCardClickable {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.orderCardClickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  border-color: #cbd5e1;
+}
+
+/* Card Status Select */
+.cardStatusSelectWrapper {
+  display: inline-flex;
+  align-items: center;
+}
+
+.cardStatusSelect {
+  background: #f1f5f9;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-navy);
+  font-family: var(--font-geist-sans), 'Geist', sans-serif !important;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cardStatusSelect:hover {
+  background: #ffffff;
+  border-color: var(--color-navy);
+}
+
+.cardStatusSelect:focus {
+  outline: none;
+  border-color: var(--color-navy);
+  box-shadow: 0 0 0 2px rgba(6, 15, 72, 0.15);
+  background: #ffffff;
+}
+
+.statusPending {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.statusPackaging {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+/* Settings & Deleted Orders */
+.disabledSection {
+  opacity: 0.55;
+  pointer-events: none;
+  filter: grayscale(0.2);
+  user-select: none;
+}
+
+.managerNoticeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  font-family: var(--font-geist-sans), 'Geist', sans-serif !important;
+}
+
+.settingsCardHeaderFlex {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.goToDeletedBtn {
+  background: var(--color-navy);
+  color: #ffffff;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+  font-family: var(--font-geist-sans), 'Geist', sans-serif !important;
+}
+
+.goToDeletedBtn:hover {
+  background: #142749;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(6, 15, 72, 0.2);
+}
+
+.restoreBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #e0f2fe;
+  color: #0284c7;
+  border: 1px solid #bae6fd;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font-geist-sans), 'Geist', sans-serif !important;
+}
+
+.restoreBtn:hover {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+}
+
+.userTableRowClickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.userTableRowClickable:hover {
+  background-color: #f1f5f9;
+}
+
+
+

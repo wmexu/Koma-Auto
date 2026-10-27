@@ -132,6 +132,18 @@ export async function fetchUserOrders(userId?: string | null): Promise<Order[]> 
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
       }
+
+      // Background sync: if any local order is missing on the server, sync it
+      localOrders.forEach((lo) => {
+        if (!serverOrders.some((so) => so.id === lo.id)) {
+          fetch('/api/orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(lo),
+          }).catch(() => {});
+        }
+      });
+
       return merged;
     }
   } catch (e) {

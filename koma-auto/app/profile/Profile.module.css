@@ -729,3 +729,80 @@
   font-weight: 500;
   letter-spacing: 0;
 }
+
+/* Orders Header with Section Sort Filter */
+.ordersCardHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.orderSortWrapper {
+  position: relative;
+}
+
+.orderSortBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: var(--color-navy);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.orderSortBtn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.orderSortDropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  padding: 6px;
+  min-width: 230px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.orderSortOption {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.orderSortOption:hover {
+  background: #f1f5f9;
+  color: var(--color-navy);
+}
+
+.orderSortOptionActive {
+  background: #eff6ff;
+  color: var(--color-navy);
+  font-weight: 700;
+}

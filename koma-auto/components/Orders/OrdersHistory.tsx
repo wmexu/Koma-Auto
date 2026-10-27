@@ -10,6 +10,7 @@ import {
   Package,
   Clock,
   CheckCircle,
+  CheckCircle2,
   XCircle,
   Truck,
   MapPin,
@@ -24,13 +25,17 @@ import {
   User,
   AlertCircle,
   KeyRound,
+  Layers,
+  Ban,
 } from 'lucide-react';
 
 interface OrdersHistoryProps {
   userId?: string | null;
+  sectionOrder?: 'active_first' | 'closed_first' | 'cancelled_first';
+  onActiveCountChange?: (count: number) => void;
 }
 
-export default function OrdersHistory({ userId }: OrdersHistoryProps) {
+export default function OrdersHistory({ userId, sectionOrder = 'active_first', onActiveCountChange }: OrdersHistoryProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -150,43 +155,40 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
     );
   }
 
-  // Split into Active and Closed orders according to user specification
+  // Split into Active, Closed, and Cancelled orders according to user specification
+  const isOrderCancelled = (o: Order) => {
+    const eff = getEffectiveOrderStatus(o);
+    return o.fulfillmentStatus === 'cancelled' || eff === 'declined';
+  };
+
   const isOrderClosed = (o: Order) => {
-    const eff = getEffectiveOrderStatus(o);
-    return o.fulfillmentStatus === 'completed' || o.fulfillmentStatus === 'cancelled' || eff === 'declined';
+    return !isOrderCancelled(o) && (o.fulfillmentStatus === 'completed' || (getEffectiveOrderStatus(o) as any) === 'completed');
   };
 
-  const getActivePriority = (o: Order): number => {
-    const eff = getEffectiveOrderStatus(o);
-    if (eff === 'pending') return 1; // 1st: Ждущие платежа
-    if (o.fulfillmentStatus === 'ready_for_pickup' || o.fulfillmentStatus === 'out_for_delivery') return 2; // 2nd: Готовые к получению / курьер
-    return 3; // 3rd: В сборке
+  const isOrderActive = (o: Order) => {
+    return !isOrderCancelled(o) && !isOrderClosed(o);
   };
 
-  const getClosedPriority = (o: Order): number => {
-    if (o.fulfillmentStatus === 'completed') return 1; // 1st: Забранные (Выдан)
-    return 2; // 2nd: Отклоненные / Отменен
-  };
-
+  // Strict sorting: Newest orders ALWAYS appear first at the top
   const activeOrders = orders
-    .filter(o => !isOrderClosed(o))
-    .sort((a, b) => {
-      const pDiff = getActivePriority(a) - getActivePriority(b);
-      if (pDiff !== 0) return pDiff;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
+    .filter(isOrderActive)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const closedOrders = orders
-    .filter(o => isOrderClosed(o))
-    .sort((a, b) => {
-      const pDiff = getClosedPriority(a) - getClosedPriority(b);
-      if (pDiff !== 0) return pDiff;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
+    .filter(isOrderClosed)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const cancelledOrders = orders
+    .filter(isOrderCancelled)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  useEffect(() => {
+    onActiveCountChange?.(activeOrders.length);
+  }, [activeOrders.length, onActiveCountChange]);
 
   const renderStatusBadge = (order: Order) => {
     const effectiveStatus = getEffectiveOrderStatus(order);
-    const isCancelled = effectiveStatus === 'declined' || order.fulfillmentStatus === 'cancelled';
+    const isCancelled = isOrderCancelled(order);
     const isCompleted = order.fulfillmentStatus === 'completed';
 
     if (isCompleted) {
@@ -199,10 +201,16 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
     }
 
     if (isCancelled) {
+      const isStaffCancelled =
+        (order as any).cancelledBy === 'admin' ||
+        (order as any).cancelledBy === 'staff' ||
+        (order as any).customStatusText === 'Отменен менеджером' ||
+        (order.cancellationReason && order.cancellationReason.toLowerCase().includes('менеджер'));
+
       return (
         <span className={`${styles.statusBadge} ${styles.statusDeclined}`}>
           <XCircle size={15} />
-          <span>{order.cancelledBy === 'admin' ? 'Отменен магазином' : 'Отклонен'}</span>
+          <span>{isStaffCancelled ? 'Отменен менеджером' : 'Отклонен'}</span>
         </span>
       );
     }
@@ -213,6 +221,33 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
         <span className={`${styles.statusBadge} ${styles.statusPending}`}>
           <Clock size={15} />
           <span>Не оплачен {remData ? `(${remData.prefix} ${remData.text})` : ''}</span>
+        </span>
+      );
+    }
+
+    if ((order as any).customStatusText) {
+      return (
+        <span className={`${styles.statusBadge} ${styles.statusAssembling}`}>
+          <Clock size={15} />
+          <span>{(order as any).customStatusText}</span>
+        </span>
+      );
+    }
+
+    if ((order.fulfillmentStatus as any) === 'packaging') {
+      return (
+        <span className={`${styles.statusBadge} ${styles.statusAssembling}`}>
+          <Package size={15} />
+          <span>Упаковывается</span>
+        </span>
+      );
+    }
+
+    if ((order.fulfillmentStatus as any) === 'delivered') {
+      return (
+        <span className={`${styles.statusBadge} ${styles.statusReady}`}>
+          <CheckCircle size={15} />
+          <span>Доставлен по адресу</span>
         </span>
       );
     }
@@ -230,7 +265,7 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
       return (
         <span className={`${styles.statusBadge} ${styles.statusOutForDelivery}`}>
           <Truck size={15} />
-          <span>Выдан курьеру</span>
+          <span>Передан в доставку</span>
         </span>
       );
     }
@@ -239,7 +274,7 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
     return (
       <span className={`${styles.statusBadge} ${styles.statusAssembling}`}>
         <Clock size={15} />
-        <span>В сборке</span>
+        <span>На складе</span>
       </span>
     );
   };
@@ -361,36 +396,60 @@ export default function OrdersHistory({ userId }: OrdersHistoryProps) {
     );
   };
 
+  const sectionGroups = [
+    {
+      id: 'active',
+      title: 'Активные заказы',
+      icon: <Layers size={20} color="var(--color-navy)" />,
+      orders: activeOrders,
+    },
+    {
+      id: 'closed',
+      title: 'Закрытые заказы',
+      icon: <CheckCircle2 size={20} color="var(--color-navy)" />,
+      orders: closedOrders,
+    },
+    {
+      id: 'cancelled',
+      title: 'Отмененные заказы',
+      icon: <XCircle size={20} color="#ef4444" />,
+      orders: cancelledOrders,
+    },
+  ];
+
+  let orderedSections = sectionGroups;
+  if (sectionOrder === 'closed_first') {
+    orderedSections = [sectionGroups[1], sectionGroups[0], sectionGroups[2]];
+  } else if (sectionOrder === 'cancelled_first') {
+    orderedSections = [sectionGroups[2], sectionGroups[0], sectionGroups[1]];
+  }
+
+  const hasAnyOrders = activeOrders.length > 0 || closedOrders.length > 0 || cancelledOrders.length > 0;
+
   return (
     <div className={styles.ordersContainer}>
-      {activeOrders.length > 0 && (
-        <section className={styles.ordersSection}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>
-              <Package size={20} color="var(--color-navy)" />
-              <span>Активные заказы</span>
-              <span className={styles.sectionCount}>({activeOrders.length})</span>
-            </h2>
-          </div>
-          <div className={styles.ordersListGrid}>
-            {activeOrders.map(renderOrderCard)}
-          </div>
-        </section>
-      )}
-
-      {closedOrders.length > 0 && (
-        <section className={styles.ordersSection} style={{ marginTop: activeOrders.length > 0 ? '36px' : '0' }}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>
-              <CheckCircle size={20} color="#15803d" />
-              <span>Закрытые заказы</span>
-              <span className={styles.sectionCount}>({closedOrders.length})</span>
-            </h2>
-          </div>
-          <div className={styles.ordersListGrid}>
-            {closedOrders.map(renderOrderCard)}
-          </div>
-        </section>
+      {!hasAnyOrders ? (
+        <div style={{ textAlign: 'center', padding: '36px 16px', color: '#64748b' }}>
+          У вас пока нет оформленных заказов
+        </div>
+      ) : (
+        orderedSections.map((sec, idx) => {
+          if (sec.orders.length === 0) return null;
+          return (
+            <section key={sec.id} className={styles.ordersSection}>
+              <div className={`${styles.sectionHeader} ${idx === 0 ? styles.sectionHeaderFirst : ''}`}>
+                <h2 className={styles.sectionTitle}>
+                  <span className={styles.sectionTitleIcon}>{sec.icon}</span>
+                  <span>{sec.title}</span>
+                  <span className={styles.sectionCount}>({sec.orders.length})</span>
+                </h2>
+              </div>
+              <div className={styles.ordersListGrid}>
+                {sec.orders.map(renderOrderCard)}
+              </div>
+            </section>
+          );
+        })
       )}
 
       {/* 3. ORDER DETAILS MODAL (WB / Ozon style) */}

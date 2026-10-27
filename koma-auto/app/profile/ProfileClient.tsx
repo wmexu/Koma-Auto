@@ -17,7 +17,7 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
-import { User as UserIcon, Mail, Calendar, Briefcase, Clock, LogOut, Package, Pencil, Eye, EyeOff, Shield, ArrowRight, KeyRound } from 'lucide-react';
+import { User as UserIcon, Mail, Calendar, Briefcase, Clock, LogOut, Package, Pencil, Eye, EyeOff, Shield, ArrowRight, KeyRound, ArrowUpDown, ChevronDown, Layers } from 'lucide-react';
 import OrdersHistory from '@/components/Orders/OrdersHistory';
 import styles from './Profile.module.css';
 
@@ -43,6 +43,11 @@ export default function ProfileClient() {
   const [editName, setEditName] = useState('');
   const [editDob, setEditDob] = useState('');
   const [editClientType, setEditClientType] = useState('retail');
+
+  // Orders sorting & counter state
+  const [activeOrdersCount, setActiveOrdersCount] = useState<number>(0);
+  const [orderSectionSort, setOrderSectionSort] = useState<'active_first' | 'closed_first' | 'cancelled_first'>('active_first');
+  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const [staffTokenInput, setStaffTokenInput] = useState('');
   const [isActivatingRole, setIsActivatingRole] = useState(false);
 
@@ -281,6 +286,28 @@ export default function ProfileClient() {
         await setDoc(doc(db, 'users', user.uid), profileData);
         setUserProfile(profileData as any);
 
+        // Authoritatively sync user to PostgreSQL
+        try {
+          const idToken = await user.getIdToken();
+          await fetch('/api/user/sync', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-user-id': user.uid,
+              ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+            },
+            body: JSON.stringify({
+              userId: user.uid,
+              email: user.email,
+              fullName: name || '',
+              phone: user.phoneNumber || null,
+              clientType: clientType || 'retail',
+            }),
+          });
+        } catch (syncErr) {
+          console.warn('[Profile] User sync warning:', syncErr);
+        }
+
         sessionStorage.setItem('koma-just-logged-in', 'true');
         addToast('Аккаунт успешно создан!', 'success');
         setEmail('');
@@ -424,6 +451,28 @@ export default function ProfileClient() {
       
       await setDoc(doc(db, 'users', user.uid), profileData);
       setUserProfile(profileData as any);
+
+      // Authoritatively sync user to PostgreSQL
+      try {
+        const idToken = await user.getIdToken();
+        await fetch('/api/user/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': user.uid,
+            ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+          },
+          body: JSON.stringify({
+            userId: user.uid,
+            email: user.email,
+            fullName: name || '',
+            phone: user.phoneNumber || null,
+            clientType: clientType || 'retail',
+          }),
+        });
+      } catch (syncErr) {
+        console.warn('[Profile] User sync warning:', syncErr);
+      }
       setIsLogoutModalOpen(false);
       addToast('Регистрация успешно завершена!', 'success');
     } catch (error: any) {
@@ -517,6 +566,27 @@ export default function ProfileClient() {
       
       await setDoc(doc(db, 'users', user.uid), updatedProfile, { merge: true });
       setUserProfile(updatedProfile as any);
+
+      // Sync changes to PostgreSQL
+      try {
+        const idToken = await user.getIdToken();
+        await fetch('/api/user/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': user.uid,
+            ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+          },
+          body: JSON.stringify({
+            userId: user.uid,
+            email: user.email,
+            fullName: editName,
+            clientType: newClientType,
+          }),
+        });
+      } catch (syncErr) {
+        console.warn('[Profile] User sync warning:', syncErr);
+      }
       setIsEditModalOpen(false);
       addToast('Данные успешно обновлены!', 'success');
     } catch (error) {
@@ -813,16 +883,84 @@ export default function ProfileClient() {
                     {formatDate(userProfile.createdAt)}
                   </span>
                 </div>
+
+                <div className={styles.infoItem}>
+                  <span className={styles.infoLabel}>Активных заказов</span>
+                  <span className={styles.infoValue} style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-navy)' }}>
+                    <Layers size={16} color="var(--color-navy)" />
+                    {activeOrdersCount}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
 
           <div className={styles.infoCard}>
-            <h2 className={styles.infoCardTitle}>
-              <Package size={20} />
-              Мои заказы
-            </h2>
-            <OrdersHistory userId={user.uid} />
+            <div className={styles.ordersCardHeaderRow}>
+              <h2 className={styles.infoCardTitle}>
+                <Package size={20} />
+                Мои заказы
+              </h2>
+
+              <div className={styles.orderSortWrapper}>
+                <button
+                  type="button"
+                  className={styles.orderSortBtn}
+                  onClick={() => setIsSortDropdownOpen(!isSortDropdownOpen)}
+                >
+                  <ArrowUpDown size={15} color="var(--color-navy)" />
+                  <span>
+                    {orderSectionSort === 'closed_first'
+                      ? 'Сначала закрытые заказы'
+                      : orderSectionSort === 'cancelled_first'
+                      ? 'Сначала Отмененные заказы'
+                      : 'Сначала активные заказы'}
+                  </span>
+                  <ChevronDown size={14} color="#64748b" />
+                </button>
+
+                {isSortDropdownOpen && (
+                  <div className={styles.orderSortDropdown}>
+                    <button
+                      type="button"
+                      className={`${styles.orderSortOption} ${orderSectionSort === 'active_first' ? styles.orderSortOptionActive : ''}`}
+                      onClick={() => {
+                        setOrderSectionSort('active_first');
+                        setIsSortDropdownOpen(false);
+                      }}
+                    >
+                      Сначала активные заказы
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.orderSortOption} ${orderSectionSort === 'closed_first' ? styles.orderSortOptionActive : ''}`}
+                      onClick={() => {
+                        setOrderSectionSort('closed_first');
+                        setIsSortDropdownOpen(false);
+                      }}
+                    >
+                      Сначала закрытые заказы
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.orderSortOption} ${orderSectionSort === 'cancelled_first' ? styles.orderSortOptionActive : ''}`}
+                      onClick={() => {
+                        setOrderSectionSort('cancelled_first');
+                        setIsSortDropdownOpen(false);
+                      }}
+                    >
+                      Сначала Отмененные заказы
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <OrdersHistory
+              userId={user.uid}
+              sectionOrder={orderSectionSort}
+              onActiveCountChange={setActiveOrdersCount}
+            />
           </div>
         </div>
 

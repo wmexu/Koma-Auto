@@ -780,3 +780,53 @@
   font-weight: 600;
   margin: 0;
 }
+
+/* Sections & Headers */
+.ordersSection {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 24px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 36px;
+  margin-bottom: 16px;
+}
+
+.sectionHeaderFirst {
+  margin-top: 8px;
+}
+
+.sectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--color-navy);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.sectionTitleIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sectionCount {
+  font-size: 15px;
+  font-weight: 700;
+  color: #64748b;
+  margin-left: 4px;
+}
+
+.ordersListGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}

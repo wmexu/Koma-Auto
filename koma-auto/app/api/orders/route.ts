@@ -62,19 +62,51 @@ export async function POST(request: Request) {
         const customerName = order.customer?.name || order.userAccountDetails?.displayName || 'Покупатель';
         const customerPhone = order.customer?.phone || '';
 
-        // Upsert user in Neon if userId is available
-        if (orderUserId) {
-          await client`
-            INSERT INTO users (id, email, full_name, phone, role, updated_at)
-            VALUES (${orderUserId}, ${customerEmail}, ${customerName}, ${customerPhone}, 'customer', NOW())
-            ON CONFLICT (id) DO UPDATE SET
-              full_name = COALESCE(EXCLUDED.full_name, users.full_name),
-              phone = COALESCE(EXCLUDED.phone, users.phone),
-              updated_at = NOW();
-          `;
+        // Safe user resolution and linking without failing on email/id collisions
+        let linkedUserId: string | null = null;
+        try {
+          if (orderUserId) {
+            const byId = await client`SELECT id, email, role FROM users WHERE id = ${orderUserId} LIMIT 1`;
+            if (byId && byId.length > 0) {
+              linkedUserId = byId[0].id;
+              await client`
+                UPDATE users
+                SET full_name = COALESCE(${customerName}, full_name),
+                    phone = COALESCE(${customerPhone}, phone),
+                    updated_at = NOW()
+                WHERE id = ${linkedUserId};
+              `;
+            } else {
+              const byEmail = await client`SELECT id, email, role FROM users WHERE LOWER(email) = LOWER(${customerEmail}) LIMIT 1`;
+              if (byEmail && byEmail.length > 0) {
+                linkedUserId = byEmail[0].id;
+                await client`
+                  UPDATE users
+                  SET full_name = COALESCE(${customerName}, full_name),
+                      phone = COALESCE(${customerPhone}, phone),
+                      updated_at = NOW()
+                  WHERE id = ${linkedUserId};
+                `;
+              } else {
+                await client`
+                  INSERT INTO users (id, email, full_name, phone, role, updated_at)
+                  VALUES (${orderUserId}, ${customerEmail}, ${customerName}, ${customerPhone}, 'customer', NOW());
+                `;
+                linkedUserId = orderUserId;
+              }
+            }
+          } else {
+            const byEmail = await client`SELECT id FROM users WHERE LOWER(email) = LOWER(${customerEmail}) LIMIT 1`;
+            if (byEmail && byEmail.length > 0) {
+              linkedUserId = byEmail[0].id;
+            }
+          }
+        } catch (uErr) {
+          console.warn('[Orders POST] User sync warning (proceeding with order insert):', uErr);
+          linkedUserId = null;
         }
 
-        // Insert order into Neon
+        // Guaranteed Order Insert into Neon PostgreSQL
         await client`
           INSERT INTO orders (
             id, invoice_id, user_id, amount, items_price, delivery_cost,
@@ -84,14 +116,14 @@ export async function POST(request: Request) {
           ) VALUES (
             ${orderId},
             ${order.invoiceId || orderId},
-            ${orderUserId},
+            ${linkedUserId},
             ${order.amount || 0},
             ${order.itemsPrice || 0},
             ${order.deliveryCost || 0},
             ${order.deliveryMethod || 'pickup'},
             ${order.paymentMethod || 'online'},
-            'pending',
-            'assembling',
+            ${(order.status as any) === 'paid' || (order as any).paymentStatus === 'paid' ? 'paid' : 'pending'},
+            ${order.fulfillmentStatus || 'assembling'},
             ${customerName},
             ${customerPhone},
             ${customerEmail},
@@ -105,11 +137,14 @@ export async function POST(request: Request) {
           )
           ON CONFLICT (id) DO UPDATE SET
             payment_status = EXCLUDED.payment_status,
+            fulfillment_status = EXCLUDED.fulfillment_status,
             amount = EXCLUDED.amount,
+            items_price = EXCLUDED.items_price,
+            items = EXCLUDED.items,
             updated_at = NOW();
         `;
       } catch (neonErr) {
-        console.warn('Neon order mirror notice (non-fatal):', neonErr);
+        console.error('[Orders POST] Neon order insert error:', neonErr);
       }
     }
 

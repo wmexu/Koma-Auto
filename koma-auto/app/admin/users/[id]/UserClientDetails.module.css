@@ -1,0 +1,521 @@
+.detailsContainer {
+  min-height: calc(100vh - 140px);
+  background-color: #f8fafc;
+  padding: 24px 0 60px 0;
+  font-family: var(--font-geist-sans), 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+.detailsWrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* Breadcrumbs Bar */
+.breadcrumbsBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.breadcrumbLink {
+  color: #64748b;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.breadcrumbLink:hover {
+  color: var(--color-navy);
+}
+
+.breadcrumbActive {
+  color: var(--color-navy);
+  font-weight: 700;
+}
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-navy);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.backBtn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+/* Profile Hero Card */
+.profileHeroCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  margin-bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.profileHeroTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.profileAvatarBlock {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.avatarCircle {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--color-navy-gradient);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 800;
+  box-shadow: 0 4px 14px rgba(6, 15, 72, 0.25);
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.profileTitleBlock h1 {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--color-navy);
+  margin: 0 0 6px 0;
+  letter-spacing: -0.02em;
+}
+
+.profileMetaRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.profileMetaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.phoneActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-navy);
+  font-weight: 700;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s;
+}
+
+.phoneActionBtn:hover {
+  background: #e2e8f0;
+}
+
+.whatsappActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #15803d;
+  font-weight: 700;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s;
+}
+
+.whatsappActionBtn:hover {
+  background: #bbf7d0;
+}
+
+/* Role Selector Block */
+.roleSelectorBlock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.roleSelectLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.roleSelectDropdown {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1.5px solid #cbd5e1;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-navy);
+  background: #ffffff;
+  cursor: pointer;
+  font-family: var(--font-geist-sans), 'Geist', sans-serif !important;
+  transition: all 0.15s;
+}
+
+.roleSelectDropdown:focus {
+  outline: none;
+  border-color: var(--color-navy);
+  box-shadow: 0 0 0 2px rgba(6, 15, 72, 0.1);
+}
+
+.roleBadge {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.roleDirector {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.roleManager {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.roleCourier {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.roleWholesale {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.roleCustomer {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+/* Stat Grid */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  padding-top: 20px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.statCard {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.statLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.statValue {
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--color-navy);
+  letter-spacing: -0.02em;
+}
+
+/* Orders Section */
+.ordersSectionTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ordersSectionTitle {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--color-navy);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.ordersFilterTabs {
+  display: flex;
+  gap: 8px;
+  background: #ffffff;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.filterTabBtn {
+  border: none;
+  background: transparent;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s;
+  font-family: var(--font-geist-sans), 'Geist', sans-serif !important;
+}
+
+.filterTabBtn:hover {
+  color: var(--color-navy);
+}
+
+.activeFilterTabBtn {
+  background: var(--color-navy);
+  color: #ffffff;
+}
+
+.activeFilterTabBtn:hover {
+  color: #ffffff;
+}
+
+.tabBadge {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.activeFilterTabBtn .tabBadge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+/* Orders Grid */
+.ordersList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.orderCard {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease;
+}
+
+.orderCard:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+  border-color: #cbd5e1;
+}
+
+.orderCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 14px;
+}
+
+.orderIdLink {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--color-navy);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s;
+}
+
+.orderIdLink:hover {
+  color: #0284c7;
+}
+
+.statusBadge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusAssembling {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.statusPackaging {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.statusOutForDelivery {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.statusReady {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.statusCompleted {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.statusCancelled {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.orderCardBody {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 768px) {
+  .orderCardBody {
+    grid-template-columns: 1fr;
+  }
+}
+
+.orderDetailsRow {
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.itemsList {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.itemRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.pickupCodeBox {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pickupCodeText {
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--color-navy);
+  letter-spacing: 1px;
+}
+
+.orderCardRight {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .orderCardRight {
+    align-items: stretch;
+  }
+}
+
+.orderTotalText {
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--color-navy);
+}
+
+.openOrderBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--color-navy);
+  color: #ffffff;
+  padding: 9px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.openOrderBtn:hover {
+  background: #142749;
+  transform: translateY(-1px);
+}

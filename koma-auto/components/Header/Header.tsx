@@ -50,9 +50,29 @@ export default function Header() {
           const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
           let profile = userDoc.exists() ? (userDoc.data() as any) : null;
 
-          // Verify authoritative role from Postgres
+            // Verify authoritative role from Postgres
           try {
             const idToken = await currentUser.getIdToken().catch(() => null);
+            
+            // Sync user record to PostgreSQL database
+            if (currentUser.email) {
+              fetch('/api/user/sync', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-user-id': currentUser.uid,
+                  ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+                },
+                body: JSON.stringify({
+                  userId: currentUser.uid,
+                  email: currentUser.email,
+                  fullName: currentUser.displayName || profile?.name || null,
+                  phone: currentUser.phoneNumber || profile?.phone || null,
+                  clientType: profile?.clientType || 'retail',
+                }),
+              }).catch(syncErr => console.warn('[UserSync] Background sync error:', syncErr));
+            }
+
             const roleRes = await fetch(`/api/user/role?userId=${currentUser.uid}`, {
               headers: {
                 'x-user-id': currentUser.uid,

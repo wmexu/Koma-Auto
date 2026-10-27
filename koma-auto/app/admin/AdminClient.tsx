@@ -2,17 +2,19 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useToastStore } from '@/store/useToastStore';
 import { 
   Shield, Package, Truck, Users, Tag, Settings, KeyRound, 
   ArrowLeft, CheckCircle, AlertTriangle, Search, Copy, Check, Clock, Eye,
-  MoreVertical, Archive, XCircle, X
+  MoreVertical, Archive, XCircle, X, RotateCcw, Trash2, Lock
 } from 'lucide-react';
 import { formatPickupCode, getOrderPickupCode } from '@/lib/pickup-code';
 import styles from './Admin.module.css';
 
 export default function AdminClient() {
+  const router = useRouter();
   const { user, userProfile } = useAuthStore();
   const { addToast } = useToastStore();
 
@@ -34,8 +36,13 @@ export default function AdminClient() {
 
   // Orders search & sub-tab state
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
-  const [orderSection, setOrderSection] = useState<'active' | 'archive'>('active');
+  const [orderSubTab, setOrderSubTab] = useState<'active' | 'pending_payment' | 'cancelled' | 'archive'>('active');
   const [activeMenuOrderId, setActiveMenuOrderId] = useState<string | null>(null);
+
+  // Deleted orders & settings view
+  const [settingsSubView, setSettingsSubView] = useState<'general' | 'deleted'>('general');
+  const [deletedOrders, setDeletedOrders] = useState<any[]>([]);
+  const [deletedOrdersLoading, setDeletedOrdersLoading] = useState(false);
 
   // Modals state
   const [verifyingOrder, setVerifyingOrder] = useState<any | null>(null);
@@ -66,7 +73,7 @@ export default function AdminClient() {
 
   // Users state
   const [usersList, setUsersList] = useState<any[]>([]);
-  const [userAudienceFilter, setUserAudienceFilter] = useState<'all' | 'retail' | 'wholesale'>('all');
+  const [userAudienceFilter, setUserAudienceFilter] = useState<'all' | 'retail' | 'wholesale' | 'courier' | 'manager' | 'director'>('all');
   const [userSearchQuery, setUserSearchQuery] = useState('');
 
   // Tokens state
@@ -329,6 +336,122 @@ export default function AdminClient() {
     }
   };
 
+  // Handle Change Order Status directly from card
+  const handleChangeOrderStatus = async (orderId: string, newStatus: string) => {
+    try {
+      const res = await adminFetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'change_fulfillment_status',
+          orderId,
+          status: newStatus,
+          staffUserId: user?.uid,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Ошибка смены статуса');
+
+      addToast(data.message || 'Статус заказа успешно обновлен', 'success');
+      loadOrders();
+    } catch (err: any) {
+      addToast(err.message || 'Ошибка обновления статуса', 'error');
+    }
+  };
+
+  // Handle Restore Order to Active (three-dots menu)
+  const handleRestoreToActive = async (order: any) => {
+    setActiveMenuOrderId(null);
+    try {
+      const res = await adminFetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'restore_to_active',
+          orderId: order.id,
+          staffUserId: user?.uid,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Ошибка восстановления заказа');
+
+      addToast(data.message || 'Заказ успешно возвращен в активные', 'success');
+      loadOrders();
+    } catch (err: any) {
+      addToast(err.message || 'Ошибка восстановления заказа', 'error');
+    }
+  };
+
+  // Handle Move to Deleted (three-dots menu)
+  const handleMoveToDeleted = async (order: any) => {
+    setActiveMenuOrderId(null);
+    const confirmed = window.confirm(`Перенести заказ №${order.id} в раздел «Удаленные»?`);
+    if (!confirmed) return;
+
+    try {
+      const res = await adminFetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'move_to_deleted',
+          orderId: order.id,
+          staffUserId: user?.uid,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Ошибка удаления заказа');
+
+      addToast(data.message || 'Заказ перемещен в раздел «Удаленные»', 'success');
+      loadOrders();
+    } catch (err: any) {
+      addToast(err.message || 'Ошибка удаления заказа', 'error');
+    }
+  };
+
+  // Load deleted orders
+  const loadDeletedOrders = async () => {
+    if (!user?.uid) return;
+    setDeletedOrdersLoading(true);
+    try {
+      const res = await adminFetch(`/api/admin/orders?status=deleted&role=${userRole}&userId=${user?.uid || ''}`);
+      const data = await res.json();
+      if (data.success) {
+        setDeletedOrders(data.orders || []);
+      }
+    } catch (err) {
+      console.error('Failed to load deleted orders:', err);
+    } finally {
+      setDeletedOrdersLoading(false);
+    }
+  };
+
+  // Restore deleted order from Settings
+  const handleRestoreDeletedOrder = async (orderId: string) => {
+    try {
+      const res = await adminFetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'restore_to_active',
+          orderId,
+          staffUserId: user?.uid,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Ошибка восстановления');
+
+      addToast(data.message || 'Заказ успешно восстановлен в активные!', 'success');
+      loadDeletedOrders();
+      loadOrders();
+    } catch (err: any) {
+      addToast(err.message || 'Ошибка восстановления заказа', 'error');
+    }
+  };
+
   // Close three dots dropdown on outside click
   useEffect(() => {
     const handleOutsideClick = () => setActiveMenuOrderId(null);
@@ -582,15 +705,21 @@ export default function AdminClient() {
                 <KeyRound size={16} />
                 Шифры доступа
               </button>
-              <button
-                type="button"
-                className={`${styles.tabBtn} ${activeTab === 'settings' ? styles.activeTabBtn : ''}`}
-                onClick={() => setActiveTab('settings')}
-              >
-                <Settings size={16} />
-                Управление
-              </button>
             </>
+          )}
+
+          {(isDirector || isManager) && (
+            <button
+              type="button"
+              className={`${styles.tabBtn} ${activeTab === 'settings' ? styles.activeTabBtn : ''}`}
+              onClick={() => {
+                setActiveTab('settings');
+                setSettingsSubView('general');
+              }}
+            >
+              <Settings size={16} />
+              Настройки
+            </button>
           )}
         </div>
 
@@ -620,8 +749,10 @@ export default function AdminClient() {
                 {[
                   { id: 'all', label: 'Все' },
                   { id: 'assembling', label: 'В сборке' },
+                  { id: 'packaging', label: 'Упаковывается' },
                   { id: 'out_for_delivery', label: isCourier ? 'К доставке' : 'Выдан курьеру' },
                   { id: 'ready_for_pickup', label: 'Готов к получению' },
+                  { id: 'delivered', label: 'Доставлен' },
                   { id: 'completed', label: 'Выдан' },
                 ].map(s => (
                   <button
@@ -638,16 +769,30 @@ export default function AdminClient() {
 
             {/* Search Bar & Order Sub-Tabs */}
             {(() => {
-              const isOrderArchived = (o: any) => {
-                return o.fulfillment_status === 'completed' || 
-                       o.fulfillment_status === 'cancelled' || 
+              const isOrderCancelled = (o: any) => {
+                return o.fulfillment_status === 'cancelled' || 
                        o.payment_status === 'declined' || 
-                       o.payment_status === 'cancelled' ||
+                       o.payment_status === 'cancelled' || 
+                       o.payment_status === 'failed' ||
                        o.status === 'declined';
               };
 
-              const activeOrdersCount = orders.filter(o => !isOrderArchived(o)).length;
-              const archivedOrdersCount = orders.filter(o => isOrderArchived(o)).length;
+              const isOrderCompleted = (o: any) => {
+                return o.fulfillment_status === 'completed';
+              };
+
+              const isOrderPendingPayment = (o: any) => {
+                return !isOrderCancelled(o) && !isOrderCompleted(o) && (o.payment_status === 'pending' || o.status === 'pending_payment');
+              };
+
+              const isOrderActive = (o: any) => {
+                return !isOrderCancelled(o) && !isOrderCompleted(o) && !isOrderPendingPayment(o);
+              };
+
+              const activeOrdersCount = orders.filter(isOrderActive).length;
+              const pendingOrdersCount = orders.filter(isOrderPendingPayment).length;
+              const cancelledOrdersCount = orders.filter(isOrderCancelled).length;
+              const archivedOrdersCount = orders.filter(isOrderCompleted).length;
 
               const cleanSearch = orderSearchQuery.trim().toLowerCase();
               let displayedOrders = orders;
@@ -681,9 +826,15 @@ export default function AdminClient() {
                     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
                   });
               } else {
-                displayedOrders = orderSection === 'active' 
-                  ? orders.filter(o => !isOrderArchived(o))
-                  : orders.filter(o => isOrderArchived(o));
+                if (orderSubTab === 'active') {
+                  displayedOrders = orders.filter(isOrderActive);
+                } else if (orderSubTab === 'pending_payment') {
+                  displayedOrders = orders.filter(isOrderPendingPayment);
+                } else if (orderSubTab === 'cancelled') {
+                  displayedOrders = orders.filter(isOrderCancelled);
+                } else {
+                  displayedOrders = orders.filter(isOrderCompleted);
+                }
               }
 
               return (
@@ -710,26 +861,40 @@ export default function AdminClient() {
                       )}
                     </div>
 
-                    {!cleanSearch && (
-                      <div className={styles.orderSubTabs}>
-                        <button
-                          type="button"
-                          className={`${styles.subTabBtn} ${orderSection === 'active' ? styles.subTabBtnActive : ''}`}
-                          onClick={() => setOrderSection('active')}
-                        >
-                          Активные заказы
-                          <span className={styles.subTabBadge}>{activeOrdersCount}</span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`${styles.subTabBtn} ${orderSection === 'archive' ? styles.subTabBtnActive : ''}`}
-                          onClick={() => setOrderSection('archive')}
-                        >
-                          Архив заказов
-                          <span className={styles.subTabBadge}>{archivedOrdersCount}</span>
-                        </button>
-                      </div>
-                    )}
+                    <div className={styles.orderSubTabs}>
+                      <button
+                        type="button"
+                        className={`${styles.subTabBtn} ${orderSubTab === 'active' ? styles.subTabBtnActive : ''}`}
+                        onClick={() => setOrderSubTab('active')}
+                      >
+                        Активные заказы
+                        <span className={styles.subTabBadge}>{activeOrdersCount}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.subTabBtn} ${orderSubTab === 'pending_payment' ? styles.subTabBtnActive : ''}`}
+                        onClick={() => setOrderSubTab('pending_payment')}
+                      >
+                        Ожидающие платежа
+                        <span className={styles.subTabBadge}>{pendingOrdersCount}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.subTabBtn} ${orderSubTab === 'cancelled' ? styles.subTabBtnActive : ''}`}
+                        onClick={() => setOrderSubTab('cancelled')}
+                      >
+                        Отмененные заказы
+                        <span className={styles.subTabBadge}>{cancelledOrdersCount}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.subTabBtn} ${orderSubTab === 'archive' ? styles.subTabBtnActive : ''}`}
+                        onClick={() => setOrderSubTab('archive')}
+                      >
+                        Архив заказов
+                        <span className={styles.subTabBadge}>{archivedOrdersCount}</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Orders List */}
@@ -744,27 +909,57 @@ export default function AdminClient() {
                   ) : (
                     <div className={styles.ordersGrid}>
                       {displayedOrders.map(order => {
-                        const isCancelled = order.fulfillment_status === 'cancelled' || order.payment_status === 'declined' || order.payment_status === 'cancelled' || order.status === 'declined';
-                        const isCompleted = order.fulfillment_status === 'completed';
+                        const isCancelled = isOrderCancelled(order);
+                        const isCompleted = isOrderCompleted(order);
+                        const isPendingPayment = isOrderPendingPayment(order);
 
                         return (
-                          <div key={order.id} className={styles.orderCard}>
+                          <div
+                            key={order.id}
+                            className={`${styles.orderCard} ${styles.orderCardClickable}`}
+                            onClick={() => router.push(`/admin/orders/${order.id}`)}
+                          >
                             <div className={styles.orderCardHeader}>
                               <div className={styles.orderIdBlock}>
                                 <span className={styles.orderNumber}>Заказ №{order.id}</span>
-                                <span className={`${styles.statusBadge} ${
-                                  isCompleted ? styles.statusCompleted :
-                                  isCancelled ? styles.statusCancelled :
-                                  order.fulfillment_status === 'out_for_delivery' ? styles.statusOutForDelivery :
-                                  order.fulfillment_status === 'ready_for_pickup' ? styles.statusReady :
-                                  styles.statusAssembling
-                                }`}>
-                                  {isCompleted ? 'Выдан' :
-                                   isCancelled ? 'Отменен' :
-                                   order.fulfillment_status === 'out_for_delivery' ? (isCourier ? 'К доставке' : 'Выдан курьеру') :
-                                   order.fulfillment_status === 'ready_for_pickup' ? 'Готов к получению' :
-                                   'В сборке'}
-                                </span>
+                                {isManager && !isCompleted && !isCancelled ? (
+                                  <div className={styles.cardStatusSelectWrapper} onClick={e => e.stopPropagation()}>
+                                    <select
+                                      className={styles.cardStatusSelect}
+                                      value={order.fulfillment_status || 'assembling'}
+                                      onChange={e => {
+                                        e.stopPropagation();
+                                        handleChangeOrderStatus(order.id, e.target.value);
+                                      }}
+                                    >
+                                      <option value="assembling">На складе</option>
+                                      <option value="packaging">Упаковывается</option>
+                                      <option value="out_for_delivery">Передан в доставку</option>
+                                      <option value="delivered">Доставлен по адресу</option>
+                                      {order.fulfillment_status === 'ready_for_pickup' && (
+                                        <option value="ready_for_pickup">Готов к получению</option>
+                                      )}
+                                    </select>
+                                  </div>
+                                ) : (
+                                  <span className={`${styles.statusBadge} ${
+                                    isCompleted ? styles.statusCompleted :
+                                    isCancelled ? styles.statusCancelled :
+                                    isPendingPayment ? styles.statusPending :
+                                    order.fulfillment_status === 'out_for_delivery' ? styles.statusOutForDelivery :
+                                    order.fulfillment_status === 'ready_for_pickup' ? styles.statusReady :
+                                    order.fulfillment_status === 'packaging' ? styles.statusPackaging :
+                                    styles.statusAssembling
+                                  }`}>
+                                    {isCompleted ? 'Выдан' :
+                                     isCancelled ? 'Отменен менеджером' :
+                                     isPendingPayment ? 'Ожидает оплаты' :
+                                     order.fulfillment_status === 'out_for_delivery' ? (isCourier ? 'К доставке' : 'Выдан курьеру') :
+                                     order.fulfillment_status === 'ready_for_pickup' ? 'Готов к получению' :
+                                     order.fulfillment_status === 'packaging' ? 'Упаковывается' :
+                                     'На складе'}
+                                  </span>
+                                )}
                               </div>
                               <div style={{ fontSize: '13px', color: '#64748b' }}>
                                 {new Date(order.created_at).toLocaleString('ru-RU')}
@@ -802,12 +997,15 @@ export default function AdminClient() {
                                   <div className={styles.orderAmountText}>{Number(order.amount).toLocaleString('ru-RU')} ₸</div>
                                 </div>
 
-                                <div className={styles.actionButtons}>
+                                <div className={styles.actionButtons} onClick={e => e.stopPropagation()}>
                                   {order.fulfillment_status !== 'completed' && !isCancelled && (
                                     <button
                                       type="button"
                                       className={styles.verifyCodeBtn}
-                                      onClick={() => setVerifyingOrder(order)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setVerifyingOrder(order);
+                                      }}
                                     >
                                       <KeyRound size={15} />
                                       <span>Перейти к выдаче заказа</span>
@@ -818,7 +1016,8 @@ export default function AdminClient() {
                                     <button
                                       type="button"
                                       className={styles.assignBtn}
-                                      onClick={() => {
+                                      onClick={(e) => {
+                                        e.stopPropagation();
                                         setAssigningOrder(order);
                                         setSelectedCourierId(order.assigned_courier_id || '');
                                       }}
@@ -830,7 +1029,7 @@ export default function AdminClient() {
 
                                   {/* Three dots (⋮) menu for Manager / Director */}
                                   {isManager && (
-                                    <div style={{ position: 'relative' }}>
+                                    <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
                                       <button
                                         type="button"
                                         className={styles.moreOptionsBtn}
@@ -845,24 +1044,92 @@ export default function AdminClient() {
 
                                       {activeMenuOrderId === order.id && (
                                         <div className={styles.optionsDropdown} onClick={e => e.stopPropagation()}>
-                                          {!isCancelled && (
-                                            <button
-                                              type="button"
-                                              className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`}
-                                              onClick={() => handleCancelOrder(order)}
-                                            >
-                                              <XCircle size={15} />
-                                              <span>Отклонить заказ</span>
-                                            </button>
+                                          {(isCompleted || isCancelled) ? (
+                                            <>
+                                              <button
+                                                type="button"
+                                                className={styles.dropdownItem}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleRestoreToActive(order);
+                                                }}
+                                              >
+                                                <RotateCcw size={15} color="#0284c7" />
+                                                <span>Перенести в Активные заказы</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className={styles.dropdownItem}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setActiveMenuOrderId(null);
+                                                  setVerifyingOrder(order);
+                                                }}
+                                              >
+                                                <KeyRound size={15} color="var(--color-navy)" />
+                                                <span>Посмотреть код получения</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleMoveToDeleted(order);
+                                                }}
+                                              >
+                                                <Trash2 size={15} />
+                                                <span>Перенести в удаленные</span>
+                                              </button>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <button
+                                                type="button"
+                                                className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleCancelOrder(order);
+                                                }}
+                                              >
+                                                <XCircle size={15} />
+                                                <span>Отклонить заказ</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className={styles.dropdownItem}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleArchiveOrder(order);
+                                                }}
+                                              >
+                                                <Archive size={15} />
+                                                <span>Перенести в архив</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className={styles.dropdownItem}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setActiveMenuOrderId(null);
+                                                  setVerifyingOrder(order);
+                                                }}
+                                              >
+                                                <KeyRound size={15} color="var(--color-navy)" />
+                                                <span>Посмотреть код получения</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleMoveToDeleted(order);
+                                                }}
+                                              >
+                                                <Trash2 size={15} />
+                                                <span>Перенести в удаленные</span>
+                                              </button>
+                                            </>
                                           )}
-                                          <button
-                                            type="button"
-                                            className={styles.dropdownItem}
-                                            onClick={() => handleArchiveOrder(order)}
-                                          >
-                                            <Archive size={15} />
-                                            <span>Перенести в архив</span>
-                                          </button>
                                         </div>
                                       )}
                                     </div>
@@ -1162,14 +1429,21 @@ export default function AdminClient() {
             <div className={styles.sectionFilters}>
               <div className={styles.filterGroup}>
                 <span className={styles.filterLabel}>Аудитория:</span>
-                {(['all', 'retail', 'wholesale'] as const).map(a => (
+                {[
+                  { id: 'all', label: 'Все' },
+                  { id: 'retail', label: 'Розничные' },
+                  { id: 'wholesale', label: 'Оптовые' },
+                  { id: 'courier', label: 'Курьеры' },
+                  { id: 'manager', label: 'Менеджеры' },
+                  { id: 'director', label: 'Директоры' },
+                ].map(a => (
                   <button
-                    key={a}
+                    key={a.id}
                     type="button"
-                    className={`${styles.filterPill} ${userAudienceFilter === a ? styles.activeFilterPill : ''}`}
-                    onClick={() => setUserAudienceFilter(a)}
+                    className={`${styles.filterPill} ${userAudienceFilter === a.id ? styles.activeFilterPill : ''}`}
+                    onClick={() => setUserAudienceFilter(a.id as any)}
                   >
-                    {a === 'all' ? 'Все' : a === 'retail' ? 'Розничные' : 'Оптовые'}
+                    {a.label}
                   </button>
                 ))}
               </div>
@@ -1201,7 +1475,12 @@ export default function AdminClient() {
               </thead>
               <tbody>
                 {usersList.map(u => (
-                  <tr key={u.id}>
+                  <tr
+                    key={u.id}
+                    className={styles.userTableRowClickable}
+                    onClick={() => router.push(`/admin/users/${u.id}`)}
+                    title="Нажмите для просмотра профиля и заказов пользователя"
+                  >
                     <td><strong>{u.email}</strong></td>
                     <td>{u.full_name || '—'}</td>
                     <td>{u.phone || '—'}</td>
@@ -1212,11 +1491,15 @@ export default function AdminClient() {
                     </td>
                     <td>{u.orders_count || 0}</td>
                     <td>{new Date(u.created_at).toLocaleDateString('ru-RU')}</td>
-                    <td>
+                    <td onClick={e => e.stopPropagation()}>
                       <select
                         value={u.role}
-                        onChange={e => handleChangeUserRole(u.id, e.target.value)}
-                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                        onClick={e => e.stopPropagation()}
+                        onChange={e => {
+                          e.stopPropagation();
+                          handleChangeUserRole(u.id, e.target.value);
+                        }}
+                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', cursor: 'pointer' }}
                       >
                         <option value="customer">Розничный</option>
                         <option value="wholesale">Оптовый</option>
@@ -1322,147 +1605,272 @@ export default function AdminClient() {
           </div>
         )}
 
-        {/* TAB 5: SETTINGS / УПРАВЛЕНИЕ (Director Only) */}
-        {activeTab === 'settings' && isDirector && (
+        {/* TAB 5: SETTINGS / УПРАВЛЕНИЕ */}
+        {activeTab === 'settings' && (isDirector || isManager) && (
           <div>
-            <div className={styles.settingsCard}>
-              <h2 className={styles.settingsCardTitle}>Системное управление приёмом заказов</h2>
+            {settingsSubView === 'general' ? (
+              <>
+                <div className={`${styles.settingsCard} ${!isDirector ? styles.disabledSection : ''}`}>
+                  {!isDirector && (
+                    <div className={styles.managerNoticeBadge}>
+                      <Lock size={14} />
+                      <span>Управление приёмом заказов и складом доступно только Директору</span>
+                    </div>
+                  )}
+                  <h2 className={styles.settingsCardTitle}>Системное управление приёмом заказов</h2>
 
-              <div className={styles.settingsRow}>
-                <div className={styles.settingsRowLeft}>
-                  <div className={styles.settingsRowTitle}>
-                    Приём заказов:{' '}
-                    {killSwitchActive ? (
-                      <span style={{ color: '#d97706', fontWeight: 800 }}>Приостановлен</span>
-                    ) : (
-                      <span style={{ color: '#10b981', fontWeight: 800 }}>Открыто</span>
-                    )}
+                  <div className={styles.settingsRow}>
+                    <div className={styles.settingsRowLeft}>
+                      <div className={styles.settingsRowTitle}>
+                        Приём заказов:{' '}
+                        {killSwitchActive ? (
+                          <span style={{ color: '#d97706', fontWeight: 800 }}>Приостановлен</span>
+                        ) : (
+                          <span style={{ color: '#10b981', fontWeight: 800 }}>Открыто</span>
+                        )}
+                      </div>
+                      <div className={styles.settingsRowDesc}>
+                        {killSwitchActive
+                          ? 'Приём новых заказов на сайте временно отключён. Покупатели видят предупреждение в корзине.'
+                          : 'Покупатели могут свободно оформлять заказы с доставкой или самовывозом.'}
+                      </div>
+                    </div>
+
+                    {/* Animated Toggle Switch */}
+                    <label
+                      className={styles.toggleSwitch}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (isDirector) setIsKillSwitchModalOpen(true);
+                      }}
+                      title={isDirector ? "Нажмите для переключения режима работы магазина" : "Доступно только Директору"}
+                    >
+                      <input type="checkbox" checked={!killSwitchActive} readOnly disabled={!isDirector} />
+                      <span className={styles.toggleSlider}></span>
+                    </label>
                   </div>
-                  <div className={styles.settingsRowDesc}>
-                    {killSwitchActive
-                      ? 'Приём новых заказов на сайте временно отключён. Покупатели видят предупреждение в корзине.'
-                      : 'Покупатели могут свободно оформлять заказы с доставкой или самовывозом.'}
+
+                  {/* Warehouse selector */}
+                  <div className={styles.settingsRow} style={{ marginTop: '16px' }}>
+                    <div className={styles.settingsRowLeft}>
+                      <div className={styles.settingsRowTitle}>Основной склад отгрузки</div>
+                      <div className={styles.settingsRowDesc}>
+                        Укажите склад, из которого осуществляется комплектация и выдача товаров
+                      </div>
+                    </div>
+                    <select
+                      value={activeWarehouse}
+                      onChange={e => isDirector && handleUpdateWarehouse(e.target.value)}
+                      disabled={!isDirector}
+                      className={styles.inputField}
+                      style={{ width: '280px', margin: 0, fontFamily: 'var(--font-geist-sans), sans-serif' }}
+                    >
+                      <option value="Car City 1 ярус Подвал">Car City 1 ярус Подвал</option>
+                      <option value="Склад Северное Кольцо">Склад Северное Кольцо</option>
+                    </select>
                   </div>
                 </div>
 
-                {/* Animated Toggle Switch */}
-                <label
-                  className={styles.toggleSwitch}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setIsKillSwitchModalOpen(true);
-                  }}
-                  title="Нажмите для переключения режима работы магазина"
-                >
-                  <input type="checkbox" checked={!killSwitchActive} readOnly />
-                  <span className={styles.toggleSlider}></span>
-                </label>
-              </div>
-
-              {/* Warehouse selector */}
-              <div className={styles.settingsRow} style={{ marginTop: '16px' }}>
-                <div className={styles.settingsRowLeft}>
-                  <div className={styles.settingsRowTitle}>Основной склад отгрузки</div>
-                  <div className={styles.settingsRowDesc}>
-                    Укажите склад, из которого осуществляется комплектация и выдача товаров
+                {/* Section for Deleted Orders */}
+                <div className={styles.settingsCard} style={{ marginTop: '20px' }}>
+                  <div className={styles.settingsCardHeaderFlex}>
+                    <div>
+                      <h2 className={styles.settingsCardTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                        <Trash2 size={20} color="#dc2626" />
+                        Удаленные заказы
+                      </h2>
+                      <p className={styles.settingsRowDesc} style={{ margin: '6px 0 0 0' }}>
+                        Корзина заказов, перемещенных в удаленные. Доступна для просмотра и восстановления менеджерами и директором.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.goToDeletedBtn}
+                      onClick={() => {
+                        setSettingsSubView('deleted');
+                        loadDeletedOrders();
+                      }}
+                    >
+                      Перейти в удаленные →
+                    </button>
                   </div>
                 </div>
-                <select
-                  value={activeWarehouse}
-                  onChange={e => handleUpdateWarehouse(e.target.value)}
-                  className={styles.inputField}
-                  style={{ width: '280px', margin: 0, fontFamily: 'var(--font-geist-sans), sans-serif' }}
-                >
-                  <option value="Car City 1 ярус Подвал">Car City 1 ярус Подвал</option>
-                  <option value="Склад Северное Кольцо">Склад Северное Кольцо</option>
-                </select>
+              </>
+            ) : (
+              <div className={styles.settingsCard}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                  <button
+                    type="button"
+                    className={styles.backBtn}
+                    onClick={() => setSettingsSubView('general')}
+                  >
+                    <ArrowLeft size={16} />
+                    Назад к настройкам
+                  </button>
+                  <h2 className={styles.settingsCardTitle} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Trash2 size={20} color="#dc2626" />
+                    Корзина удаленных заказов ({deletedOrders.length})
+                  </h2>
+                </div>
+
+                {deletedOrdersLoading ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                    Загрузка удаленных заказов...
+                  </div>
+                ) : deletedOrders.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', color: '#64748b' }}>
+                    В корзине удаленных заказов пусто
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className={styles.dataTable}>
+                      <thead>
+                        <tr>
+                          <th>Номер</th>
+                          <th>Дата создания</th>
+                          <th>Покупатель</th>
+                          <th>Телефон</th>
+                          <th>Сумма</th>
+                          <th>Действие</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deletedOrders.map(delOrder => (
+                          <tr key={delOrder.id}>
+                            <td>
+                              <strong>Заказ №{delOrder.id}</strong>
+                            </td>
+                            <td>{new Date(delOrder.created_at).toLocaleString('ru-RU')}</td>
+                            <td>{delOrder.customer_name || '—'}</td>
+                            <td>{delOrder.customer_phone || '—'}</td>
+                            <td style={{ fontWeight: 700, color: 'var(--color-navy)' }}>
+                              {Number(delOrder.amount).toLocaleString('ru-RU')} ₸
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className={styles.restoreBtn}
+                                onClick={() => handleRestoreDeletedOrder(delOrder.id)}
+                                title="Восстановить в активные заказы"
+                              >
+                                <RotateCcw size={14} />
+                                <span>Восстановить в активные</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
           </div>
         )}
 
         {/* MODAL 1: ISSUE ORDER (VERIFY CODE) */}
-        {verifyingOrder && (
-          <div className={styles.modalOverlay} onClick={() => !isVerifying && setVerifyingOrder(null)}>
-            <div className={styles.modalCard} onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-              <h3 className={styles.modalTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <KeyRound size={20} color="var(--color-navy)" />
-                Выдача заказа №{verifyingOrder.id}
-              </h3>
-              <p className={styles.modalDesc} style={{ marginBottom: '14px' }}>
-                Покупатель: <strong>{verifyingOrder.customer_name || 'Не указан'}</strong> {verifyingOrder.customer_phone ? `(${verifyingOrder.customer_phone})` : ''} • Сумма: <strong>{Number(verifyingOrder.amount).toLocaleString('ru-RU')} ₸</strong>
-              </p>
+        {verifyingOrder && (() => {
+          const isCompletedOrCancelled = verifyingOrder.fulfillment_status === 'completed' || 
+                                          verifyingOrder.fulfillment_status === 'cancelled' ||
+                                          verifyingOrder.payment_status === 'declined' ||
+                                          verifyingOrder.payment_status === 'cancelled' ||
+                                          verifyingOrder.status === 'declined';
+          return (
+            <div className={styles.modalOverlay} onClick={() => !isVerifying && setVerifyingOrder(null)}>
+              <div className={styles.modalCard} onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+                <h3 className={styles.modalTitle} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <KeyRound size={20} color="var(--color-navy)" />
+                  {isCompletedOrCancelled ? `Код получения заказа №${verifyingOrder.id}` : `Выдача заказа №${verifyingOrder.id}`}
+                </h3>
+                <p className={styles.modalDesc} style={{ marginBottom: '14px' }}>
+                  Покупатель: <strong>{verifyingOrder.customer_name || 'Не указан'}</strong> {verifyingOrder.customer_phone ? `(${verifyingOrder.customer_phone})` : ''} • Сумма: <strong>{Number(verifyingOrder.amount).toLocaleString('ru-RU')} ₸</strong>
+                </p>
 
-              <div style={{
-                background: '#f8fafc',
-                border: '1.5px solid #cbd5e1',
-                borderRadius: '12px',
-                padding: '20px 16px',
-                textAlign: 'center',
-                marginBottom: '18px',
-              }}>
                 <div style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  color: '#64748b',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                  marginBottom: '8px',
-                  fontFamily: "var(--font-geist-sans), 'Geist', sans-serif",
+                  background: '#f8fafc',
+                  border: '1.5px solid #cbd5e1',
+                  borderRadius: '12px',
+                  padding: '20px 16px',
+                  textAlign: 'center',
+                  marginBottom: '18px',
                 }}>
-                  Код подтверждения в системе
-                </div>
-                <div style={{
-                  fontFamily: "var(--font-geist-mono, monospace)",
-                  fontSize: '28px',
-                  fontWeight: 900,
-                  letterSpacing: '3px',
-                  color: 'var(--color-navy)',
-                  margin: '6px 0',
-                }}>
-                  {formatPickupCode(verifyingOrder.pickup_code || getOrderPickupCode(verifyingOrder.id))}
-                </div>
-                <div style={{
-                  fontSize: '13px',
-                  color: '#0f766e',
-                  fontWeight: 600,
-                  marginTop: '10px',
-                  fontFamily: "var(--font-geist-sans), 'Geist', sans-serif",
-                }}>
-                  Сверьте данный 12-значный код с кодом в электронном чеке на телефоне клиента (или запросите устно)
-                </div>
-              </div>
-
-              <div className={styles.modalFooter} style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  className={styles.cancelBtn}
-                  onClick={() => setVerifyingOrder(null)}
-                  disabled={isVerifying}
-                >
-                  Отмена
-                </button>
-                <button
-                  type="button"
-                  className={styles.submitBtn}
-                  onClick={() => handleVerifyCode()}
-                  disabled={isVerifying}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    background: '#15803d',
-                    padding: '10px 22px',
+                  <div style={{
+                    fontSize: '12px',
                     fontWeight: 700,
-                  }}
-                >
-                  <CheckCircle size={16} />
-                  {isVerifying ? 'Завершение...' : 'Выдать'}
-                </button>
+                    color: '#64748b',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    marginBottom: '8px',
+                    fontFamily: "var(--font-geist-sans), 'Geist', sans-serif",
+                  }}>
+                    Код подтверждения в системе
+                  </div>
+                  <div style={{
+                    fontFamily: "var(--font-geist-mono, monospace)",
+                    fontSize: '28px',
+                    fontWeight: 900,
+                    letterSpacing: '3px',
+                    color: 'var(--color-navy)',
+                    margin: '6px 0',
+                  }}>
+                    {formatPickupCode(verifyingOrder.pickup_code || getOrderPickupCode(verifyingOrder.id))}
+                  </div>
+                  <div style={{
+                    fontSize: '13px',
+                    color: '#0f766e',
+                    fontWeight: 600,
+                    marginTop: '10px',
+                    fontFamily: "var(--font-geist-sans), 'Geist', sans-serif",
+                  }}>
+                    {isCompletedOrCancelled 
+                      ? '12-значный код верификации заказа' 
+                      : 'Сверьте данный 12-значный код с кодом в электронном чеке на телефоне клиента (или запросите устно)'}
+                  </div>
+                </div>
+
+                <div className={styles.modalFooter} style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                  {isCompletedOrCancelled ? (
+                    <button
+                      type="button"
+                      className={styles.cancelBtn}
+                      onClick={() => setVerifyingOrder(null)}
+                    >
+                      Закрыть
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className={styles.cancelBtn}
+                        onClick={() => setVerifyingOrder(null)}
+                        disabled={isVerifying}
+                      >
+                        Отмена
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.submitBtn}
+                        onClick={() => handleVerifyCode()}
+                        disabled={isVerifying}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          background: '#15803d',
+                          padding: '10px 22px',
+                          fontWeight: 700,
+                        }}
+                      >
+                        <CheckCircle size={16} />
+                        {isVerifying ? 'Завершение...' : 'Выдать'}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* MODAL 2: ASSIGN COURIER */}
         {assigningOrder && (
