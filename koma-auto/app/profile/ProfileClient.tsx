@@ -15,7 +15,7 @@ import {
   updatePassword,
   deleteUser
 } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import { User as UserIcon, Mail, Calendar, Briefcase, Clock, LogOut, Package, Pencil, Eye, EyeOff, Shield, ArrowRight, KeyRound, ArrowUpDown, ChevronDown, Layers } from 'lucide-react';
 import OrdersHistory from '@/components/Orders/OrdersHistory';
@@ -306,6 +306,12 @@ export default function ProfileClient() {
         await setDoc(doc(db, 'users', user.uid), profileData);
         setUserProfile(profileData as any);
 
+        try {
+          const visualName = name || user.displayName || user.email || 'Мой профиль';
+          localStorage.setItem('koma_cached_user_name', visualName);
+          window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: visualName }));
+        } catch {}
+
         // Authoritatively sync user to PostgreSQL
         try {
           const idToken = await user.getIdToken();
@@ -322,6 +328,7 @@ export default function ProfileClient() {
               fullName: name || '',
               phone: user.phoneNumber || null,
               clientType: clientType || 'retail',
+              isExplicitUpdate: true,
             }),
           });
         } catch (syncErr) {
@@ -356,9 +363,27 @@ export default function ProfileClient() {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       
-      // Auto-sync Google user to PostgreSQL database
+      // Auto-sync Google user to PostgreSQL database (protect existing real name)
       if (user && user.email) {
-        user.getIdToken().then(idToken => {
+        user.getIdToken().then(async (idToken) => {
+          // If Firestore doesn't have a doc for this new UID, check if another doc or DB has profile
+          try {
+            const currentDoc = await getDoc(doc(db, 'users', user.uid));
+            if (!currentDoc.exists()) {
+              const q = query(collection(db, 'users'), where('email', '==', user.email));
+              const snap = await getDocs(q);
+              if (!snap.empty) {
+                const existingData = snap.docs[0].data();
+                if (existingData && existingData.name) {
+                  await setDoc(doc(db, 'users', user.uid), existingData, { merge: true });
+                  setUserProfile(existingData as any);
+                  localStorage.setItem('koma_cached_user_name', existingData.name);
+                  window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: existingData.name }));
+                }
+              }
+            }
+          } catch {}
+
           fetch('/api/user/sync', {
             method: 'POST',
             headers: {
@@ -369,10 +394,19 @@ export default function ProfileClient() {
             body: JSON.stringify({
               userId: user.uid,
               email: user.email,
-              fullName: user.displayName || null,
+              fullName: null, // do not force overwrite existing name in DB with Google handle
               phone: user.phoneNumber || null,
               clientType: 'retail',
+              isExplicitUpdate: false,
             }),
+          }).then(async (res) => {
+            if (res.ok) {
+              const syncData = await res.json();
+              if (syncData.user?.fullName) {
+                localStorage.setItem('koma_cached_user_name', syncData.user.fullName);
+                window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: syncData.user.fullName }));
+              }
+            }
           }).catch(console.warn);
         }).catch(console.warn);
       }
@@ -519,6 +553,7 @@ export default function ProfileClient() {
             fullName: name || '',
             phone: user.phoneNumber || null,
             clientType: clientType || 'retail',
+            isExplicitUpdate: true,
           }),
         });
       } catch (syncErr) {
@@ -638,6 +673,7 @@ export default function ProfileClient() {
             email: user.email,
             fullName: editName,
             clientType: newClientType,
+            isExplicitUpdate: true,
           }),
         });
       } catch (syncErr) {
@@ -839,7 +875,7 @@ export default function ProfileClient() {
         <div className={styles.dashboardHeader}>
           <div>
             <h1 className={styles.dashboardTitle}>Личный кабинет</h1>
-            <p className={styles.dashboardSubtitle}>Добро пожаловать, {userProfile.name || user.displayName || 'Пользователь'}!</p>
+            <p className={styles.dashboardSubtitle}>Добро пожаловать, {userProfile.name || (user.displayName && !user.displayName.includes('@') ? user.displayName : null) || 'Пользователь'}!</p>
           </div>
           <button type="button" className={styles.logoutBtn} onClick={() => setIsLogoutModalOpen(true)}>
             <LogOut size={16} />
@@ -886,7 +922,7 @@ export default function ProfileClient() {
               <div className={styles.infoList}>
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>Имя и Фамилия</span>
-                  <span className={styles.infoValue}>{userProfile.name || user.displayName || 'Не указано'}</span>
+                  <span className={styles.infoValue}>{userProfile.name || (user.displayName && !user.displayName.includes('@') ? user.displayName : null) || 'Не указано'}</span>
                 </div>
                 
                 <div className={styles.infoItem}>

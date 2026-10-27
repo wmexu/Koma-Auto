@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     }
 
     const rows = await client`
-      SELECT role
+      SELECT role, full_name, email
       FROM users
       WHERE id = ${String(userId)}
       LIMIT 1;
@@ -40,10 +40,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, role: 'customer' });
     }
 
-    // Return ONLY the role without leaking personal info (email, name, phone)
     return NextResponse.json({
       success: true,
       role: rows[0].role || 'customer',
+      fullName: rows[0].full_name || null,
+      email: rows[0].email || null,
     });
   } catch (error: any) {
     console.error('[UserRole GET Error]:', error);

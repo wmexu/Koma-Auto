@@ -1084,23 +1084,23 @@ export default function AdminClient() {
                                                 className={styles.dropdownItem}
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  handleRestoreToActive(order);
-                                                }}
-                                              >
-                                                <RotateCcw size={15} color="#0284c7" />
-                                                <span>Перенести в Активные заказы</span>
-                                              </button>
-                                              <button
-                                                type="button"
-                                                className={styles.dropdownItem}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
                                                   setActiveMenuOrderId(null);
                                                   setVerifyingOrder(order);
                                                 }}
                                               >
                                                 <KeyRound size={15} color="var(--color-navy)" />
                                                 <span>Посмотреть код получения</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className={styles.dropdownItem}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleRestoreToActive(order);
+                                                }}
+                                              >
+                                                <RotateCcw size={15} color="#0284c7" />
+                                                <span>Перенести в Активные заказы</span>
                                               </button>
                                               <button
                                                 type="button"
@@ -1118,14 +1118,15 @@ export default function AdminClient() {
                                             <>
                                               <button
                                                 type="button"
-                                                className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`}
+                                                className={styles.dropdownItem}
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  handleCancelOrder(order);
+                                                  setActiveMenuOrderId(null);
+                                                  setVerifyingOrder(order);
                                                 }}
                                               >
-                                                <XCircle size={15} />
-                                                <span>Отклонить заказ</span>
+                                                <KeyRound size={15} color="var(--color-navy)" />
+                                                <span>Посмотреть код получения</span>
                                               </button>
                                               <button
                                                 type="button"
@@ -1140,15 +1141,14 @@ export default function AdminClient() {
                                               </button>
                                               <button
                                                 type="button"
-                                                className={styles.dropdownItem}
+                                                className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`}
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  setActiveMenuOrderId(null);
-                                                  setVerifyingOrder(order);
+                                                  handleCancelOrder(order);
                                                 }}
                                               >
-                                                <KeyRound size={15} color="var(--color-navy)" />
-                                                <span>Посмотреть код получения</span>
+                                                <XCircle size={15} />
+                                                <span>Отклонить заказ</span>
                                               </button>
                                               <button
                                                 type="button"

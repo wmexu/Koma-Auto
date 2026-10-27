@@ -210,20 +210,131 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Доступ запрещен: просмотр чужих заказов ограничен' }, { status: 403 });
     }
 
-    const ordersCol = collection(db, 'orders');
-    const q = query(ordersCol, where('userId', '==', userId));
-    const snapshot = await getDocs(q);
+    // 1. Resolve user's authoritative email from PostgreSQL or token
+    let userEmail: string | null = null;
+    if (isDbConfigured() && client) {
+      try {
+        const u = await client`SELECT email FROM users WHERE id = ${String(userId)} LIMIT 1`;
+        if (u && u.length > 0 && u[0].email) {
+          userEmail = u[0].email.toLowerCase().trim();
+        }
+      } catch (err) {
+        console.warn('[Orders GET] User email lookup failed:', err);
+      }
+    }
 
-    const orders: Order[] = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data() as Order;
-      orders.push({
-        ...data,
-        pickupCode: data.pickupCode || getOrderPickupCode(data.id),
+    // 2. Automatically link any unlinked orders for this email to the active user ID
+    if (userEmail && isDbConfigured() && client) {
+      try {
+        await client`
+          UPDATE orders
+          SET user_id = ${String(userId)}
+          WHERE customer_email IS NOT NULL 
+            AND LOWER(customer_email) = ${userEmail}
+            AND (user_id IS NULL OR user_id != ${String(userId)});
+        `;
+      } catch (relinkErr) {
+        console.warn('[Orders GET] Order user_id relink warning:', relinkErr);
+      }
+    }
+
+    const ordersMap = new Map<string, Order>();
+
+    // 3. Fetch all orders from PostgreSQL (by user_id OR by email)
+    if (isDbConfigured() && client) {
+      try {
+        const dbOrders = await client`
+          SELECT *
+          FROM orders
+          WHERE user_id = ${String(userId)}
+             OR (customer_email IS NOT NULL AND LOWER(customer_email) = ${userEmail || ''})
+          ORDER BY created_at DESC;
+        `;
+
+        for (const row of dbOrders) {
+          let items: any[] = [];
+          if (Array.isArray(row.items)) {
+            items = row.items;
+          } else if (typeof row.items === 'string') {
+            try { items = JSON.parse(row.items); } catch {}
+          }
+
+          const orderObj: Order = {
+            id: String(row.id),
+            invoiceId: row.invoice_id || String(row.id),
+            createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+            status: row.payment_status || 'pending',
+            amount: Number(row.amount) || 0,
+            itemsPrice: Number(row.items_price) || Number(row.amount) || 0,
+            deliveryCost: Number(row.delivery_cost) || 0,
+            deliveryMethod: (row.delivery_method as any) || 'pickup',
+            address: row.delivery_address || '',
+            city: row.city || 'Алматы',
+            customer: {
+              name: row.customer_name || 'Покупатель',
+              phone: row.customer_phone || '',
+              email: row.customer_email || userEmail || '',
+            },
+            items,
+            pickupCode: getOrderPickupCode(String(row.id)),
+            fulfillmentStatus: row.fulfillment_status || 'assembling',
+            userId: row.user_id || String(userId),
+            expiresAt: new Date(new Date(row.created_at || Date.now()).getTime() + 20 * 60 * 1000).toISOString(),
+            paymentMethod: (row.payment_method as any) || 'epay',
+          };
+          ordersMap.set(String(row.id), orderObj);
+        }
+      } catch (dbErr) {
+        console.warn('[Orders GET] Postgres fetch failed:', dbErr);
+      }
+    }
+
+    // 4. Also fetch from Firestore and merge
+    try {
+      const ordersCol = collection(db, 'orders');
+      const q = query(ordersCol, where('userId', '==', userId));
+      const snapshot = await getDocs(q);
+
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as Order;
+        const oId = String(data.id || docSnap.id);
+        const existing = ordersMap.get(oId);
+        ordersMap.set(oId, {
+          ...(existing || {}),
+          ...data,
+          id: oId,
+          pickupCode: data.pickupCode || existing?.pickupCode || getOrderPickupCode(oId),
+        });
       });
-    });
 
-    return NextResponse.json(orders);
+      if (userEmail) {
+        try {
+          const qEmail = query(ordersCol, where('customer.email', '==', userEmail));
+          const emailSnap = await getDocs(qEmail);
+          emailSnap.forEach((docSnap) => {
+            const data = docSnap.data() as Order;
+            const oId = String(data.id || docSnap.id);
+            const existing = ordersMap.get(oId);
+            ordersMap.set(oId, {
+              ...(existing || {}),
+              ...data,
+              id: oId,
+              pickupCode: data.pickupCode || existing?.pickupCode || getOrderPickupCode(oId),
+            });
+          });
+        } catch {
+          // ignore compound query restrictions if any
+        }
+      }
+    } catch (fbErr) {
+      console.warn('[Orders GET] Firestore fetch failed:', fbErr);
+    }
+
+    const ordersList = Array.from(ordersMap.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    return NextResponse.json(ordersList);
   } catch (error: any) {
     console.error('Error fetching orders:', error);
     return NextResponse.json({ error: error?.message || 'Ошибка получения заказов' }, { status: 500 });

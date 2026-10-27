@@ -33,6 +33,7 @@ export async function POST(request: Request) {
     const cleanName = fullName ? String(fullName).trim() : null;
     const cleanPhone = phone ? String(phone).trim() : null;
     const desiredRole = clientType === 'wholesale' ? 'wholesale' : 'customer';
+    const isExplicitUpdate = Boolean(body.isExplicitUpdate);
 
     // 1. Check if user with this ID already exists
     const byId = await client`
@@ -48,11 +49,16 @@ export async function POST(request: Request) {
       const isElevated = ['courier', 'manager', 'director'].includes(currentRole);
       const finalRole = isElevated ? currentRole : (clientType === 'wholesale' ? 'wholesale' : currentRole);
 
+      // Protect established real name (e.g. "Алан Манкусов") from being overwritten by OAuth handles (e.g. "wmexu")
+      const existingName = byId[0].full_name;
+      const isRealHumanName = Boolean(existingName && existingName.trim().length > 0 && existingName !== 'Покупатель');
+      const finalName = (isRealHumanName && !isExplicitUpdate) ? existingName : (cleanName || existingName);
+
       await client`
         UPDATE users
         SET 
           email = ${cleanEmail},
-          full_name = COALESCE(${cleanName}, full_name),
+          full_name = ${finalName},
           phone = COALESCE(${cleanPhone}, phone),
           role = ${finalRole},
           updated_at = NOW()
@@ -62,7 +68,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         message: 'Пользователь успешно синхронизирован',
-        user: { id: userId, email: cleanEmail, role: finalRole },
+        user: { id: userId, email: cleanEmail, fullName: finalName, role: finalRole },
       });
     }
 
@@ -80,6 +86,10 @@ export async function POST(request: Request) {
       const isElevated = ['courier', 'manager', 'director'].includes(currentRole);
       const finalRole = isElevated ? currentRole : (clientType === 'wholesale' ? 'wholesale' : currentRole);
 
+      const existingName = byEmail[0].full_name;
+      const isRealHumanName = Boolean(existingName && existingName.trim().length > 0 && existingName !== 'Покупатель');
+      const finalName = (isRealHumanName && !isExplicitUpdate) ? existingName : (cleanName || existingName);
+
       // Re-link foreign keys to the new Firebase UID
       try {
         await client`UPDATE orders SET user_id = ${String(userId)} WHERE user_id = ${oldId};`;
@@ -93,7 +103,7 @@ export async function POST(request: Request) {
         UPDATE users
         SET 
           id = ${String(userId)},
-          full_name = COALESCE(${cleanName}, full_name),
+          full_name = ${finalName},
           phone = COALESCE(${cleanPhone}, phone),
           role = ${finalRole},
           updated_at = NOW()
@@ -103,7 +113,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         message: 'Пользователь успешно привязан и синхронизирован',
-        user: { id: userId, email: cleanEmail, role: finalRole },
+        user: { id: userId, email: cleanEmail, fullName: finalName, role: finalRole },
       });
     }
 

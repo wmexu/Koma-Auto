@@ -19,7 +19,7 @@ export default function Header() {
   const pathname = usePathname();
 
   const cartItemsCount = useCartStore((state) => state.getTotalItems());
-  const { user, setUser, setUserProfile, isLoading: isAuthLoading, setLoading: setAuthLoading } = useAuthStore();
+  const { user, userProfile, setUser, setUserProfile, isLoading: isAuthLoading, setLoading: setAuthLoading } = useAuthStore();
 
   const [isMounted, setIsMounted] = useState(false);
   const [cachedVisualName, setCachedVisualName] = useState<string | null>(null);
@@ -104,8 +104,10 @@ export default function Header() {
                 ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
               },
             });
+            let dbFullName: string | null = null;
             if (roleRes.ok) {
               const roleData = await roleRes.json();
+              dbFullName = roleData.fullName || null;
               if (roleData.role) {
                 if (!profile) profile = {};
                 if (profile.role !== roleData.role) {
@@ -115,14 +117,21 @@ export default function Header() {
                 }
               }
             }
+
+            // If Firestore document lacks full name, but DB has established name, sync it
+            if (!profile) profile = {};
+            if (!profile.name && dbFullName) {
+              profile.name = dbFullName;
+              setDoc(doc(db, 'users', currentUser.uid), { name: dbFullName }, { merge: true }).catch(() => {});
+            }
           } catch (rErr) {
             console.warn('Role sync warning:', rErr);
           }
 
           setUserProfile(profile);
 
-          // Update cached visual name for instant zero-lag rendering
-          const resolvedName = profile?.name || currentUser.displayName || currentUser.email || 'Мой профиль';
+          // Update cached visual name for instant zero-lag rendering (protect real name from OAuth handles)
+          const resolvedName = profile?.name || (currentUser.displayName && !currentUser.displayName.includes('@') ? currentUser.displayName : null) || 'Мой профиль';
           if (resolvedName) {
             setCachedVisualName(resolvedName);
             try { localStorage.setItem('koma_cached_user_name', resolvedName); } catch {}
@@ -223,7 +232,7 @@ export default function Header() {
             {isMounted && cachedVisualName ? (
               cachedVisualName
             ) : isMounted && !isAuthLoading && user ? (
-              user.displayName || user.email || 'Мой профиль'
+              userProfile?.name || user.displayName || user.email || 'Мой профиль'
             ) : (
               'Регистрация / Вход в аккаунт'
             )}
