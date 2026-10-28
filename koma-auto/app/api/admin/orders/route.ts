@@ -18,6 +18,7 @@ export async function GET(request: Request) {
     const orderId = searchParams.get('orderId');
     const period = searchParams.get('period') || '30'; // 30, 60, 360, all
     const status = searchParams.get('status');
+    const includeDeleted = searchParams.get('includeDeleted') === 'true';
 
     if (!isDbConfigured() || !client) {
       return NextResponse.json({ error: 'База данных недоступна' }, { status: 503 });
@@ -90,30 +91,57 @@ export async function GET(request: Request) {
           ORDER BY updated_at DESC;
         `;
       } else if (isAllTime) {
-        ordersList = await client`
-          SELECT 
-            id, invoice_id, user_id, amount, items_price, delivery_cost,
-            delivery_method, payment_method, payment_status, fulfillment_status,
-            assigned_courier_id, customer_name, customer_phone, customer_email,
-            kaspi_phone, delivery_address, city, items, warehouse_id,
-            completed_at, created_at, updated_at
-          FROM orders
-          WHERE fulfillment_status != 'deleted'
-          ORDER BY created_at DESC;
-        `;
+        if (includeDeleted) {
+          ordersList = await client`
+            SELECT 
+              id, invoice_id, user_id, amount, items_price, delivery_cost,
+              delivery_method, payment_method, payment_status, fulfillment_status,
+              assigned_courier_id, customer_name, customer_phone, customer_email,
+              kaspi_phone, delivery_address, city, items, warehouse_id,
+              completed_at, created_at, updated_at
+            FROM orders
+            ORDER BY created_at DESC;
+          `;
+        } else {
+          ordersList = await client`
+            SELECT 
+              id, invoice_id, user_id, amount, items_price, delivery_cost,
+              delivery_method, payment_method, payment_status, fulfillment_status,
+              assigned_courier_id, customer_name, customer_phone, customer_email,
+              kaspi_phone, delivery_address, city, items, warehouse_id,
+              completed_at, created_at, updated_at
+            FROM orders
+            WHERE fulfillment_status != 'deleted'
+            ORDER BY created_at DESC;
+          `;
+        }
       } else {
-        ordersList = await client`
-          SELECT 
-            id, invoice_id, user_id, amount, items_price, delivery_cost,
-            delivery_method, payment_method, payment_status, fulfillment_status,
-            assigned_courier_id, customer_name, customer_phone, customer_email,
-            kaspi_phone, delivery_address, city, items, warehouse_id,
-            completed_at, created_at, updated_at
-          FROM orders
-          WHERE created_at >= NOW() - (${intervalDays} || ' days')::INTERVAL
-            AND fulfillment_status != 'deleted'
-          ORDER BY created_at DESC;
-        `;
+        if (includeDeleted) {
+          ordersList = await client`
+            SELECT 
+              id, invoice_id, user_id, amount, items_price, delivery_cost,
+              delivery_method, payment_method, payment_status, fulfillment_status,
+              assigned_courier_id, customer_name, customer_phone, customer_email,
+              kaspi_phone, delivery_address, city, items, warehouse_id,
+              completed_at, created_at, updated_at
+            FROM orders
+            WHERE created_at >= NOW() - (${intervalDays} || ' days')::INTERVAL
+            ORDER BY created_at DESC;
+          `;
+        } else {
+          ordersList = await client`
+            SELECT 
+              id, invoice_id, user_id, amount, items_price, delivery_cost,
+              delivery_method, payment_method, payment_status, fulfillment_status,
+              assigned_courier_id, customer_name, customer_phone, customer_email,
+              kaspi_phone, delivery_address, city, items, warehouse_id,
+              completed_at, created_at, updated_at
+            FROM orders
+            WHERE created_at >= NOW() - (${intervalDays} || ' days')::INTERVAL
+              AND fulfillment_status != 'deleted'
+            ORDER BY created_at DESC;
+          `;
+        }
       }
     }
 

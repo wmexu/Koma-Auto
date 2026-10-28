@@ -131,21 +131,26 @@ export default function AdminClient() {
     }
   }, [isManager, user?.uid]);
 
-  // Load orders
-  const loadOrders = async () => {
+  // Load orders (supports silent background reload without UI flicker)
+  const loadOrders = async (silent = false) => {
     if (!user?.uid) return;
-    setOrdersLoading(true);
+    if (!silent) setOrdersLoading(true);
     try {
-      const url = `/api/admin/orders?period=${period}&role=${userRole}&userId=${user?.uid || ''}&status=${statusFilter}`;
+      const url = `/api/admin/orders?period=${period}&role=${userRole}&userId=${user?.uid || ''}&status=${statusFilter}&includeDeleted=true`;
       const res = await adminFetch(url);
       const data = await res.json();
-      if (data.success) {
-        setOrders(data.orders || []);
+      if (data.success && Array.isArray(data.orders)) {
+        setOrders(prev => {
+          if (JSON.stringify(prev) === JSON.stringify(data.orders)) {
+            return prev;
+          }
+          return data.orders;
+        });
       }
     } catch (e) {
       console.error('Failed to load orders:', e);
     } finally {
-      setOrdersLoading(false);
+      if (!silent) setOrdersLoading(false);
     }
   };
 
@@ -154,6 +159,32 @@ export default function AdminClient() {
       loadOrders();
     }
   }, [isStaff, period, statusFilter, userRole, user?.uid]);
+
+  // Real-time auto-refresh: poll every 5 seconds & on window focus/tab visibility
+  useEffect(() => {
+    if (!isStaff || !user?.uid) return;
+
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        loadOrders(true);
+      }
+    }, 5000);
+
+    const handleFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        loadOrders(true);
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleFocus);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('visibilitychange', handleFocus);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [isStaff, user?.uid, period, statusFilter, userRole]);
 
   // Load promocodes when on tab
   useEffect(() => {
@@ -802,7 +833,10 @@ export default function AdminClient() {
 
             {/* Search Bar & Order Sub-Tabs */}
             {(() => {
+              const isOrderDeleted = (o: any) => o.fulfillment_status === 'deleted';
+
               const isOrderCancelled = (o: any) => {
+                if (isOrderDeleted(o)) return false;
                 return o.fulfillment_status === 'cancelled' || 
                        o.payment_status === 'declined' || 
                        o.payment_status === 'cancelled' || 
@@ -811,14 +845,17 @@ export default function AdminClient() {
               };
 
               const isOrderCompleted = (o: any) => {
+                if (isOrderDeleted(o)) return false;
                 return o.fulfillment_status === 'completed';
               };
 
               const isOrderPendingPayment = (o: any) => {
+                if (isOrderDeleted(o)) return false;
                 return !isOrderCancelled(o) && !isOrderCompleted(o) && (o.payment_status === 'pending' || o.status === 'pending_payment');
               };
 
               const isOrderActive = (o: any) => {
+                if (isOrderDeleted(o)) return false;
                 return !isOrderCancelled(o) && !isOrderCompleted(o) && !isOrderPendingPayment(o);
               };
 
@@ -945,6 +982,7 @@ export default function AdminClient() {
                         const isCancelled = isOrderCancelled(order);
                         const isCompleted = isOrderCompleted(order);
                         const isPendingPayment = isOrderPendingPayment(order);
+                        const isDeleted = isOrderDeleted(order);
 
                         return (
                           <div
@@ -955,7 +993,19 @@ export default function AdminClient() {
                             <div className={styles.orderCardHeader}>
                               <div className={styles.orderIdBlock}>
                                 <span className={styles.orderNumber}>Заказ №{order.id}</span>
-                                {isManager && !isCompleted && !isCancelled ? (
+                                {isDeleted ? (
+                                  <span
+                                    className={styles.statusBadge}
+                                    style={{
+                                      background: '#fee2e2',
+                                      color: '#991b1b',
+                                      border: '1px solid #fecaca',
+                                      fontWeight: 800,
+                                    }}
+                                  >
+                                    Удален
+                                  </span>
+                                ) : isManager && !isCompleted && !isCancelled ? (
                                   <div className={styles.cardStatusSelectWrapper} onClick={e => e.stopPropagation()}>
                                     <select
                                       className={styles.cardStatusSelect}
@@ -1031,7 +1081,7 @@ export default function AdminClient() {
                                 </div>
 
                                 <div className={styles.actionButtons} onClick={e => e.stopPropagation()}>
-                                  {order.fulfillment_status !== 'completed' && !isCancelled && (
+                                  {order.fulfillment_status !== 'completed' && !isCancelled && !isDeleted && (
                                     <button
                                       type="button"
                                       className={styles.verifyCodeBtn}
@@ -1045,7 +1095,7 @@ export default function AdminClient() {
                                     </button>
                                   )}
 
-                                  {isManager && order.delivery_method === 'courier' && order.fulfillment_status !== 'completed' && !isCancelled && (
+                                  {isManager && order.delivery_method === 'courier' && order.fulfillment_status !== 'completed' && !isCancelled && !isDeleted && (
                                     <button
                                       type="button"
                                       className={styles.assignBtn}
@@ -1077,7 +1127,44 @@ export default function AdminClient() {
 
                                       {activeMenuOrderId === order.id && (
                                         <div className={styles.optionsDropdown} onClick={e => e.stopPropagation()}>
-                                          {(isCompleted || isCancelled) ? (
+                                          {isDeleted ? (
+                                            <>
+                                              <button
+                                                type="button"
+                                                className={styles.dropdownItem}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleRestoreToActive(order);
+                                                }}
+                                              >
+                                                <RotateCcw size={15} color="#0284c7" />
+                                                <span>Восстановить в активные</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className={styles.dropdownItem}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleArchiveOrder(order);
+                                                }}
+                                              >
+                                                <Archive size={15} color="#64748b" />
+                                                <span>Восстановить в архив</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className={styles.dropdownItem}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setActiveMenuOrderId(null);
+                                                  setVerifyingOrder(order);
+                                                }}
+                                              >
+                                                <KeyRound size={15} color="var(--color-navy)" />
+                                                <span>Посмотреть код получения</span>
+                                              </button>
+                                            </>
+                                          ) : (isCompleted || isCancelled) ? (
                                             <>
                                               <button
                                                 type="button"

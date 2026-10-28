@@ -24,7 +24,22 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { amount, name, phone, email, origin, deliveryMethod, city, comment, items, promoCode } = body;
+    const {
+      amount,
+      name,
+      phone,
+      email,
+      origin,
+      deliveryMethod,
+      city,
+      comment,
+      items,
+      promoCode,
+      userId,
+      address,
+      itemsPrice,
+      deliveryCost,
+    } = body;
 
     const testPromo = getTestPromoConfig(promoCode);
     const isTestOrder = Boolean(testPromo);
@@ -134,6 +149,89 @@ export async function POST(request: Request) {
 
     const invoiceId = generateInvoiceId();
     const secretHash = generateSecretHash(invoiceId, clientSecret);
+
+    // Guaranteed Pre-Insert into Neon PostgreSQL for instant CRM visibility
+    if (isDbConfigured() && client) {
+      try {
+        const orderId = String(invoiceId);
+        const orderUserId = userId || null;
+        const customerEmail = (email || `customer_${orderId}@koma.kz`).toLowerCase().trim();
+        const customerName = name || 'Покупатель';
+        const customerPhone = phone || '';
+        const cleanAddress = address || (deliveryMethod === 'courier' ? `г. ${city || 'Алматы'}` : 'Самовывоз: г. Алматы, Car City 1 ярус Подвал');
+        const cleanCity = city || 'Алматы';
+
+        await client`
+          INSERT INTO orders (
+            id, invoice_id, user_id, amount, items_price, delivery_cost,
+            delivery_method, payment_method, payment_status, fulfillment_status,
+            customer_name, customer_phone, customer_email, delivery_address, city,
+            items, warehouse_id, created_at, updated_at
+          ) VALUES (
+            ${orderId},
+            ${orderId},
+            ${orderUserId},
+            ${effectiveAmount},
+            ${itemsPrice || effectiveAmount},
+            ${deliveryCost || 0},
+            ${deliveryMethod || 'pickup'},
+            'online',
+            'pending',
+            'assembling',
+            ${customerName},
+            ${customerPhone},
+            ${customerEmail},
+            ${cleanAddress},
+            ${cleanCity},
+            ${JSON.stringify(items || [])}::jsonb,
+            'car_city_podval',
+            NOW(),
+            NOW()
+          )
+          ON CONFLICT (id) DO UPDATE SET
+            amount = EXCLUDED.amount,
+            items_price = EXCLUDED.items_price,
+            delivery_cost = EXCLUDED.delivery_cost,
+            items = EXCLUDED.items,
+            updated_at = NOW();
+        `;
+      } catch (neonErr) {
+        console.warn('[Epay create-payment] Postgres pre-insert warning:', neonErr);
+      }
+    }
+
+    // Mirror to Firestore
+    try {
+      const { db } = await import('@/lib/firebase');
+      const { doc, setDoc } = await import('firebase/firestore');
+      const orderData = {
+        id: invoiceId,
+        invoiceId: invoiceId,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
+        status: 'pending',
+        amount: effectiveAmount,
+        itemsPrice: itemsPrice || effectiveAmount,
+        deliveryCost: deliveryCost || 0,
+        deliveryMethod: deliveryMethod || 'pickup',
+        address: address || '',
+        city: city || 'Алматы',
+        customer: {
+          name: name || 'Покупатель',
+          phone: phone || '',
+          email: email || '',
+          comment: comment || '',
+        },
+        paymentMethod: 'online',
+        items: items || [],
+        userId: userId || null,
+        isTestOrder: isTestOrder,
+        promoCode: promoCode || undefined,
+      };
+      await setDoc(doc(db, 'orders', invoiceId), orderData, { merge: true }).catch(() => {});
+    } catch (fbErr) {
+      console.warn('[Epay create-payment] Firestore pre-insert warning:', fbErr);
+    }
 
     // Determine return and webhook links
     const clientOrigin = origin || process.env.NEXT_PUBLIC_SITE_URL || 'https://koma.com.kz';

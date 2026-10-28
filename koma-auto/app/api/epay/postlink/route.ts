@@ -121,16 +121,59 @@ export async function POST(request: Request) {
         console.error('[Halyk Postlink] Error syncing to MoySklad/Telegram:', syncErr);
       }
 
-      // Synchronize verified payment to Neon PostgreSQL for real-time CRM visibility
+      // Synchronize verified payment to Neon PostgreSQL for real-time CRM visibility (Guaranteed UPSERT)
       if (isDbConfigured() && client) {
         try {
+          const ordId = String(invoiceId);
+          const custName = updatedOrder?.customer?.name || data.name || 'Покупатель';
+          const custPhone = updatedOrder?.customer?.phone || data.phone || '';
+          const custEmail = (updatedOrder?.customer?.email || data.email || `customer_${ordId}@koma.kz`).toLowerCase().trim();
+          const ordUserId = updatedOrder?.userId || null;
+          const ordAmount = updatedOrder?.amount || amount || 0;
+          const ordItemsPrice = updatedOrder?.itemsPrice || ordAmount;
+          const ordDeliveryCost = updatedOrder?.deliveryCost || 0;
+          const ordDeliveryMethod = updatedOrder?.deliveryMethod || 'pickup';
+          const ordAddress = updatedOrder?.address || 'Оплата онлайн (ePay)';
+          const ordCity = updatedOrder?.city || 'Алматы';
+          const ordItems = JSON.stringify(updatedOrder?.items || []);
+
           await client`
-            UPDATE orders
-            SET payment_status = 'paid', updated_at = NOW()
-            WHERE id = ${String(invoiceId)} OR invoice_id = ${String(invoiceId)};
+            INSERT INTO orders (
+              id, invoice_id, user_id, amount, items_price, delivery_cost,
+              delivery_method, payment_method, payment_status, fulfillment_status,
+              customer_name, customer_phone, customer_email, delivery_address, city,
+              items, warehouse_id, created_at, updated_at
+            ) VALUES (
+              ${ordId},
+              ${ordId},
+              ${ordUserId},
+              ${ordAmount},
+              ${ordItemsPrice},
+              ${ordDeliveryCost},
+              ${ordDeliveryMethod},
+              'online',
+              'paid',
+              'assembling',
+              ${custName},
+              ${custPhone},
+              ${custEmail},
+              ${ordAddress},
+              ${ordCity},
+              ${ordItems}::jsonb,
+              'car_city_podval',
+              NOW(),
+              NOW()
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              payment_status = 'paid',
+              fulfillment_status = CASE WHEN orders.fulfillment_status = 'deleted' THEN 'deleted' ELSE 'assembling' END,
+              customer_name = COALESCE(EXCLUDED.customer_name, orders.customer_name),
+              customer_phone = COALESCE(EXCLUDED.customer_phone, orders.customer_phone),
+              customer_email = COALESCE(EXCLUDED.customer_email, orders.customer_email),
+              updated_at = NOW();
           `;
         } catch (neonErr) {
-          console.error('[Halyk Postlink] Failed to update Neon order payment_status:', neonErr);
+          console.error('[Halyk Postlink] Failed to upsert Neon order payment_status:', neonErr);
         }
       }
     } else {

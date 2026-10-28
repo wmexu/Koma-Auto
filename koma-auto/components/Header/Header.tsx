@@ -91,9 +91,10 @@ export default function Header() {
                 body: JSON.stringify({
                   userId: currentUser.uid,
                   email: currentUser.email,
-                  fullName: currentUser.displayName || profile?.name || null,
-                  phone: currentUser.phoneNumber || profile?.phone || null,
+                  fullName: profile?.name || currentUser.displayName || null,
+                  phone: profile?.phone || currentUser.phoneNumber || null,
                   clientType: profile?.clientType || 'retail',
+                  isExplicitUpdate: false,
                 }),
               }).catch(syncErr => console.warn('[UserSync] Background sync error:', syncErr));
             }
@@ -108,19 +109,14 @@ export default function Header() {
             if (roleRes.ok) {
               const roleData = await roleRes.json();
               dbFullName = roleData.fullName || null;
-              if (roleData.role) {
-                if (!profile) profile = {};
-                if (profile.role !== roleData.role) {
-                  profile.role = roleData.role;
-                  // sync to Firestore
-                  setDoc(doc(db, 'users', currentUser.uid), { role: roleData.role }, { merge: true }).catch(() => {});
-                }
+              if (roleData.role && profile) {
+                profile.role = roleData.role;
+                setDoc(doc(db, 'users', currentUser.uid), { role: roleData.role }, { merge: true }).catch(() => {});
               }
             }
 
-            // If Firestore document lacks full name, but DB has established name, sync it
-            if (!profile) profile = {};
-            if (!profile.name && dbFullName) {
+            // If Firestore document exists and lacks full name, but DB has established name, sync it
+            if (profile && !profile.name && dbFullName) {
               profile.name = dbFullName;
               setDoc(doc(db, 'users', currentUser.uid), { name: dbFullName }, { merge: true }).catch(() => {});
             }

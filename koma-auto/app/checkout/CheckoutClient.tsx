@@ -454,11 +454,17 @@ export default function CheckoutClient() {
     if (formData.paymentMethod === 'online') {
       setIsSubmitting(true);
       try {
+        const fullAddress = formData.deliveryMethod === 'courier'
+          ? `г. ${formData.city}, ул. ${formData.street}, д. ${formData.house}${formData.apartment ? `, кв. ${formData.apartment}` : ''}${formData.entrance ? `, подъезд ${formData.entrance}` : ''}${formData.postalCode ? `, инд. ${formData.postalCode}` : ''}`
+          : 'Самовывоз: г. Алматы, Car City 1 ярус Подвал';
+
         const res = await fetch('/api/epay/create-payment', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             amount: finalPrice,
+            itemsPrice: totalPrice,
+            deliveryCost: calculatedDelivery,
             promoCode: appliedPromo?.code || undefined,
             name: fullName,
             phone: formattedPhone,
@@ -466,6 +472,8 @@ export default function CheckoutClient() {
             origin: window.location.origin,
             deliveryMethod: formData.deliveryMethod,
             city: formData.city,
+            address: fullAddress,
+            userId: user?.uid || null,
             comment: isTestMode
               ? 'ТЕСТОВЫЙ ЗАКАЗ. ИГНОРИРУЙТЕ'
               : formData.comment,
@@ -474,6 +482,10 @@ export default function CheckoutClient() {
               name: item.name,
               price: item.price,
               quantity: item.quantity,
+              article: item.article || item.oem || '',
+              oem: item.oem || item.article || '',
+              brand: item.brand || '',
+              image: item.image || (item.images && item.images[0]) || '',
             })),
           }),
         });
@@ -482,11 +494,6 @@ export default function CheckoutClient() {
         if (!res.ok || !data.success) {
           throw new Error(data.error || 'Ошибка при обращении к платёжной системе');
         }
-
-        // Create and persist the Order in local storage and database
-        const fullAddress = formData.deliveryMethod === 'courier'
-          ? `г. ${formData.city}, ул. ${formData.street}, д. ${formData.house}${formData.apartment ? `, кв. ${formData.apartment}` : ''}${formData.entrance ? `, подъезд ${formData.entrance}` : ''}${formData.postalCode ? `, инд. ${formData.postalCode}` : ''}`
-          : 'Самовывоз: г. Алматы, Car City 1 ярус Подвал';
 
         const order: Order = {
           id: data.invoiceId,

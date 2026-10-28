@@ -363,27 +363,13 @@ export default function ProfileClient() {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
       
-      // Auto-sync Google user to PostgreSQL database (protect existing real name)
       if (user && user.email) {
-        user.getIdToken().then(async (idToken) => {
-          // If Firestore doesn't have a doc for this new UID, check if another doc or DB has profile
-          try {
-            const currentDoc = await getDoc(doc(db, 'users', user.uid));
-            if (!currentDoc.exists()) {
-              const q = query(collection(db, 'users'), where('email', '==', user.email));
-              const snap = await getDocs(q);
-              if (!snap.empty) {
-                const existingData = snap.docs[0].data();
-                if (existingData && existingData.name) {
-                  await setDoc(doc(db, 'users', user.uid), existingData, { merge: true });
-                  setUserProfile(existingData as any);
-                  localStorage.setItem('koma_cached_user_name', existingData.name);
-                  window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: existingData.name }));
-                }
-              }
-            }
-          } catch {}
+        // Pre-fill name state from Google if user has not typed one yet
+        if (user.displayName) {
+          setName(user.displayName);
+        }
 
+        user.getIdToken().then(async (idToken) => {
           fetch('/api/user/sync', {
             method: 'POST',
             headers: {
@@ -399,14 +385,6 @@ export default function ProfileClient() {
               clientType: 'retail',
               isExplicitUpdate: false,
             }),
-          }).then(async (res) => {
-            if (res.ok) {
-              const syncData = await res.json();
-              if (syncData.user?.fullName) {
-                localStorage.setItem('koma_cached_user_name', syncData.user.fullName);
-                window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: syncData.user.fullName }));
-              }
-            }
           }).catch(console.warn);
         }).catch(console.warn);
       }
@@ -482,16 +460,21 @@ export default function ProfileClient() {
       return;
     }
     
+    const isGoogleUser = Boolean(user?.providerData?.some(p => p.providerId === 'google.com'));
+
     const newErrors: {name?: string, dob?: string, password?: string, confirmPassword?: string} = {};
     let hasEmptyFields = false;
 
     if (!name.trim()) { newErrors.name = 'Заполните это поле'; hasEmptyFields = true; }
     if (!dob) { newErrors.dob = 'Заполните это поле'; hasEmptyFields = true; }
-    if (!completePassword) { newErrors.password = 'Заполните это поле'; hasEmptyFields = true; }
-    if (!completeConfirmPassword) { newErrors.confirmPassword = 'Заполните это поле'; hasEmptyFields = true; }
+    
+    if (!isGoogleUser) {
+      if (!completePassword) { newErrors.password = 'Заполните это поле'; hasEmptyFields = true; }
+      if (!completeConfirmPassword) { newErrors.confirmPassword = 'Заполните это поле'; hasEmptyFields = true; }
 
-    if (completePassword && completeConfirmPassword && completePassword !== completeConfirmPassword) {
-      newErrors.confirmPassword = 'Пароли не совпадают';
+      if (completePassword && completeConfirmPassword && completePassword !== completeConfirmPassword) {
+        newErrors.confirmPassword = 'Пароли не совпадают';
+      }
     }
 
     if (name.trim()) {
@@ -516,7 +499,7 @@ export default function ProfileClient() {
 
     setIsLoading(true);
     try {
-      if (completePassword) {
+      if (!isGoogleUser && completePassword) {
         await updatePassword(user, completePassword);
       }
 
@@ -689,6 +672,13 @@ export default function ProfileClient() {
     }
   };
 
+  // Pre-fill name from Google display name if name is empty
+  useEffect(() => {
+    if (user && !name && user.displayName) {
+      setName(user.displayName);
+    }
+  }, [user]);
+
   if (isAuthLoading) {
     return (
       <div className={styles.pageContainer}>
@@ -699,15 +689,17 @@ export default function ProfileClient() {
     );
   }
 
-  // If user is logged in, show their profile info
+  // If user is logged in, verify whether profile data is fully completed
   if (user) {
-    if (!userProfile) {
+    if (!userProfile || !userProfile.name || !userProfile.dob) {
+      const isGoogleUser = Boolean(user?.providerData?.some(p => p.providerId === 'google.com'));
+
       return (
         <div className={styles.pageContainer}>
           <div className={styles.authCard}>
-            <h1 className={styles.title}>Остался один шаг</h1>
+            <h1 className={styles.title}>Осталось заполнить некоторые данные</h1>
             <p style={{ textAlign: 'center', marginBottom: '24px', color: 'var(--color-dark-gray)' }}>
-              Пожалуйста, заполните недостающие данные для завершения регистрации.
+              Пожалуйста, укажите ваши данные для завершения регистрации.
             </p>
             <form className={styles.form} onSubmit={handleCompleteRegistration} noValidate>
               <div className={styles.inputGroup}>
@@ -745,44 +737,49 @@ export default function ProfileClient() {
                 />
                 {errors.dob && <span className={styles.errorText}>{errors.dob}</span>}
               </div>
-              <div className={styles.inputGroup}>
-                <label htmlFor="complete-password" className={`${styles.label} ${errors.password ? styles.labelError : ''}`}>Создайте пароль</label>
-                <div className={styles.passwordWrapper}>
-                  <input
-                    id="complete-password"
-                    type={showPassword ? "text" : "password"}
-                    value={completePassword}
-                    onChange={(e) => {
-                      setCompletePassword(e.target.value);
-                      if (errors.password) setErrors(prev => ({ ...prev, password: undefined }));
-                    }}
-                    placeholder="Введите пароль"
-                    className={`${styles.input} ${styles.passwordInput} ${errors.password ? styles.inputError : ''}`}
-                    required
-                  />
-                  <button type="button" className={styles.passwordToggle} onClick={() => setShowPassword(!showPassword)} tabIndex={-1}>
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-                {errors.password && <span className={styles.errorText}>{errors.password}</span>}
-              </div>
-              
-              <div className={styles.inputGroup}>
-                <label htmlFor="complete-confirmPassword" className={`${styles.label} ${errors.confirmPassword ? styles.labelError : ''}`}>Подтвердите пароль</label>
-                <input
-                  id="complete-confirmPassword"
-                  type={showPassword ? "text" : "password"}
-                  value={completeConfirmPassword}
-                  onChange={(e) => {
-                    setCompleteConfirmPassword(e.target.value);
-                    if (errors.confirmPassword) setErrors(prev => ({ ...prev, confirmPassword: undefined }));
-                  }}
-                  placeholder="Подтвердите пароль"
-                  className={`${styles.input} ${errors.confirmPassword ? styles.inputError : ''}`}
-                  required
-                />
-                {errors.confirmPassword && <span className={styles.errorText}>{errors.confirmPassword}</span>}
-              </div>
+
+              {!isGoogleUser && (
+                <>
+                  <div className={styles.inputGroup}>
+                    <label htmlFor="complete-password" className={`${styles.label} ${errors.password ? styles.labelError : ''}`}>Создайте пароль</label>
+                    <div className={styles.passwordWrapper}>
+                      <input
+                        id="complete-password"
+                        type={showPassword ? "text" : "password"}
+                        value={completePassword}
+                        onChange={(e) => {
+                          setCompletePassword(e.target.value);
+                          if (errors.password) setErrors(prev => ({ ...prev, password: undefined }));
+                        }}
+                        placeholder="Введите пароль"
+                        className={`${styles.input} ${styles.passwordInput} ${errors.password ? styles.inputError : ''}`}
+                        required
+                      />
+                      <button type="button" className={styles.passwordToggle} onClick={() => setShowPassword(!showPassword)} tabIndex={-1}>
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                    {errors.password && <span className={styles.errorText}>{errors.password}</span>}
+                  </div>
+                  
+                  <div className={styles.inputGroup}>
+                    <label htmlFor="complete-confirmPassword" className={`${styles.label} ${errors.confirmPassword ? styles.labelError : ''}`}>Подтвердите пароль</label>
+                    <input
+                      id="complete-confirmPassword"
+                      type={showPassword ? "text" : "password"}
+                      value={completeConfirmPassword}
+                      onChange={(e) => {
+                        setCompleteConfirmPassword(e.target.value);
+                        if (errors.confirmPassword) setErrors(prev => ({ ...prev, confirmPassword: undefined }));
+                      }}
+                      placeholder="Подтвердите пароль"
+                      className={`${styles.input} ${errors.confirmPassword ? styles.inputError : ''}`}
+                      required
+                    />
+                    {errors.confirmPassword && <span className={styles.errorText}>{errors.confirmPassword}</span>}
+                  </div>
+                </>
+              )}
 
               <div className={styles.inputGroup}>
                 <label htmlFor="complete-clientType" className={styles.label}>Укажите тип клиента:</label>
