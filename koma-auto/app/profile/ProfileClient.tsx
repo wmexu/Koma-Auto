@@ -13,15 +13,29 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   updatePassword,
-  deleteUser
+  deleteUser,
+  sendEmailVerification,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
-import { User as UserIcon, Mail, Calendar, Briefcase, Clock, LogOut, Package, Pencil, Eye, EyeOff, Shield, ArrowRight, KeyRound, ArrowUpDown, ChevronDown, Layers } from 'lucide-react';
+import { User as UserIcon, Mail, Calendar, Briefcase, Clock, LogOut, Package, Pencil, Eye, EyeOff, Shield, ArrowRight, KeyRound, ArrowUpDown, ChevronDown, Layers, CheckCircle2, RefreshCw, X, AlertCircle } from 'lucide-react';
 import OrdersHistory from '@/components/Orders/OrdersHistory';
 import styles from './Profile.module.css';
 
 export default function ProfileClient() {
+  const { 
+    user, 
+    userProfile, 
+    isLoading: isAuthLoading, 
+    isProfileLoaded, 
+    isProfileLoading, 
+    setUser,
+    setUserProfile 
+  } = useAuthStore();
+  const { addToast } = useToastStore();
+  const router = useRouter();
+
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -50,6 +64,90 @@ export default function ProfileClient() {
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const [staffTokenInput, setStaffTokenInput] = useState('');
   const [isActivatingRole, setIsActivatingRole] = useState(false);
+
+  // Email Verification & Password Reset state
+  const [isCheckingEmailVerification, setIsCheckingEmailVerification] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
+
+  const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [isSendingResetEmail, setIsSendingResetEmail] = useState(false);
+  const [resetEmailSentSuccess, setResetEmailSentSuccess] = useState(false);
+  const [resetEmailError, setResetEmailError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown(prev => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  const handleCheckEmailVerification = async () => {
+    if (!user) return;
+    setIsCheckingEmailVerification(true);
+    try {
+      await user.reload();
+      if (auth.currentUser?.emailVerified) {
+        addToast('Email успешно подтвержден! Добро пожаловать.', 'success');
+        setUser({ ...auth.currentUser } as any);
+      } else {
+        addToast('Email еще не подтвержден. Проверьте почту и перейдите по ссылке.', 'info');
+      }
+    } catch (err: any) {
+      addToast('Ошибка проверки статуса почты', 'error');
+    } finally {
+      setIsCheckingEmailVerification(false);
+    }
+  };
+
+  const handleResendVerificationEmail = async () => {
+    if (!user || resendCooldown > 0) return;
+    setIsResendingVerification(true);
+    try {
+      await sendEmailVerification(user);
+      setResendCooldown(60);
+      addToast(`Письмо для подтверждения отправлено на ${user.email}`, 'success');
+    } catch (err: any) {
+      if (err.code === 'auth/too-many-requests') {
+        addToast('Слишком много запросов. Подождите немного.', 'error');
+      } else {
+        addToast('Не удалось отправить письмо повторно', 'error');
+      }
+    } finally {
+      setIsResendingVerification(false);
+    }
+  };
+
+  const handleSendPasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanResetEmail = resetEmail.trim().toLowerCase();
+    if (!cleanResetEmail) {
+      setResetEmailError('Пожалуйста, введите ваш email');
+      return;
+    }
+    setResetEmailError(null);
+    setIsSendingResetEmail(true);
+    try {
+      await sendPasswordResetEmail(auth, cleanResetEmail);
+      setResetEmailSentSuccess(true);
+      addToast('Инструкция по сбросу пароля отправлена!', 'success');
+    } catch (err: any) {
+      console.error('Password reset error:', err);
+      if (err.code === 'auth/user-not-found') {
+        setResetEmailError('Пользователь с таким email не найден');
+      } else if (err.code === 'auth/invalid-email') {
+        setResetEmailError('Некорректный формат email');
+      } else if (err.code === 'auth/too-many-requests') {
+        setResetEmailError('Слишком много запросов. Попробуйте через пару минут.');
+      } else {
+        setResetEmailError('Ошибка отправки письма. Попробуйте позже.');
+      }
+    } finally {
+      setIsSendingResetEmail(false);
+    }
+  };
 
   const handleActivateStaffRole = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,17 +248,6 @@ export default function ProfileClient() {
 
   // Validation errors state
   const [errors, setErrors] = useState<{name?: string, dob?: string, email?: string, password?: string, confirmPassword?: string}>({});
-
-  const { 
-    user, 
-    userProfile, 
-    isLoading: isAuthLoading, 
-    isProfileLoaded, 
-    isProfileLoading, 
-    setUserProfile 
-  } = useAuthStore();
-  const { addToast } = useToastStore();
-  const router = useRouter();
 
   const validateFullName = (fullName: string) => {
     const trimmed = fullName.trim();
@@ -293,6 +380,14 @@ export default function ProfileClient() {
         if (name) {
           await updateProfile(user, { displayName: name });
         }
+
+        // Send Email Verification immediately for manual email/password registrations
+        try {
+          await sendEmailVerification(user);
+        } catch (vErr) {
+          console.warn('[Register] sendEmailVerification error:', vErr);
+        }
+        setResendCooldown(60);
 
         const profileData = {
           name: name || '',
@@ -679,6 +774,83 @@ export default function ProfileClient() {
 
   // If user is logged in, verify whether profile data is fully completed
   if (user) {
+    const isGoogleUser = Boolean(user?.providerData?.some(p => p.providerId === 'google.com'));
+
+    // 1. Mandatory Email Verification Guard for manual (email/password) accounts
+    if (!isGoogleUser && !user.emailVerified) {
+      return (
+        <div className={styles.pageContainer}>
+          <div className={styles.authCard} style={{ maxWidth: '480px', textAlign: 'center' }}>
+            <div className={styles.verificationIconWrap}>
+              <Mail size={38} color="var(--color-navy)" />
+            </div>
+
+            <h1 className={styles.title} style={{ margin: '0 0 8px 0', fontSize: '22px' }}>
+              Подтвердите ваш Email
+            </h1>
+
+            <p style={{ color: '#64748b', fontSize: '14px', lineHeight: 1.5, marginBottom: '20px' }}>
+              Мы отправили письмо со ссылкой для активации на адрес:<br />
+              <strong style={{ color: 'var(--color-navy)', fontSize: '15px' }}>{user.email}</strong>
+            </p>
+
+            <div className={styles.verificationInfoBox}>
+              <p style={{ margin: 0, fontSize: '13px', color: '#475569' }}>
+                Пожалуйста, откройте вашу почту и нажмите на ссылку в письме. Если письма нет во входящих, обязательно проверьте папку <strong>«Спам»</strong> или <strong>«Рассылки»</strong>.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '22px', width: '100%' }}>
+              <button
+                type="button"
+                className={styles.submitBtn}
+                onClick={handleCheckEmailVerification}
+                disabled={isCheckingEmailVerification}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              >
+                <CheckCircle2 size={18} />
+                <span>{isCheckingEmailVerification ? 'Проверка...' : 'Я подтвердил(а) почту'}</span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={handleResendVerificationEmail}
+                disabled={resendCooldown > 0 || isResendingVerification}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              >
+                <RefreshCw size={16} className={isResendingVerification ? styles.spinning : ''} />
+                <span>
+                  {resendCooldown > 0
+                    ? `Отправить повторно через ${resendCooldown}с`
+                    : isResendingVerification
+                    ? 'Отправка...'
+                    : 'Отправить письмо повторно'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSignOut}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#64748b',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: '8px',
+                  marginTop: '4px',
+                }}
+              >
+                Войти под другим аккаунтом
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     if (!userProfile || !userProfile.name || !userProfile.dob) {
       const isGoogleUser = Boolean(user?.providerData?.some(p => p.providerId === 'google.com'));
 
@@ -1339,7 +1511,17 @@ export default function ProfileClient() {
           )}
 
           {activeTab === 'login' && (
-            <a href="#" className={styles.forgotPassword} onClick={(e) => e.preventDefault()}>
+            <a
+              href="#"
+              className={styles.forgotPassword}
+              onClick={(e) => {
+                e.preventDefault();
+                setResetEmail(email.trim());
+                setResetEmailSentSuccess(false);
+                setResetEmailError(null);
+                setIsResetPasswordModalOpen(true);
+              }}
+            >
               Забыли пароль?
             </a>
           )}
@@ -1379,6 +1561,108 @@ export default function ProfileClient() {
           </svg>
           Войти через Google
         </button>
+
+        {/* PASSWORD RESET MODAL */}
+        {isResetPasswordModalOpen && (
+          <div className={styles.modalOverlay} onClick={() => !isSendingResetEmail && setIsResetPasswordModalOpen(false)}>
+            <div className={styles.modalContent} onClick={e => e.stopPropagation()} style={{ textAlign: 'left', maxWidth: '440px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <KeyRound size={20} color="var(--color-navy)" />
+                  <h3 className={styles.modalTitle} style={{ margin: 0, fontSize: '18px' }}>Восстановление пароля</h3>
+                </div>
+                <button
+                  type="button"
+                  className={styles.modalCloseBtn}
+                  onClick={() => setIsResetPasswordModalOpen(false)}
+                  disabled={isSendingResetEmail}
+                  aria-label="Закрыть"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {resetEmailSentSuccess ? (
+                <div style={{ textAlign: 'center', padding: '10px 0 16px' }}>
+                  <div style={{
+                    width: '56px',
+                    height: '56px',
+                    borderRadius: '50%',
+                    background: '#ecfdf5',
+                    color: '#059669',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                  }}>
+                    <CheckCircle2 size={32} />
+                  </div>
+                  <h4 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--color-navy)', margin: '0 0 8px 0' }}>
+                    Письмо отправлено!
+                  </h4>
+                  <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.5, margin: '0 0 20px 0' }}>
+                    Инструкция по сбросу пароля отправлена на адрес:<br />
+                    <strong style={{ color: 'var(--color-navy)' }}>{resetEmail}</strong>.
+                    <br />
+                    Перейдите по ссылке в письме, чтобы задать новый пароль.
+                  </p>
+                  <button
+                    type="button"
+                    className={styles.submitBtn}
+                    onClick={() => setIsResetPasswordModalOpen(false)}
+                    style={{ width: '100%' }}
+                  >
+                    Понятно, вернуться к входу
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleSendPasswordReset}>
+                  <p className={styles.modalDesc} style={{ fontSize: '13px', color: '#64748b', marginBottom: '16px', lineHeight: 1.45 }}>
+                    Укажите адрес электронной почты вашей учетной записи. Мы вышлем безопасную ссылку для сброса пароля.
+                  </p>
+
+                  <div className={styles.inputGroup} style={{ marginBottom: '16px' }}>
+                    <label htmlFor="reset-email" className={styles.label}>Email аккаунта</label>
+                    <input
+                      id="reset-email"
+                      type="email"
+                      value={resetEmail}
+                      onChange={(e) => {
+                        setResetEmail(e.target.value);
+                        if (resetEmailError) setResetEmailError(null);
+                      }}
+                      placeholder="user@example.com"
+                      className={`${styles.input} ${resetEmailError ? styles.inputError : ''}`}
+                      required
+                      autoFocus
+                    />
+                    {resetEmailError && <span className={styles.errorText}>{resetEmailError}</span>}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                    <button
+                      type="button"
+                      className={styles.secondaryBtn}
+                      onClick={() => setIsResetPasswordModalOpen(false)}
+                      disabled={isSendingResetEmail}
+                      style={{ flex: 1 }}
+                    >
+                      Отмена
+                    </button>
+                    <button
+                      type="submit"
+                      className={styles.submitBtn}
+                      disabled={isSendingResetEmail}
+                      style={{ flex: 1.4 }}
+                    >
+                      {isSendingResetEmail ? 'Отправка...' : 'Отправить ссылку'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
 
 
       </div>

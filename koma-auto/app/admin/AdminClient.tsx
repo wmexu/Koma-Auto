@@ -71,6 +71,7 @@ export default function AdminClient() {
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [searchedUsers, setSearchedUsers] = useState<any[]>([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
+  const [isBoundSearchFocused, setIsBoundSearchFocused] = useState(false);
   const [isPromoConfigModalOpen, setIsPromoConfigModalOpen] = useState(false);
 
   // Users state
@@ -260,15 +261,15 @@ export default function AdminClient() {
     }
   }, [activeTab, isDirector, user?.uid]);
 
-  // Autocomplete search for user email
+  // Autocomplete search for user email in promocodes
   useEffect(() => {
-    if (!boundUserSearch.trim() || !user?.uid) {
-      setSearchedUsers([]);
+    if (!user?.uid || !isDirector || activeTab !== 'promocodes') {
       return;
     }
     const timer = setTimeout(() => {
       setIsSearchingUsers(true);
-      adminFetch(`/api/admin/users?q=${encodeURIComponent(boundUserSearch)}`)
+      const queryParam = boundUserSearch.trim() ? `?q=${encodeURIComponent(boundUserSearch.trim())}` : '';
+      adminFetch(`/api/admin/users${queryParam}`)
         .then(res => res.json())
         .then(data => {
           if (data.success) {
@@ -277,10 +278,11 @@ export default function AdminClient() {
             setSearchedUsers(filtered);
           }
         })
+        .catch(console.warn)
         .finally(() => setIsSearchingUsers(false));
-    }, 250);
+    }, 200);
     return () => clearTimeout(timer);
-  }, [boundUserSearch, selectedUsers, user?.uid]);
+  }, [boundUserSearch, selectedUsers, user?.uid, isDirector, activeTab]);
 
   // Handle Verify Order (visual code match confirmed by staff)
   const handleVerifyCode = async (e?: React.FormEvent) => {
@@ -1457,28 +1459,22 @@ export default function AdminClient() {
                               onClick={() => {
                                 setSelectedUsers(prev => prev.filter(x => x.id !== u.id));
                               }}
+                              title="Удалить привязку"
                             >
-                              Открепить
+                              <X size={14} />
                             </button>
                           </div>
                         ))}
-                        {!isAddingUser && (
-                          <button
-                            type="button"
-                            onClick={() => setIsAddingUser(true)}
-                            style={{ background: '#f1f5f9', border: '1px dashed #94a3b8', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontWeight: 700, color: 'var(--color-navy)', cursor: 'pointer' }}
-                          >
-                            + Добавить ещё
-                          </button>
-                        )}
                       </div>
                     </div>
                   )}
 
-                  {/* Search box & label that smoothly collapses when at least 1 user is selected and not adding */}
-                  <div className={`${styles.userBindingCollapsible} ${(selectedUsers.length > 0 && !isAddingUser) ? styles.userBindingCollapsed : styles.userBindingExpanded}`}>
+                  {/* Search box & Dropdown: permanently visible, allowing instant user selection */}
+                  <div>
                     <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>
-                      {selectedUsers.length > 0 ? 'Добавить ещё покупателя (поиск по email):' : 'Для кого (выбор): привязать к конкретным покупателям'}
+                      {selectedUsers.length > 0 
+                        ? 'Добавить ещё покупателя (поиск по email или имени):' 
+                        : 'Для кого (выбор): привязать к конкретным покупателям'}
                     </label>
                     <div style={{ position: 'relative' }}>
                       <input
@@ -1486,25 +1482,36 @@ export default function AdminClient() {
                         className={styles.inputField}
                         placeholder="Введите email или имя покупателя для поиска..."
                         value={boundUserSearch}
-                        onChange={e => setBoundUserSearch(e.target.value)}
+                        onChange={e => {
+                          setBoundUserSearch(e.target.value);
+                          setIsBoundSearchFocused(true);
+                        }}
+                        onFocus={() => setIsBoundSearchFocused(true)}
+                        onBlur={() => {
+                          setTimeout(() => setIsBoundSearchFocused(false), 250);
+                        }}
                         style={{ margin: 0, fontFamily: 'var(--font-geist-sans), sans-serif' }}
                       />
-                      {searchedUsers.length > 0 && (
+                      {isSearchingUsers && (
+                        <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#94a3b8' }}>
+                          Поиск...
+                        </span>
+                      )}
+                      {isBoundSearchFocused && searchedUsers.length > 0 && (
                         <div className={styles.autocompleteList}>
                           {searchedUsers.map(u => (
                             <div
                               key={u.id}
                               className={styles.autocompleteItem}
-                              onClick={() => {
+                              onMouseDown={(e) => {
+                                e.preventDefault();
                                 if (!selectedUsers.some(x => x.id === u.id)) {
                                   setSelectedUsers(prev => [...prev, u]);
                                 }
                                 setBoundUserSearch('');
-                                setSearchedUsers([]);
-                                setIsAddingUser(false);
                               }}
                             >
-                              <span>{u.email} ({u.full_name || 'Покупатель'})</span>
+                              <span><strong>{u.email}</strong> {u.full_name ? `(${u.full_name})` : ''}</span>
                               <span style={{ fontSize: '11px', color: '#64748b' }}>
                                 {u.role === 'wholesale' ? 'Оптовик' : 'Розница'}
                               </span>
