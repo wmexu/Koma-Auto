@@ -5,6 +5,7 @@ import { Order, OrderStatus } from '@/lib/order-types';
 import { createMoySkladOrder, notifyMoySkladOrderPaid, markMoySkladOrderCancelled } from '@/lib/moysklad-order';
 import { verifyEpayPayment } from '@/lib/epay-refund';
 import { client, isDbConfigured } from '@/db';
+import { resolveAndEnsureUserId } from '@/lib/db-users';
 import { verifyStaffSession, getVerifiedCallerUid } from '@/lib/admin-auth';
 import { isKillSwitchActive } from '@/lib/system-settings';
 import { getOrderPickupCode } from '@/lib/pickup-code';
@@ -32,28 +33,7 @@ export async function POST(request: Request) {
     order.notificationSent = false;
     order.pickupCode = getOrderPickupCode(order.id, order.pickupCode);
 
-    // 1. Save in Firestore
-    try {
-      const orderRef = doc(db, 'orders', order.id);
-      await setDoc(orderRef, order, { merge: true });
-
-      if (order.userId) {
-        const userOrderRef = doc(db, 'users', order.userId, 'orders', order.id);
-        await setDoc(userOrderRef, order, { merge: true });
-      }
-    } catch (fbErr) {
-      console.warn('Firestore order save error (continuing):', fbErr);
-    }
-
-    // 2. Create Order in MoySklad (status "Новый", without notification until paid)
-    let moySkladResult = null;
-    try {
-      moySkladResult = await createMoySkladOrder(order);
-    } catch (msErr) {
-      console.error('MoySklad order creation exception:', msErr);
-    }
-
-    // 3. Mirror order & customer to Neon PostgreSQL for staff CRM
+    // 1. Guaranteed Immediate Insert into Neon PostgreSQL for CRM Staff (STEP 1: NEVER BLOCKED BY EXTERNAL SERVICES)
     if (isDbConfigured() && client) {
       try {
         const orderId = String(order.id);
@@ -62,51 +42,13 @@ export async function POST(request: Request) {
         const customerName = order.customer?.name || order.userAccountDetails?.displayName || 'Покупатель';
         const customerPhone = order.customer?.phone || '';
 
-        // Safe user resolution and linking without failing on email/id collisions
-        let linkedUserId: string | null = null;
-        try {
-          if (orderUserId) {
-            const byId = await client`SELECT id, email, role FROM users WHERE id = ${orderUserId} LIMIT 1`;
-            if (byId && byId.length > 0) {
-              linkedUserId = byId[0].id;
-              await client`
-                UPDATE users
-                SET full_name = COALESCE(${customerName}, full_name),
-                    phone = COALESCE(${customerPhone}, phone),
-                    updated_at = NOW()
-                WHERE id = ${linkedUserId};
-              `;
-            } else {
-              const byEmail = await client`SELECT id, email, role FROM users WHERE LOWER(email) = LOWER(${customerEmail}) LIMIT 1`;
-              if (byEmail && byEmail.length > 0) {
-                linkedUserId = byEmail[0].id;
-                await client`
-                  UPDATE users
-                  SET full_name = COALESCE(${customerName}, full_name),
-                      phone = COALESCE(${customerPhone}, phone),
-                      updated_at = NOW()
-                  WHERE id = ${linkedUserId};
-                `;
-              } else {
-                await client`
-                  INSERT INTO users (id, email, full_name, phone, role, updated_at)
-                  VALUES (${orderUserId}, ${customerEmail}, ${customerName}, ${customerPhone}, 'customer', NOW());
-                `;
-                linkedUserId = orderUserId;
-              }
-            }
-          } else {
-            const byEmail = await client`SELECT id FROM users WHERE LOWER(email) = LOWER(${customerEmail}) LIMIT 1`;
-            if (byEmail && byEmail.length > 0) {
-              linkedUserId = byEmail[0].id;
-            }
-          }
-        } catch (uErr) {
-          console.warn('[Orders POST] User sync warning (proceeding with order insert):', uErr);
-          linkedUserId = null;
-        }
+        const linkedUserId = await resolveAndEnsureUserId(
+          orderUserId,
+          customerEmail,
+          customerName,
+          customerPhone
+        );
 
-        // Guaranteed Order Insert into Neon PostgreSQL
         await client`
           INSERT INTO orders (
             id, invoice_id, user_id, amount, items_price, delivery_cost,
@@ -146,6 +88,27 @@ export async function POST(request: Request) {
       } catch (neonErr) {
         console.error('[Orders POST] Neon order insert error:', neonErr);
       }
+    }
+
+    // 2. Save in Firestore
+    try {
+      const orderRef = doc(db, 'orders', order.id);
+      await setDoc(orderRef, order, { merge: true });
+
+      if (order.userId) {
+        const userOrderRef = doc(db, 'users', order.userId, 'orders', order.id);
+        await setDoc(userOrderRef, order, { merge: true });
+      }
+    } catch (fbErr) {
+      console.warn('Firestore order save error (continuing):', fbErr);
+    }
+
+    // 3. Create Order in MoySklad (status "Новый", without notification until paid) - Non-blocking
+    let moySkladResult = null;
+    try {
+      moySkladResult = await createMoySkladOrder(order);
+    } catch (msErr) {
+      console.error('MoySklad order creation exception:', msErr);
     }
 
     return NextResponse.json({
@@ -448,17 +411,78 @@ export async function PATCH(request: Request) {
       console.warn('[Orders PATCH] Firestore access skipped/failed:', fbErr);
     }
 
-    // Mirror status to Neon DB
+    // Mirror status to Neon DB (Guaranteed Update or Upsert)
     if (isDbConfigured() && client) {
       try {
-        await client`
+        const rows = await client`
           UPDATE orders
           SET payment_status = ${status === 'paid' ? 'paid' : status === 'declined' ? 'failed' : 'pending'},
               updated_at = NOW()
-          WHERE id = ${orderId} OR invoice_id = ${orderId};
+          WHERE id = ${orderId} OR invoice_id = ${orderId}
+          RETURNING id;
         `;
+
+        if ((!rows || rows.length === 0) && status === 'paid') {
+          // Order missing in PostgreSQL: recover and insert now
+          const ord = targetOrder;
+          const ordEmail = (ord?.customer?.email || ord?.userAccountDetails?.email || `customer_${orderId}@koma.kz`).toLowerCase().trim();
+          const ordName = ord?.customer?.name || ord?.userAccountDetails?.displayName || 'Покупатель';
+          const ordPhone = ord?.customer?.phone || '';
+          const ordUserId = ord?.userId || ord?.userAccountDetails?.uid || null;
+
+          const linkedUserId = await resolveAndEnsureUserId(
+            ordUserId,
+            ordEmail,
+            ordName,
+            ordPhone
+          );
+
+          const ordAmount = ord?.amount || 0;
+          const ordItemsPrice = ord?.itemsPrice || ordAmount;
+          const ordDeliveryCost = ord?.deliveryCost || 0;
+          const ordDeliveryMethod = ord?.deliveryMethod || 'pickup';
+          const ordAddress = ord?.address || 'Самовывоз: г. Алматы, Car City 1 ярус Подвал';
+          const ordCity = ord?.city || 'Алматы';
+          const ordItems = JSON.stringify(ord?.items || []);
+
+          await client`
+            INSERT INTO orders (
+              id, invoice_id, user_id, amount, items_price, delivery_cost,
+              delivery_method, payment_method, payment_status, fulfillment_status,
+              customer_name, customer_phone, customer_email, delivery_address, city,
+              items, warehouse_id, created_at, updated_at
+            ) VALUES (
+              ${orderId},
+              ${orderId},
+              ${linkedUserId},
+              ${ordAmount},
+              ${ordItemsPrice},
+              ${ordDeliveryCost},
+              ${ordDeliveryMethod},
+              'online',
+              'paid',
+              'assembling',
+              ${ordName},
+              ${ordPhone},
+              ${ordEmail},
+              ${ordAddress},
+              ${ordCity},
+              ${ordItems}::jsonb,
+              'car_city_podval',
+              NOW(),
+              NOW()
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              payment_status = 'paid',
+              fulfillment_status = CASE 
+                WHEN orders.fulfillment_status = 'deleted' THEN 'deleted' 
+                ELSE 'assembling' 
+              END,
+              updated_at = NOW();
+          `;
+        }
       } catch (neonErr) {
-        console.warn('Neon order status sync notice:', neonErr);
+        console.error('[Orders PATCH] Neon order status sync error:', neonErr);
       }
     }
 

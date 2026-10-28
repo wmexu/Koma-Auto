@@ -151,7 +151,14 @@ export default function ProfileClient() {
   // Validation errors state
   const [errors, setErrors] = useState<{name?: string, dob?: string, email?: string, password?: string, confirmPassword?: string}>({});
 
-  const { user, userProfile, isLoading: isAuthLoading, setUserProfile } = useAuthStore();
+  const { 
+    user, 
+    userProfile, 
+    isLoading: isAuthLoading, 
+    isProfileLoaded, 
+    isProfileLoading, 
+    setUserProfile 
+  } = useAuthStore();
   const { addToast } = useToastStore();
   const router = useRouter();
 
@@ -182,13 +189,6 @@ export default function ProfileClient() {
     }
     return '';
   };
-
-  useEffect(() => {
-    if (user && user.displayName && !isNameInitialized) {
-      setName(user.displayName);
-      setIsNameInitialized(true);
-    }
-  }, [user, isNameInitialized]);
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
@@ -364,11 +364,6 @@ export default function ProfileClient() {
       const user = result.user;
       
       if (user && user.email) {
-        // Pre-fill name state from Google if user has not typed one yet
-        if (user.displayName) {
-          setName(user.displayName);
-        }
-
         user.getIdToken().then(async (idToken) => {
           fetch('/api/user/sync', {
             method: 'POST',
@@ -672,18 +667,11 @@ export default function ProfileClient() {
     }
   };
 
-  // Pre-fill name from Google display name if name is empty
-  useEffect(() => {
-    if (user && !name && user.displayName) {
-      setName(user.displayName);
-    }
-  }, [user]);
-
-  if (isAuthLoading) {
+  if (isAuthLoading || isProfileLoading || !isProfileLoaded) {
     return (
       <div className={styles.pageContainer}>
         <div className={styles.authCard} style={{ alignItems: 'center', justifyContent: 'center', minHeight: '400px' }}>
-          <p style={{ color: 'var(--color-navy)' }}>Проверка авторизации...</p>
+          <p style={{ color: 'var(--color-navy)', fontSize: '16px', fontWeight: 500 }}>Загрузка профиля...</p>
         </div>
       </div>
     );

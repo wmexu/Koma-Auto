@@ -5,6 +5,7 @@ import { Order } from '@/lib/order-types';
 import { syncOrderToMoySklad, markMoySkladOrderCancelled } from '@/lib/moysklad-order';
 import { verifyEpayPayment } from '@/lib/epay-refund';
 import { client, isDbConfigured } from '@/db';
+import { resolveAndEnsureUserId } from '@/lib/db-users';
 
 export async function POST(request: Request) {
   try {
@@ -137,6 +138,13 @@ export async function POST(request: Request) {
           const ordCity = updatedOrder?.city || 'Алматы';
           const ordItems = JSON.stringify(updatedOrder?.items || []);
 
+          const linkedUserId = await resolveAndEnsureUserId(
+            ordUserId,
+            custEmail,
+            custName,
+            custPhone
+          );
+
           await client`
             INSERT INTO orders (
               id, invoice_id, user_id, amount, items_price, delivery_cost,
@@ -146,7 +154,7 @@ export async function POST(request: Request) {
             ) VALUES (
               ${ordId},
               ${ordId},
-              ${ordUserId},
+              ${linkedUserId},
               ${ordAmount},
               ${ordItemsPrice},
               ${ordDeliveryCost},

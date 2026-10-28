@@ -10,6 +10,7 @@ import {
 import { getTestPromoConfig } from '@/lib/promocode';
 import { getProductsByIdsFromDb } from '@/lib/products-db';
 import { client, isDbConfigured } from '@/db';
+import { resolveAndEnsureUserId } from '@/lib/db-users';
 import { isKillSwitchActive } from '@/lib/system-settings';
 
 export async function POST(request: Request) {
@@ -154,12 +155,18 @@ export async function POST(request: Request) {
     if (isDbConfigured() && client) {
       try {
         const orderId = String(invoiceId);
-        const orderUserId = userId || null;
         const customerEmail = (email || `customer_${orderId}@koma.kz`).toLowerCase().trim();
         const customerName = name || 'Покупатель';
         const customerPhone = phone || '';
         const cleanAddress = address || (deliveryMethod === 'courier' ? `г. ${city || 'Алматы'}` : 'Самовывоз: г. Алматы, Car City 1 ярус Подвал');
         const cleanCity = city || 'Алматы';
+
+        const linkedUserId = await resolveAndEnsureUserId(
+          userId || null,
+          customerEmail,
+          customerName,
+          customerPhone
+        );
 
         await client`
           INSERT INTO orders (
@@ -170,7 +177,7 @@ export async function POST(request: Request) {
           ) VALUES (
             ${orderId},
             ${orderId},
-            ${orderUserId},
+            ${linkedUserId},
             ${effectiveAmount},
             ${itemsPrice || effectiveAmount},
             ${deliveryCost || 0},
@@ -196,7 +203,7 @@ export async function POST(request: Request) {
             updated_at = NOW();
         `;
       } catch (neonErr) {
-        console.warn('[Epay create-payment] Postgres pre-insert warning:', neonErr);
+        console.error('[Epay create-payment] Postgres pre-insert error:', neonErr);
       }
     }
 

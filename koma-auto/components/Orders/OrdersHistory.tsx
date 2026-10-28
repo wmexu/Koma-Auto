@@ -35,6 +35,22 @@ interface OrdersHistoryProps {
   onActiveCountChange?: (count: number) => void;
 }
 
+function WhatsAppIcon({ size = 16, color = '#10B981', className = '' }: { size?: number; color?: string; className?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ minWidth: size, color: color, display: 'inline-block', verticalAlign: 'middle' }}
+    >
+      <path d="M12.031 2C6.495 2 2 6.495 2 12.031c0 1.768.46 3.493 1.334 5.008L2 22l5.127-1.344c1.464.799 3.111 1.22 4.904 1.22h.004c5.534 0 10.029-4.495 10.029-10.031A10.01 10.01 0 0012.031 2zm0 18.369c-1.547 0-3.064-.416-4.387-1.2l-.315-.187-3.259.855.87-3.178-.205-.327a8.318 8.318 0 01-1.272-4.299c0-4.606 3.748-8.354 8.358-8.354 2.233 0 4.332.869 5.91 2.448a8.31 8.31 0 012.451 5.915c0 4.607-3.748 8.354-8.36 8.354zm4.577-6.257c-.251-.126-1.487-.734-1.718-.818-.23-.084-.398-.126-.566.126-.168.251-.649.818-.796.986-.147.168-.293.189-.544.063-.251-.126-1.06-.391-2.02-1.246-.747-.666-1.252-1.488-1.399-1.74-.147-.251-.016-.387.11-.512.113-.113.251-.293.377-.44.126-.147.168-.251.251-.419.084-.168.042-.315-.021-.44-.063-.126-.566-1.363-.775-1.866-.204-.49-.411-.424-.566-.432-.147-.008-.315-.01-.482-.01-.168 0-.44.063-.67.315-.23.251-.88.86-.88 2.098s.901 2.434 1.027 2.602c.126.168 1.772 2.706 4.294 3.794.6.259 1.069.414 1.435.53.603.192 1.152.165 1.586.1.484-.072 1.487-.608 1.696-1.195.21-.586.21-1.089.147-1.195-.063-.105-.23-.168-.481-.293z" />
+    </svg>
+  );
+}
+
 export default function OrdersHistory({ userId, sectionOrder = 'active_first', onActiveCountChange }: OrdersHistoryProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -360,6 +376,19 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
           </div>
 
           <div className={styles.actionsGroup}>
+            <a
+              href={`https://wa.me/77079194462?text=${encodeURIComponent(
+                `Здраствуйте, я хочу задать вопрос насчёт моего заказа на сайте koma.com.kz: Заказ №${order.id}`
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.whatsappOrderBtn}
+              title="Задать вопрос по заказу в WhatsApp"
+            >
+              <WhatsAppIcon size={16} color="#10B981" />
+              <span>Задать вопрос</span>
+            </a>
+
             <button
               className={styles.detailsBtn}
               onClick={() => setSelectedOrder(order)}
@@ -671,6 +700,19 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
                   <span>Электронный чек</span>
                 </button>
               )}
+
+              <a
+                href={`https://wa.me/77079194462?text=${encodeURIComponent(
+                  `Здраствуйте, я хочу задать вопрос насчёт моего заказа на сайте koma.com.kz: Заказ №${selectedOrder.id}`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.whatsappOrderBtn}
+                title="Задать вопрос по заказу в WhatsApp"
+              >
+                <WhatsAppIcon size={16} color="#10B981" />
+                <span>Задать вопрос</span>
+              </a>
 
               <button className={styles.detailsBtn} onClick={() => setSelectedOrder(null)}>
                 Закрыть

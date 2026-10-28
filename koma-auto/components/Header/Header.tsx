@@ -19,7 +19,16 @@ export default function Header() {
   const pathname = usePathname();
 
   const cartItemsCount = useCartStore((state) => state.getTotalItems());
-  const { user, userProfile, setUser, setUserProfile, isLoading: isAuthLoading, setLoading: setAuthLoading } = useAuthStore();
+  const { 
+    user, 
+    userProfile, 
+    setUser, 
+    setUserProfile, 
+    isLoading: isAuthLoading, 
+    setLoading: setAuthLoading,
+    setProfileLoading,
+    setProfileLoaded,
+  } = useAuthStore();
 
   const [isMounted, setIsMounted] = useState(false);
   const [cachedVisualName, setCachedVisualName] = useState<string | null>(null);
@@ -71,11 +80,13 @@ export default function Header() {
       setUser(currentUser);
 
       if (currentUser) {
+        setProfileLoading(true);
+        setProfileLoaded(false);
         try {
           const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
           let profile = userDoc.exists() ? (userDoc.data() as any) : null;
 
-            // Verify authoritative role from Postgres
+          // Verify authoritative role from Postgres
           try {
             const idToken = await currentUser.getIdToken().catch(() => null);
             
