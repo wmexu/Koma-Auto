@@ -88,7 +88,7 @@ export default function CheckoutClient() {
   const searchParams = useSearchParams();
   const { items, getTotalPrice, clearCart } = useCartStore();
   const { addToast } = useToastStore();
-  const { user } = useAuthStore();
+  const { user, userProfile } = useAuthStore();
   const [isSuccess, setIsSuccess] = useState(false);
   const [lastOrderId, setLastOrderId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -255,19 +255,37 @@ export default function CheckoutClient() {
   });
 
   useEffect(() => {
-    if (user) {
-      const parts = (user.displayName || '').trim().split(/\s+/);
-      const initialFirst = parts[0] || '';
-      const initialLast = parts.slice(1).join(' ') || '';
-      setFormData((prev) => ({
-        ...prev,
-        firstName: prev.firstName || initialFirst,
-        lastName: prev.lastName || initialLast,
-        email: prev.email || user.email || '',
-        phone: prev.phone || (user.phoneNumber ? formatKazakhPhone(user.phoneNumber) : ''),
-      }));
+    // Authoritatively prioritize userProfile.name (what the customer explicitly configured)
+    const authoritativeName = (userProfile?.name || '').trim();
+    const fallbackName = (user?.displayName && !user.displayName.includes('@') ? user.displayName : '').trim();
+    const fullNameToUse = authoritativeName || fallbackName;
+
+    let initialFirst = '';
+    let initialLast = '';
+
+    if (fullNameToUse) {
+      const parts = fullNameToUse.split(/\s+/);
+      if (parts.length >= 2) {
+        // Standard convention: "Фамилия Имя" (e.g. "Манкусов Алан")
+        initialLast = parts[0];
+        initialFirst = parts.slice(1).join(' ');
+      } else {
+        initialFirst = parts[0] || '';
+      }
     }
-  }, [user]);
+
+    const emailToUse = userProfile?.email || user?.email || '';
+    const rawPhone = userProfile?.phone || user?.phoneNumber || '';
+    const phoneToUse = rawPhone ? formatKazakhPhone(rawPhone) : '';
+
+    setFormData((prev) => ({
+      ...prev,
+      firstName: prev.firstName || initialFirst,
+      lastName: prev.lastName || initialLast,
+      email: prev.email || emailToUse,
+      phone: prev.phone || phoneToUse,
+    }));
+  }, [user, userProfile]);
 
   const totalPrice = getTotalPrice();
   
@@ -428,7 +446,7 @@ export default function CheckoutClient() {
             ? {
                 uid: user.uid,
                 email: user.email || formData.email || null,
-                displayName: user.displayName || fullName || null,
+                displayName: userProfile?.name || fullName || user.displayName || null,
                 phone: user.phoneNumber || formattedPhone || null,
               }
             : null,
@@ -532,7 +550,7 @@ export default function CheckoutClient() {
             ? {
                 uid: user.uid,
                 email: user.email || formData.email || null,
-                displayName: user.displayName || fullName || null,
+                displayName: userProfile?.name || fullName || user.displayName || null,
                 phone: user.phoneNumber || formattedPhone || null,
               }
             : null,

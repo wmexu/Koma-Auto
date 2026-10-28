@@ -82,6 +82,32 @@
   border: 1px solid #fecaca;
 }
 
+.statusCompleted {
+  background-color: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.statusReady,
+.statusReadyForPickup {
+  background-color: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  font-weight: 700;
+}
+
+.statusOutForDelivery {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.statusAssembling {
+  background-color: #f8fafc;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
 /* Cancellation Banner */
 .cancellationBanner {
   background-color: #fff5f5;
@@ -275,6 +301,27 @@
 
 .receiptBtn:hover {
   background-color: #d1fae5;
+}
+
+.locationBtn {
+  background-color: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.locationBtn:hover {
+  background-color: #dcfce7;
+  border-color: #86efac;
 }
 
 /* Modal Overlay & Card (Animated, WB/Ozon style) */
@@ -675,6 +722,114 @@
   }
 }
 
+/* Location "Где получить" Modal */
+.locationModalCard {
+  max-width: 580px;
+  width: 100%;
+}
+
+.locationModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.locationStoreInfo {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.locationStoreBadge {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #2563eb;
+  margin-bottom: 4px;
+}
+
+.locationAddressText {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-navy);
+  line-height: 1.4;
+}
+
+.locationHoursBox {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.locationHoursTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-navy);
+  margin-bottom: 10px;
+}
+
+.locationHoursGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.locationHoursRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #334155;
+}
+
+.locationHoursDay {
+  font-weight: 500;
+}
+
+.locationHoursTime {
+  font-weight: 700;
+}
+
+.locationMapWrap {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
+.locationModalActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.openMapBtn {
+  background: #0284c7;
+  color: #ffffff;
+  border: none;
+  padding: 9px 18px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s;
+}
+
+.openMapBtn:hover {
+  background: #0369a1;
+}
+
 @media (max-width: 600px) {
   .orderHeader {
     flex-direction: column;
@@ -685,13 +840,14 @@
   }
   .actionsGroup {
     width: 100%;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: stretch;
   }
-  .detailsBtn, .payBtn, .receiptBtn, .whatsappOrderBtn {
-    width: 100%;
+  .detailsBtn, .payBtn, .receiptBtn, .whatsappOrderBtn, .locationBtn {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 130px;
     min-height: 42px;
     display: flex;
     align-items: center;
@@ -702,7 +858,7 @@
     line-height: 1.25;
     box-sizing: border-box;
   }
-  .detailsBtn svg, .payBtn svg, .receiptBtn svg, .whatsappOrderBtn svg {
+  .detailsBtn svg, .payBtn svg, .receiptBtn svg, .whatsappOrderBtn svg, .locationBtn svg {
     flex-shrink: 0;
     min-width: 16px;
     max-width: 16px;

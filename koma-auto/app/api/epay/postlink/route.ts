@@ -126,7 +126,20 @@ export async function POST(request: Request) {
       if (isDbConfigured() && client) {
         try {
           const ordId = String(invoiceId);
-          const custName = updatedOrder?.customer?.name || data.name || 'Покупатель';
+
+          // Check if order already has an authoritative customer name in DB (protect Cyrillic from Latin translit)
+          const existingOrd = await client`
+            SELECT customer_name, customer_email, user_id FROM orders WHERE id = ${ordId} LIMIT 1;
+          `;
+
+          let custName = updatedOrder?.customer?.name;
+          const hasDbCyrillicName = existingOrd?.[0]?.customer_name && /[а-яА-ЯёЁ]/.test(existingOrd[0].customer_name);
+          if (hasDbCyrillicName) {
+            custName = existingOrd[0].customer_name;
+          } else if (!custName || custName === 'Покупатель') {
+            custName = existingOrd?.[0]?.customer_name || data.name || 'Покупатель';
+          }
+
           const custPhone = updatedOrder?.customer?.phone || data.phone || '';
           const custEmail = (updatedOrder?.customer?.email || data.email || `customer_${ordId}@koma.kz`).toLowerCase().trim();
           const ordUserId = updatedOrder?.userId || null;

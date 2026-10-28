@@ -371,6 +371,7 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
     isDeleted ? 'Удален' :
     isCancelled ? 'Отменен менеджером' :
     isCompleted ? 'Выдан' :
+    order.fulfillment_status === 'ready_for_pickup' ? 'Готов к получению' :
     order.fulfillment_status === 'delivered' ? 'Доставлен по адресу' :
     order.fulfillment_status === 'out_for_delivery' ? 'Передан в доставку' :
     order.fulfillment_status === 'packaging' ? 'Упаковывается' :
@@ -380,6 +381,7 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
     isDeleted ? styles.badgeDeleted :
     isCancelled ? styles.badgeCancelled :
     isCompleted ? styles.badgeCompleted :
+    order.fulfillment_status === 'ready_for_pickup' ? styles.badgeReady :
     order.fulfillment_status === 'delivered' ? styles.badgeDelivered :
     order.fulfillment_status === 'out_for_delivery' ? styles.badgeOutForDelivery :
     order.fulfillment_status === 'packaging' ? styles.badgePackaging :
@@ -444,8 +446,9 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
                   const itemBrand = it.brand || '';
                   const itemImg = it.image || '';
 
-                  return (
-                    <div key={idx} className={styles.itemRow}>
+                  const itemLink = it.id ? `/product/${it.id}` : null;
+                  const rowContent = (
+                    <>
                       <div className={styles.itemImageWrap}>
                         {itemImg ? (
                           <img src={itemImg} alt={itemTitle} className={styles.itemImage} />
@@ -454,7 +457,10 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
                         )}
                       </div>
                       <div className={styles.itemDetails}>
-                        <div className={styles.itemTitle}>{itemTitle}</div>
+                        <div className={styles.itemTitle}>
+                          {itemTitle}
+                          {itemLink && <ExternalLink size={13} style={{ marginLeft: 6, opacity: 0.6, display: 'inline-block', verticalAlign: 'middle' }} />}
+                        </div>
                         <div className={styles.itemMeta}>
                           {itemBrand && <span>Бренд: <strong>{itemBrand}</strong></span>}
                           {itemArticle && <span>Артикул/OEM: <strong>{itemArticle}</strong></span>}
@@ -464,6 +470,22 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
                         <div className={styles.itemUnit}>{itemPrice.toLocaleString('ru-RU')} ₸ × {itemQty} шт.</div>
                         <div className={styles.itemTotal}>{itemTotal.toLocaleString('ru-RU')} ₸</div>
                       </div>
+                    </>
+                  );
+
+                  return itemLink ? (
+                    <Link
+                      key={idx}
+                      href={itemLink}
+                      target="_blank"
+                      className={`${styles.itemRow} ${styles.itemRowLink}`}
+                      title="Открыть товар в новой вкладке"
+                    >
+                      {rowContent}
+                    </Link>
+                  ) : (
+                    <div key={idx} className={styles.itemRow}>
+                      {rowContent}
                     </div>
                   );
                 })}
@@ -543,14 +565,24 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
                     </label>
                     <select
                       className={styles.statusSelectField}
-                      value={order.fulfillment_status}
+                      value={order.fulfillment_status || 'assembling'}
                       disabled={isUpdatingStatus}
                       onChange={(e) => handleUpdateStatus(e.target.value)}
                     >
-                      <option value="assembling">На складе</option>
-                      <option value="packaging">Упаковывается</option>
-                      <option value="out_for_delivery">Передан в доставку</option>
-                      <option value="delivered">Доставлен по адресу</option>
+                      {order.delivery_method === 'pickup' ? (
+                        <>
+                          <option value="assembling">На складе</option>
+                          <option value="packaging">Упаковывается</option>
+                          <option value="ready_for_pickup">Готов к получению</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="assembling">На складе</option>
+                          <option value="packaging">Упаковывается</option>
+                          <option value="out_for_delivery">Передан в доставку</option>
+                          <option value="delivered">Доставлен по адресу</option>
+                        </>
+                      )}
                     </select>
                   </div>
                 )}

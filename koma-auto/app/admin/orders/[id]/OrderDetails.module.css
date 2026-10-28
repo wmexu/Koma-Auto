@@ -130,6 +130,12 @@
   border: 1px solid #a7f3d0;
 }
 
+.badgeReady {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
 .badgeCompleted {
   background: #f0fdf4;
   color: #15803d;
@@ -209,6 +215,23 @@
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
+}
+
+.itemRowLink {
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.itemRowLink:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.itemRowLink:hover .itemTitle {
+  color: #2563eb;
 }
 
 .itemImageWrap {

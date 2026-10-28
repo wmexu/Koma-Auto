@@ -4,6 +4,7 @@ import { User } from 'firebase/auth';
 export interface UserProfile {
   name: string;
   email: string;
+  phone?: string;
   dob: string;
   clientType: string;
   role?: 'customer' | 'wholesale' | 'courier' | 'manager' | 'director' | string;

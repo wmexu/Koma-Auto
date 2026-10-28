@@ -357,25 +357,40 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ error: 'Укажите новый статус' }, { status: 400 });
       }
 
-      const validStatuses = ['assembling', 'packaging', 'out_for_delivery', 'delivered', 'completed', 'cancelled'];
-      if (!validStatuses.includes(status)) {
+      // Normalize status aliases
+      let normalizedStatus = status;
+      if (normalizedStatus === 'ready') normalizedStatus = 'ready_for_pickup';
+      if (normalizedStatus === 'in_assembly') normalizedStatus = 'assembling';
+      if (normalizedStatus === 'packing') normalizedStatus = 'packaging';
+
+      const validStatuses = [
+        'assembling',
+        'packaging',
+        'ready_for_pickup',
+        'out_for_delivery',
+        'delivered',
+        'completed',
+        'cancelled',
+      ];
+      if (!validStatuses.includes(normalizedStatus)) {
         return NextResponse.json({ error: 'Недопустимый статус заказа' }, { status: 400 });
       }
 
       const statusLabels: Record<string, string> = {
         assembling: 'На складе',
         packaging: 'Упаковывается',
+        ready_for_pickup: 'Готов к получению',
         out_for_delivery: 'Передан в доставку',
         delivered: 'Доставлен по адресу',
         completed: 'Выдан',
         cancelled: 'Отменен менеджером',
       };
-      const customStatusText = statusLabels[status] || status;
+      const customStatusText = statusLabels[normalizedStatus] || normalizedStatus;
 
       await client`
         UPDATE orders
         SET 
-          fulfillment_status = ${status},
+          fulfillment_status = ${normalizedStatus},
           updated_at = NOW()
         WHERE id = ${String(orderId)};
       `;
@@ -383,7 +398,7 @@ export async function PATCH(request: Request) {
       try {
         const orderRef = doc(db, 'orders', String(orderId));
         await updateDoc(orderRef, {
-          fulfillmentStatus: status,
+          fulfillmentStatus: normalizedStatus,
           customStatusText,
           updatedAt: new Date().toISOString(),
         });
@@ -396,7 +411,7 @@ export async function PATCH(request: Request) {
         action: 'ORDER_STATUS_CHANGED',
         entityType: 'order',
         entityId: String(orderId),
-        details: { newStatus: status, customStatusText },
+        details: { newStatus: normalizedStatus, customStatusText },
       });
 
       return NextResponse.json({ success: true, message: `Статус заказа изменен на "${customStatusText}"` });

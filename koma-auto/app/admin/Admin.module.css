@@ -472,10 +472,22 @@
 
 .orderItemRow {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   font-size: 13px;
   color: #334155;
   margin-bottom: 4px;
+}
+
+.orderItemRowLink {
+  color: #1e293b;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s ease, text-decoration 0.15s ease;
+}
+
+.orderItemRowLink:hover {
+  color: #2563eb;
+  text-decoration: underline;
 }
 
 .orderCardRight {

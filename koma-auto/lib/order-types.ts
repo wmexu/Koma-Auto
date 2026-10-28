@@ -72,24 +72,30 @@ export interface Order {
 export type OrderFulfillmentStatus = 
   | 'assembling'
   | 'ready_for_pickup'
+  | 'packaging'
   | 'out_for_delivery'
+  | 'delivered'
   | 'completed'
   | 'cancelled';
 
 export function getFulfillmentStatusLabel(status?: OrderFulfillmentStatus): string {
   switch (status) {
+    case 'packaging':
+      return 'Упаковывается';
     case 'assembling':
-      return 'В сборке';
+      return 'На складе';
     case 'ready_for_pickup':
       return 'Готов к получению';
     case 'out_for_delivery':
-      return 'Выдан курьеру';
+      return 'Передан в доставку';
+    case 'delivered':
+      return 'Доставлен по адресу';
     case 'completed':
       return 'Выдан';
     case 'cancelled':
       return 'Отменен';
     default:
-      return 'В сборке';
+      return 'На складе';
   }
 }
 

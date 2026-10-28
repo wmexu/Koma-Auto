@@ -1015,12 +1015,19 @@ export default function AdminClient() {
                                         handleChangeOrderStatus(order.id, e.target.value);
                                       }}
                                     >
-                                      <option value="assembling">На складе</option>
-                                      <option value="packaging">Упаковывается</option>
-                                      <option value="out_for_delivery">Передан в доставку</option>
-                                      <option value="delivered">Доставлен по адресу</option>
-                                      {order.fulfillment_status === 'ready_for_pickup' && (
-                                        <option value="ready_for_pickup">Готов к получению</option>
+                                      {order.delivery_method === 'pickup' ? (
+                                        <>
+                                          <option value="assembling">На складе</option>
+                                          <option value="packaging">Упаковывается</option>
+                                          <option value="ready_for_pickup">Готов к получению</option>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <option value="assembling">На складе</option>
+                                          <option value="packaging">Упаковывается</option>
+                                          <option value="out_for_delivery">Передан в доставку</option>
+                                          <option value="delivered">Доставлен по адресу</option>
+                                        </>
                                       )}
                                     </select>
                                   </div>
@@ -1065,12 +1072,26 @@ export default function AdminClient() {
                                 )}
 
                                 <div className={styles.orderItemsList}>
-                                  {Array.isArray(order.items) && order.items.map((it: any, idx: number) => (
-                                    <div key={idx} className={styles.orderItemRow}>
-                                      <span>{it.name || it.title} ({it.quantity} шт)</span>
-                                      <span>{(Number(it.price) * Number(it.quantity)).toLocaleString('ru-RU')} ₸</span>
-                                    </div>
-                                  ))}
+                                  {Array.isArray(order.items) && order.items.map((it: any, idx: number) => {
+                                    const itemLink = it.id ? `/product/${it.id}` : null;
+                                    return (
+                                      <div key={idx} className={styles.orderItemRow}>
+                                        {itemLink ? (
+                                          <Link
+                                            href={itemLink}
+                                            target="_blank"
+                                            className={styles.orderItemRowLink}
+                                            onClick={(e) => e.stopPropagation()}
+                                            title="Открыть товар в новой вкладке"
+                                          >
+                                            <span>{it.name || it.title} ({it.quantity} шт)</span>
+                                          </Link>
+                                        ) : (
+                                          <span>{it.name || it.title} ({it.quantity} шт)</span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
 

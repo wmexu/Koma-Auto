@@ -51,8 +51,13 @@ export async function POST(request: Request) {
 
       // Protect established real name (e.g. "Алан Манкусов") from being overwritten by OAuth handles (e.g. "wmexu")
       const existingName = byId[0].full_name;
-      const isRealHumanName = Boolean(existingName && existingName.trim().length > 0 && existingName !== 'Покупатель');
-      const finalName = (isRealHumanName && !isExplicitUpdate) ? existingName : (cleanName || existingName);
+      const isExistingReal = Boolean(existingName && existingName.trim().length > 0 && existingName !== 'Покупатель');
+      const isIncomingReal = Boolean(cleanName && cleanName.trim().length >= 2 && cleanName !== 'Покупатель' && !cleanName.includes('@') && cleanName !== cleanEmail.split('@')[0]);
+
+      // If explicit update was requested from Profile editing OR incoming is a valid human name, adopt it
+      const finalName = isExplicitUpdate 
+        ? (cleanName || existingName) 
+        : (isIncomingReal ? cleanName : (isExistingReal ? existingName : (cleanName || existingName)));
 
       await client`
         UPDATE users
@@ -64,6 +69,18 @@ export async function POST(request: Request) {
           updated_at = NOW()
         WHERE id = ${String(userId)};
       `;
+
+      // Authoritative propagation: Keep all customer orders in sync with the unified user name
+      if (finalName && finalName !== 'Покупатель') {
+        await client`
+          UPDATE orders
+          SET customer_name = ${finalName}, updated_at = NOW()
+          WHERE user_id = ${String(userId)}
+             OR (customer_email IS NOT NULL AND LOWER(customer_email) = ${cleanEmail});
+        `.catch((ordErr) => {
+          console.warn('[UserSync] Error updating orders customer_name:', ordErr);
+        });
+      }
 
       return NextResponse.json({
         success: true,
@@ -87,8 +104,12 @@ export async function POST(request: Request) {
       const finalRole = isElevated ? currentRole : (clientType === 'wholesale' ? 'wholesale' : currentRole);
 
       const existingName = byEmail[0].full_name;
-      const isRealHumanName = Boolean(existingName && existingName.trim().length > 0 && existingName !== 'Покупатель');
-      const finalName = (isRealHumanName && !isExplicitUpdate) ? existingName : (cleanName || existingName);
+      const isExistingReal = Boolean(existingName && existingName.trim().length > 0 && existingName !== 'Покупатель');
+      const isIncomingReal = Boolean(cleanName && cleanName.trim().length >= 2 && cleanName !== 'Покупатель' && !cleanName.includes('@') && cleanName !== cleanEmail.split('@')[0]);
+
+      const finalName = isExplicitUpdate 
+        ? (cleanName || existingName) 
+        : (isIncomingReal ? cleanName : (isExistingReal ? existingName : (cleanName || existingName)));
 
       // Re-link foreign keys to the new Firebase UID
       try {
@@ -109,6 +130,19 @@ export async function POST(request: Request) {
           updated_at = NOW()
         WHERE id = ${oldId};
       `;
+
+      // Authoritative propagation: Keep all customer orders in sync with the unified user name
+      if (finalName && finalName !== 'Покупатель') {
+        await client`
+          UPDATE orders
+          SET customer_name = ${finalName}, updated_at = NOW()
+          WHERE user_id = ${String(userId)}
+             OR user_id = ${oldId}
+             OR (customer_email IS NOT NULL AND LOWER(customer_email) = ${cleanEmail});
+        `.catch((ordErr) => {
+          console.warn('[UserSync] Error updating orders customer_name by email:', ordErr);
+        });
+      }
 
       return NextResponse.json({
         success: true,

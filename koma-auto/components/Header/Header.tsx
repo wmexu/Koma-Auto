@@ -92,6 +92,7 @@ export default function Header() {
             
             // Sync user record to PostgreSQL database
             if (currentUser.email) {
+              const hasExplicitProfileName = Boolean(profile?.name && profile.name.trim().length > 0 && profile.name !== 'Покупатель');
               fetch('/api/user/sync', {
                 method: 'POST',
                 headers: {
@@ -102,10 +103,10 @@ export default function Header() {
                 body: JSON.stringify({
                   userId: currentUser.uid,
                   email: currentUser.email,
-                  fullName: profile?.name || currentUser.displayName || null,
+                  fullName: profile?.name || (currentUser.displayName && !currentUser.displayName.includes('@') ? currentUser.displayName : null),
                   phone: profile?.phone || currentUser.phoneNumber || null,
                   clientType: profile?.clientType || 'retail',
-                  isExplicitUpdate: false,
+                  isExplicitUpdate: hasExplicitProfileName,
                 }),
               }).catch(syncErr => console.warn('[UserSync] Background sync error:', syncErr));
             }
@@ -126,8 +127,8 @@ export default function Header() {
               }
             }
 
-            // If Firestore document exists and lacks full name, but DB has established name, sync it
-            if (profile && !profile.name && dbFullName) {
+            // If Firestore document exists and lacks full name, but DB has established real name, sync it
+            if (profile && !profile.name && dbFullName && dbFullName !== 'Покупатель') {
               profile.name = dbFullName;
               setDoc(doc(db, 'users', currentUser.uid), { name: dbFullName }, { merge: true }).catch(() => {});
             }

@@ -22,13 +22,18 @@ export async function resolveAndEnsureUserId(
   try {
     // 1. If cleanUserId is given, check if that exact user exists in PostgreSQL
     if (cleanUserId) {
-      const byId = await client`SELECT id FROM users WHERE id = ${cleanUserId} LIMIT 1`;
+      const byId = await client`SELECT id, full_name FROM users WHERE id = ${cleanUserId} LIMIT 1`;
       if (byId && byId.length > 0) {
-        // Update name and phone if present
-        if (cleanName !== 'Покупатель' || cleanPhone) {
+        const existingFullName = byId[0].full_name;
+        const hasCyrillic = Boolean(existingFullName && /[а-яА-ЯёЁ]/.test(existingFullName));
+        const incomingIsLatinOnly = Boolean(cleanName && !/[а-яА-ЯёЁ]/.test(cleanName));
+        // Protect existing Cyrillic name from being overwritten with transliterated Latin
+        const shouldUpdateName = cleanName !== 'Покупатель' && !(hasCyrillic && incomingIsLatinOnly);
+
+        if (shouldUpdateName || cleanPhone) {
           await client`
             UPDATE users
-            SET full_name = COALESCE(NULLIF(${cleanName}, 'Покупатель'), full_name),
+            SET full_name = CASE WHEN ${shouldUpdateName} THEN COALESCE(NULLIF(${cleanName}, 'Покупатель'), full_name) ELSE full_name END,
                 phone = COALESCE(${cleanPhone}, phone),
                 updated_at = NOW()
             WHERE id = ${cleanUserId};
@@ -40,14 +45,18 @@ export async function resolveAndEnsureUserId(
 
     // 2. Check if a user with this email already exists in PostgreSQL
     if (cleanEmail) {
-      const byEmail = await client`SELECT id FROM users WHERE LOWER(email) = LOWER(${cleanEmail}) LIMIT 1`;
+      const byEmail = await client`SELECT id, full_name FROM users WHERE LOWER(email) = LOWER(${cleanEmail}) LIMIT 1`;
       if (byEmail && byEmail.length > 0) {
         const existingId = byEmail[0].id;
-        // If cleanUserId is provided and different from existingId, relink if needed
-        if (cleanName !== 'Покупатель' || cleanPhone) {
+        const existingFullName = byEmail[0].full_name;
+        const hasCyrillic = Boolean(existingFullName && /[а-яА-ЯёЁ]/.test(existingFullName));
+        const incomingIsLatinOnly = Boolean(cleanName && !/[а-яА-ЯёЁ]/.test(cleanName));
+        const shouldUpdateName = cleanName !== 'Покупатель' && !(hasCyrillic && incomingIsLatinOnly);
+
+        if (shouldUpdateName || cleanPhone) {
           await client`
             UPDATE users
-            SET full_name = COALESCE(NULLIF(${cleanName}, 'Покупатель'), full_name),
+            SET full_name = CASE WHEN ${shouldUpdateName} THEN COALESCE(NULLIF(${cleanName}, 'Покупатель'), full_name) ELSE full_name END,
                 phone = COALESCE(${cleanPhone}, phone),
                 updated_at = NOW()
             WHERE id = ${existingId};

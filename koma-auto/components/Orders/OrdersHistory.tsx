@@ -56,6 +56,7 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
   const [isLoading, setIsLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
+  const [locationModalOrder, setLocationModalOrder] = useState<Order | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
 
   // 1. Load orders on mount and sync
@@ -269,7 +270,7 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
       );
     }
 
-    if (order.fulfillmentStatus === 'ready_for_pickup') {
+    if (order.fulfillmentStatus === 'ready_for_pickup' || (order as any).customStatusText === 'Готов к получению') {
       return (
         <span className={`${styles.statusBadge} ${styles.statusReady}`}>
           <Package size={15} />
@@ -299,6 +300,9 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
   const renderOrderCard = (order: Order) => {
     const effectiveStatus = getEffectiveOrderStatus(order);
     const totalItemsCount = order.items.reduce((acc, i) => acc + i.quantity, 0);
+    const isPickupReady =
+      order.deliveryMethod === 'pickup' &&
+      (order.fulfillmentStatus === 'ready_for_pickup' || (order as any).customStatusText === 'Готов к получению');
 
     return (
       <div key={order.id} className={styles.orderCard}>
@@ -397,6 +401,18 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
               <ChevronRight size={16} />
             </button>
 
+            {isPickupReady && (
+              <button
+                type="button"
+                className={styles.locationBtn}
+                onClick={() => setLocationModalOrder(order)}
+                title="Посмотреть адрес и график работы пункта выдачи"
+              >
+                <MapPin size={16} />
+                <span>Где получить</span>
+              </button>
+            )}
+
             {effectiveStatus === 'pending' && order.paymentUrl && (
               <button
                 className={styles.payBtn}
@@ -411,7 +427,7 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
               </button>
             )}
 
-            {(effectiveStatus === 'paid' || order.fulfillmentStatus === 'completed') && (
+            {(effectiveStatus === 'paid' || order.fulfillmentStatus === 'completed' || isPickupReady) && (
               <button
                 className={styles.receiptBtn}
                 onClick={() => setReceiptOrder(order)}
@@ -701,6 +717,18 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
                 </button>
               )}
 
+              {selectedOrder.deliveryMethod === 'pickup' && (
+                <button
+                  type="button"
+                  className={styles.locationBtn}
+                  onClick={() => setLocationModalOrder(selectedOrder)}
+                  title="Посмотреть адрес и график работы пункта выдачи"
+                >
+                  <MapPin size={16} />
+                  <span>Где получить</span>
+                </button>
+              )}
+
               <a
                 href={`https://wa.me/77079194462?text=${encodeURIComponent(
                   `Здраствуйте, я хочу задать вопрос насчёт моего заказа на сайте koma.com.kz: Заказ №${selectedOrder.id}`
@@ -828,6 +856,89 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
               <button className={styles.detailsBtn} onClick={() => setReceiptOrder(null)}>
                 Закрыть
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. "Где получить" (Location & Schedule) MODAL */}
+      {locationModalOrder && (
+        <div className={styles.modalOverlay} onClick={() => setLocationModalOrder(null)}>
+          <div className={`${styles.modalCard} ${styles.locationModalCard}`} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <MapPin size={20} color="var(--color-navy)" />
+                <h3 className={styles.modalTitle} style={{ margin: 0 }}>Где получить заказ</h3>
+              </div>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setLocationModalOrder(null)}
+                aria-label="Закрыть"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className={styles.locationModalBody}>
+              <div className={styles.locationStoreInfo}>
+                <div className={styles.locationStoreBadge}>Пункт самовывоза KOMA AUTO</div>
+                <div className={styles.locationAddressText}>
+                  Республика Казахстан, г. Алматы, Ауэзовский район, мкр. Баянауыл 57а, ТЦ Car City, 1 ярус, 111 бутик
+                </div>
+              </div>
+
+              <div className={styles.locationHoursBox}>
+                <div className={styles.locationHoursTitle}>
+                  <Clock size={16} />
+                  <span>График работы:</span>
+                </div>
+                <div className={styles.locationHoursGrid}>
+                  <div className={styles.locationHoursRow}>
+                    <span className={styles.locationHoursDay}>Понедельник — Суббота:</span>
+                    <span className={styles.locationHoursTime}>09:00 – 18:00</span>
+                  </div>
+                  <div className={styles.locationHoursRow}>
+                    <span className={styles.locationHoursDay}>Воскресенье:</span>
+                    <span className={styles.locationHoursTime}>09:00 – 18:00</span>
+                  </div>
+                  <div className={styles.locationHoursRow} style={{ color: '#b91c1c' }}>
+                    <span className={styles.locationHoursDay}>Первый понедельник месяца:</span>
+                    <span className={styles.locationHoursTime}>Закрыто (санитарный день)</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className={styles.locationMapWrap}>
+                <iframe
+                  src="https://widgets.2gis.com/widget?type=firmsonmap&options=%7B%22pos%22%3A%7B%22lat%22%3A43.23943484010419%2C%22lon%22%3A76.82228565216066%2C%22zoom%22%3A16%7D%2C%22opt%22%3A%7B%22city%22%3A%22almaty%22%7D%2C%22org%22%3A%2270000001018022676%22%7D"
+                  width="100%"
+                  height="260"
+                  style={{ border: 0, borderRadius: '10px', display: 'block' }}
+                  title="Схема проезда 2GIS"
+                  allowFullScreen
+                  loading="lazy"
+                />
+              </div>
+
+              <div className={styles.locationModalActions}>
+                <a
+                  href="https://2gis.kz/almaty/firm/70000001018022676"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.openMapBtn}
+                >
+                  <ExternalLink size={16} />
+                  <span>Открыть в 2GIS</span>
+                </a>
+                <button
+                  type="button"
+                  className={styles.detailsBtn}
+                  onClick={() => setLocationModalOrder(null)}
+                >
+                  Закрыть
+                </button>
+              </div>
             </div>
           </div>
         </div>
