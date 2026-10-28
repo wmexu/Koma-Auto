@@ -819,3 +819,64 @@
   color: #d97706;
   margin-top: 1px;
 }
+
+
+.oldPriceCrossed {
+  font-size: 18px;
+  color: #94a3b8;
+  text-decoration: line-through;
+  font-weight: 500;
+  -webkit-text-fill-color: #94a3b8;
+}
+
+.finalPayAmount {
+  font-size: 28px;
+  font-weight: 700;
+  background: var(--color-navy-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.activePromoTag {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-top: 12px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.activePromoInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.activePromoDiscount {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+.activePromoRemoveBtn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.activePromoRemoveBtn:hover {
+  color: #ef4444;
+  background: #fee2e2;
+}

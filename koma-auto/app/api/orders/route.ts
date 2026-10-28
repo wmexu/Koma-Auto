@@ -42,6 +42,61 @@ export async function POST(request: Request) {
         const customerName = order.customer?.name || order.userAccountDetails?.displayName || 'Покупатель';
         const customerPhone = order.customer?.phone || '';
 
+        // Server-Side Promocode Re-Verification & Atomic Discount Enforcement
+        if (order.promoCode && typeof order.promoCode === 'string') {
+          try {
+            const promoRows = await client`
+              SELECT 
+                id, code, type, value, min_cart_total, max_cart_total, max_discount,
+                is_active, bound_emails, bound_user_id, usage_limit, used_count
+              FROM promocodes
+              WHERE LOWER(code) = LOWER(${order.promoCode.trim()}) AND is_active = true
+              LIMIT 1;
+            `;
+            if (promoRows && promoRows.length > 0) {
+              const p = promoRows[0];
+              const calculatedRawItems = Array.isArray(order.items)
+                ? order.items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0)
+                : Number(order.itemsPrice) || 0;
+
+              const minCart = Number(p.min_cart_total) || 0;
+              const maxCart = p.max_cart_total ? Number(p.max_cart_total) : null;
+              const meetsMin = calculatedRawItems >= minCart;
+              const meetsMax = !maxCart || calculatedRawItems <= maxCart;
+              const notExhausted = !p.usage_limit || Number(p.used_count) < Number(p.usage_limit);
+
+              const boundEmails: string[] = Array.isArray(p.bound_emails)
+                ? p.bound_emails.map((e: any) => String(e).toLowerCase().trim())
+                : [];
+              const emailAllowed = boundEmails.length === 0 || boundEmails.includes(customerEmail);
+
+              if (meetsMin && meetsMax && notExhausted && emailAllowed) {
+                let discount = 0;
+                if (p.type === 'percent') {
+                  discount = Math.round((calculatedRawItems * Number(p.value)) / 100);
+                  if (p.max_discount && discount > Number(p.max_discount)) {
+                    discount = Number(p.max_discount);
+                  }
+                } else {
+                  discount = Math.min(calculatedRawItems, Number(p.value));
+                }
+
+                const itemsAfterDiscount = Math.max(0, calculatedRawItems - discount);
+                order.itemsPrice = itemsAfterDiscount;
+                order.amount = itemsAfterDiscount + (Number(order.deliveryCost) || 0);
+
+                await client`
+                  UPDATE promocodes 
+                  SET used_count = used_count + 1 
+                  WHERE id = ${p.id};
+                `;
+              }
+            }
+          } catch (promoErr) {
+            console.warn('[Orders POST] Server promocode verification notice:', promoErr);
+          }
+        }
+
         const linkedUserId = await resolveAndEnsureUserId(
           orderUserId,
           customerEmail,

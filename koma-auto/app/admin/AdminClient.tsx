@@ -64,6 +64,7 @@ export default function AdminClient() {
   const [promoType, setPromoType] = useState<'percent' | 'fixed'>('percent');
   const [promoValue, setPromoValue] = useState<number>(1);
   const [minCartTotal, setMinCartTotal] = useState<number>(15000);
+  const [maxCartTotal, setMaxCartTotal] = useState<number | ''>('');
   const [maxDiscount, setMaxDiscount] = useState<number>(15000);
   const [promoAudience, setPromoAudience] = useState<'all' | 'retail' | 'wholesale'>('all');
   const [boundUserSearch, setBoundUserSearch] = useState('');
@@ -158,8 +159,34 @@ export default function AdminClient() {
   useEffect(() => {
     if (isStaff && user?.uid) {
       loadOrders();
+      loadDeletedOrders();
     }
   }, [isStaff, period, statusFilter, userRole, user?.uid]);
+
+  // Live global server search for orders across all time and all statuses (including deleted)
+  useEffect(() => {
+    const cleanQ = orderSearchQuery.trim();
+    if (!cleanQ || cleanQ.length < 2 || !isStaff || !user?.uid) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await adminFetch(`/api/admin/orders?q=${encodeURIComponent(cleanQ)}&role=${userRole}&userId=${user?.uid || ''}`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.orders)) {
+          setOrders(prev => {
+            const map = new Map<string, any>();
+            prev.forEach((o: any) => map.set(o.id, o));
+            data.orders.forEach((o: any) => map.set(o.id, o));
+            return Array.from(map.values());
+          });
+        }
+      } catch (err) {
+        console.warn('Orders search fetch error:', err);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [orderSearchQuery, isStaff, user?.uid, userRole]);
 
   // Real-time auto-refresh: poll every 5 seconds & on window focus/tab visibility
   useEffect(() => {
@@ -586,6 +613,7 @@ export default function AdminClient() {
           type: promoType,
           value: promoValue,
           minCartTotal,
+          maxCartTotal: maxCartTotal ? Number(maxCartTotal) : null,
           maxDiscount: promoType === 'percent' ? maxDiscount : null,
           targetAudience: promoAudience,
           boundUserId: selectedUsers.length === 1 ? selectedUsers[0].id : null,
@@ -870,21 +898,29 @@ export default function AdminClient() {
               let displayedOrders = orders;
 
               if (cleanSearch) {
-                // COMMON GLOBAL SEARCH: searches all orders
-                // Orders matching Order ID go FIRST!
-                displayedOrders = orders
+                // COMMON GLOBAL SEARCH: searches all orders across all time and all statuses
+                // Merge orders with deletedOrders so deleted orders always appear in search
+                const poolMap = new Map<string, any>();
+                orders.forEach(o => poolMap.set(o.id, o));
+                deletedOrders.forEach(o => {
+                  if (!poolMap.has(o.id)) poolMap.set(o.id, o);
+                });
+                const pool = Array.from(poolMap.values());
+
+                displayedOrders = pool
                   .filter(o => {
                     const idMatch = String(o.id || '').toLowerCase().includes(cleanSearch);
+                    const invoiceMatch = String(o.invoice_id || '').toLowerCase().includes(cleanSearch);
                     const nameMatch = String(o.customer_name || '').toLowerCase().includes(cleanSearch);
                     const phoneMatch = String(o.customer_phone || '').replace(/\D/g, '').includes(cleanSearch.replace(/\D/g, ''));
                     const emailMatch = String(o.customer_email || '').toLowerCase().includes(cleanSearch);
-                    return idMatch || nameMatch || phoneMatch || emailMatch;
+                    return idMatch || invoiceMatch || nameMatch || phoneMatch || emailMatch;
                   })
                   .sort((a, b) => {
                     const aId = String(a.id || '').toLowerCase();
                     const bId = String(b.id || '').toLowerCase();
-                    const aExact = aId === cleanSearch;
-                    const bExact = bId === cleanSearch;
+                    const aExact = aId === cleanSearch || String(a.invoice_id || '').toLowerCase() === cleanSearch;
+                    const bExact = bId === cleanSearch || String(b.invoice_id || '').toLowerCase() === cleanSearch;
                     if (aExact && !bExact) return -1;
                     if (!aExact && bExact) return 1;
                     const aStarts = aId.startsWith(cleanSearch);
@@ -2141,6 +2177,25 @@ export default function AdminClient() {
                     onChange={e => setMinCartTotal(Number(e.target.value))}
                     style={{ width: '100%' }}
                   />
+                </div>
+
+                {/* 2b. Максимальная сумма корзины (до) */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-navy)' }}>
+                      Макс. корзина (до ₸, опционально)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={500000}
+                      step={1000}
+                      placeholder="Без ограничений"
+                      value={maxCartTotal}
+                      onChange={e => setMaxCartTotal(e.target.value ? Number(e.target.value) : '')}
+                      className={styles.manualInputBox}
+                    />
+                  </div>
                 </div>
 
                 {/* 3. Потолок скидки */}

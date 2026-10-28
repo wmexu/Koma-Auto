@@ -88,7 +88,7 @@ export async function POST(request: Request) {
         if (promoCode && typeof promoCode === 'string' && isDbConfigured() && client) {
           try {
             const promoRows = await client`
-              SELECT id, code, type, value, min_cart_total, max_discount, is_active, bound_emails, bound_user_id, usage_limit, used_count
+              SELECT id, code, type, value, min_cart_total, max_cart_total, max_discount, is_active, bound_emails, bound_user_id, usage_limit, used_count
               FROM promocodes
               WHERE LOWER(code) = LOWER(${promoCode.trim()}) AND is_active = true
               LIMIT 1;
@@ -96,7 +96,9 @@ export async function POST(request: Request) {
             if (promoRows && promoRows.length > 0) {
               const p = promoRows[0];
               const minCart = Number(p.min_cart_total) || 0;
+              const maxCart = p.max_cart_total ? Number(p.max_cart_total) : null;
               const meetsMin = calculatedItemsTotal >= minCart;
+              const meetsMax = !maxCart || calculatedItemsTotal <= maxCart;
               const notExhausted = !p.usage_limit || Number(p.used_count) < Number(p.usage_limit);
 
               const boundEmails: string[] = Array.isArray(p.bound_emails)
@@ -104,7 +106,7 @@ export async function POST(request: Request) {
                 : [];
               const emailAllowed = boundEmails.length === 0 || (email && boundEmails.includes(email.toLowerCase().trim()));
 
-              if (meetsMin && notExhausted && emailAllowed) {
+              if (meetsMin && meetsMax && notExhausted && emailAllowed) {
                 let discount = 0;
                 if (p.type === 'percent') {
                   discount = (calculatedItemsTotal * Number(p.value)) / 100;

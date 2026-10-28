@@ -16,6 +16,7 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const orderId = searchParams.get('orderId');
+    const q = (searchParams.get('q') || '').trim();
     const period = searchParams.get('period') || '30'; // 30, 60, 360, all
     const status = searchParams.get('status');
     const includeDeleted = searchParams.get('includeDeleted') === 'true';
@@ -54,6 +55,59 @@ export async function GET(request: Request) {
           pickup_code: getOrderPickupCode(ord.id, ord.pickup_code || null),
         },
       });
+    }
+
+    // Global order search by query (searches all orders across all time, including deleted)
+    if (q) {
+      const cleanQ = `%${q}%`;
+      let searchResults: any[] = [];
+      if (auth.user.role === 'courier') {
+        searchResults = await client`
+          SELECT 
+            id, invoice_id, user_id, amount, items_price, delivery_cost,
+            delivery_method, payment_method, payment_status, fulfillment_status,
+            assigned_courier_id, customer_name, customer_phone, customer_email,
+            kaspi_phone, delivery_address, city, items, warehouse_id,
+            completed_at, created_at, updated_at
+          FROM orders
+          WHERE assigned_courier_id = ${auth.user.id}
+            AND (
+              id::text ILIKE ${cleanQ}
+              OR invoice_id::text ILIKE ${cleanQ}
+              OR customer_name ILIKE ${cleanQ}
+              OR customer_phone ILIKE ${cleanQ}
+              OR customer_email ILIKE ${cleanQ}
+            )
+          ORDER BY created_at DESC
+          LIMIT 100;
+        `;
+      } else {
+        searchResults = await client`
+          SELECT 
+            id, invoice_id, user_id, amount, items_price, delivery_cost,
+            delivery_method, payment_method, payment_status, fulfillment_status,
+            assigned_courier_id, customer_name, customer_phone, customer_email,
+            kaspi_phone, delivery_address, city, items, warehouse_id,
+            completed_at, created_at, updated_at
+          FROM orders
+          WHERE (
+            id::text ILIKE ${cleanQ}
+            OR invoice_id::text ILIKE ${cleanQ}
+            OR customer_name ILIKE ${cleanQ}
+            OR customer_phone ILIKE ${cleanQ}
+            OR customer_email ILIKE ${cleanQ}
+          )
+          ORDER BY created_at DESC
+          LIMIT 100;
+        `;
+      }
+
+      const sanitizedOrders = searchResults.map((order: any) => ({
+        ...order,
+        pickup_code: getOrderPickupCode(order.id, order.pickup_code || null),
+      }));
+
+      return NextResponse.json({ success: true, count: sanitizedOrders.length, orders: sanitizedOrders });
     }
 
     let intervalDays = 30;

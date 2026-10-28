@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Trash2, ArrowRight, Heart, Grid2x2, Rows3, AlertTriangle } from 'lucide-react';
+import { Trash2, ArrowRight, Heart, Grid2x2, Rows3, AlertTriangle, X } from 'lucide-react';
 import { useCartStore } from '../../store/useCartStore';
 import { useFavoritesStore } from '../../store/useFavoritesStore';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -12,9 +12,24 @@ import { useRouter } from 'next/navigation';
 import ProductCard from '../../components/ProductCard/ProductCard';
 import styles from './Cart.module.css';
 
+interface AppliedPromo {
+  code: string;
+  type?: 'percent' | 'fixed';
+  value?: number;
+  discountAmount?: number;
+  minCartTotal?: number;
+  maxCartTotal?: number;
+  maxDiscount?: number;
+  title?: string;
+  message?: string;
+  isTestMode?: boolean;
+  targetPrice?: number;
+  disclaimer?: string;
+}
+
 export default function CartClient() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, userProfile } = useAuthStore();
   const { addToast } = useToastStore();
   const { items, removeItem, updateQuantity, clearCart, getTotalPrice } = useCartStore();
   const { toggleFavorite, isFavorite, items: favoriteItems } = useFavoritesStore();
@@ -29,13 +44,11 @@ export default function CartClient() {
   const [isApplyingPromo, setIsApplyingPromo] = useState(false);
   const [isCheckingStock, setIsCheckingStock] = useState(false);
   const [killSwitchActive, setKillSwitchActive] = useState(false);
-  const [appliedPromo, setAppliedPromo] = useState<{
-    code: string;
-    isTestMode: boolean;
-    title: string;
-    disclaimer: string;
-    targetPrice: number;
-  } | null>(null);
+  const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
+
+  const validItems = items.filter(item => item && item.price >= 500);
+  const validFavoriteItems = favoriteItems.filter(item => item && item.price >= 500);
+  const totalPrice = validItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
   useEffect(() => {
     // Check emergency kill switch status
@@ -48,27 +61,65 @@ export default function CartClient() {
       })
       .catch(() => {});
 
-    const savedPromo = sessionStorage.getItem('koma_test_promocode');
-    if (savedPromo) {
+    const savedPromoRaw = sessionStorage.getItem('koma_promocode') || sessionStorage.getItem('koma_test_promocode');
+    let codeToVerify = '';
+    if (savedPromoRaw) {
+      try {
+        const parsed = JSON.parse(savedPromoRaw);
+        codeToVerify = parsed.code || savedPromoRaw;
+      } catch {
+        codeToVerify = savedPromoRaw;
+      }
+    }
+
+    if (codeToVerify) {
       fetch('/api/promocode/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: savedPromo }),
+        body: JSON.stringify({ 
+          code: codeToVerify,
+          cartTotal: totalPrice,
+          userEmail: user?.email || '',
+          userId: user?.uid || null,
+          clientType: userProfile?.clientType || 'retail',
+        }),
       })
         .then((res) => res.json())
         .then((data) => {
-          if (data.valid && data.isTestMode) {
+          if (data.valid) {
             setAppliedPromo(data);
           } else {
+            sessionStorage.removeItem('koma_promocode');
             sessionStorage.removeItem('koma_test_promocode');
           }
         })
         .catch(() => {});
     }
-  }, []);
+  }, [user?.email, user?.uid, userProfile?.clientType]);
+
+  // Reactive verification: when cart price changes, check if promo requirements are still met
+  useEffect(() => {
+    if (appliedPromo && !appliedPromo.isTestMode && totalPrice > 0) {
+      if (appliedPromo.minCartTotal && totalPrice < appliedPromo.minCartTotal) {
+        addToast(
+          `Сумма вашей корзины слишком маленькая (минимум ${appliedPromo.minCartTotal.toLocaleString('ru-RU')} тенге). Промокод ${appliedPromo.code} не применен`,
+          'error'
+        );
+        setAppliedPromo(null);
+        sessionStorage.removeItem('koma_promocode');
+      } else if (appliedPromo.maxCartTotal && totalPrice > appliedPromo.maxCartTotal) {
+        addToast(
+          `Сумма вашей корзины слишком большая (до ${appliedPromo.maxCartTotal.toLocaleString('ru-RU')} тенге). Промокод ${appliedPromo.code} не применен`,
+          'error'
+        );
+        setAppliedPromo(null);
+        sessionStorage.removeItem('koma_promocode');
+      }
+    }
+  }, [totalPrice, appliedPromo]);
 
   const handleApplyPromo = async () => {
-    const code = promoCodeInput.trim();
+    const code = promoCodeInput.trim().toUpperCase();
     if (!code) {
       addToast('Введите промокод', 'error');
       return;
@@ -78,7 +129,13 @@ export default function CartClient() {
       const res = await fetch('/api/promocode/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ 
+          code,
+          cartTotal: totalPrice,
+          userEmail: user?.email || '',
+          userId: user?.uid || null,
+          clientType: userProfile?.clientType || 'retail',
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.valid) {
@@ -87,9 +144,9 @@ export default function CartClient() {
       }
 
       setAppliedPromo(data);
-      sessionStorage.setItem('koma_test_promocode', code);
+      sessionStorage.setItem('koma_promocode', JSON.stringify({ code: data.code, timestamp: Date.now() }));
       setPromoCodeInput('');
-      addToast(`Тестовый режим успешно активирован! Сумма заказа: ${data.targetPrice || 10} ₸`, 'success');
+      addToast(data.message || 'Промокод успешно применен!', 'success');
     } catch (e: any) {
       addToast('Ошибка при проверке промокода', 'error');
     } finally {
@@ -98,9 +155,11 @@ export default function CartClient() {
   };
 
   const handleRemovePromo = () => {
+    const promoName = appliedPromo?.code || '';
     setAppliedPromo(null);
+    sessionStorage.removeItem('koma_promocode');
     sessionStorage.removeItem('koma_test_promocode');
-    addToast('Тестовый режим отключен', 'info');
+    addToast(appliedPromo?.isTestMode ? 'Тестовый режим отключен' : `Промокод ${promoName} отменен`, 'info');
   };
   
   const CART_ITEMS_PER_PAGE = 6;
@@ -182,11 +241,6 @@ export default function CartClient() {
       setIsCheckingStock(false);
     }
   };
-
-  const validItems = items.filter(item => item && item.price >= 500);
-  const validFavoriteItems = favoriteItems.filter(item => item && item.price >= 500);
-
-  const totalPrice = validItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
   // Handle items deletion logic to adjust pages
   const cartTotalPages = Math.ceil(validItems.length / CART_ITEMS_PER_PAGE) || 1;
@@ -410,63 +464,127 @@ export default function CartClient() {
             <span>{totalPrice.toLocaleString()} ₸</span>
           </div>
 
-          {appliedPromo?.isTestMode && (
-            <div className={styles.discountRow}>
-              <span>Скидка (Тест-режим)</span>
-              <span>-{(totalPrice - (appliedPromo.targetPrice || 10)).toLocaleString()} ₸</span>
-            </div>
-          )}
-          
-          {!appliedPromo?.isTestMode ? (
-            <div className={styles.promoCode}>
-              <input
-                type="text"
-                placeholder="Промокод"
-                value={promoCodeInput}
-                onChange={(e) => setPromoCodeInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleApplyPromo();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                onClick={handleApplyPromo}
-                disabled={isApplyingPromo}
-              >
-                {isApplyingPromo ? 'Проверка...' : 'Применить'}
-              </button>
-            </div>
-          ) : (
-            <div className={styles.testModeBanner}>
-              <div className={styles.testModeBannerHeader}>
-                <AlertTriangle size={18} />
-                <span>{appliedPromo.title || `РЕЖИМ ТЕСТИРОВАНИЯ (${appliedPromo.targetPrice || 10} ₸)`}</span>
-              </div>
-              <p className={styles.testModeBannerText}>
-                Активирован режим технического тестирования платформы. Сумма заказа снижена до {appliedPromo.targetPrice || 10} ₸ для верификации соединения с платёжным шлюзом ePay.
-              </p>
-              <div className={styles.testModeBannerLegal}>
-                <strong>Юридическое примечание:</strong> Настоящий заказ является демонстрационным техническим тестом и <u>не порождает обязательств</u> Продавца по передаче, комплектации или доставке товаров согласно ст. 447, 449 Гражданского кодекса Республики Казахстан.
-              </div>
-              <button
-                type="button"
-                onClick={handleRemovePromo}
-                className={styles.testModeRemoveBtn}
-              >
-                Отменить тест-режим
-              </button>
-            </div>
-          )}
+          {/* Discount calculation */}
+          {(() => {
+            let discountAmount = 0;
+            if (appliedPromo) {
+              if (appliedPromo.isTestMode) {
+                discountAmount = Math.max(0, totalPrice - (appliedPromo.targetPrice || 10));
+              } else if (appliedPromo.type === 'percent' && appliedPromo.value) {
+                let d = Math.round((totalPrice * appliedPromo.value) / 100);
+                if (appliedPromo.maxDiscount && d > appliedPromo.maxDiscount) {
+                  d = appliedPromo.maxDiscount;
+                }
+                discountAmount = d;
+              } else if (appliedPromo.type === 'fixed' && appliedPromo.value) {
+                discountAmount = Math.min(totalPrice, appliedPromo.value);
+              }
+            }
+            const finalPayAmount = appliedPromo?.isTestMode 
+              ? (appliedPromo.targetPrice || 10) 
+              : Math.max(0, totalPrice - discountAmount);
 
-          <div className={`${styles.summaryRow} ${styles.totalRow}`}>
-            <span>К оплате</span>
-            <span className={styles.totalPrice}>
-              {(appliedPromo?.isTestMode ? (appliedPromo.targetPrice || 10) : totalPrice).toLocaleString()} ₸
-            </span>
-          </div>
+            return (
+              <>
+                {appliedPromo?.isTestMode ? (
+                  <div className={styles.discountRow}>
+                    <span>Скидка (Тест-режим)</span>
+                    <span>-{(totalPrice - (appliedPromo.targetPrice || 10)).toLocaleString('ru-RU')} ₸</span>
+                  </div>
+                ) : discountAmount > 0 ? (
+                  <div className={styles.discountRow}>
+                    <span>Скидка по промокоду ({appliedPromo?.code})</span>
+                    <span>-{discountAmount.toLocaleString('ru-RU')} ₸</span>
+                  </div>
+                ) : null}
+
+                {!appliedPromo?.isTestMode ? (
+                  <>
+                    <div className={styles.promoCode}>
+                      <input
+                        type="text"
+                        placeholder="Промокод"
+                        value={promoCodeInput}
+                        onChange={(e) => setPromoCodeInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleApplyPromo();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyPromo}
+                        disabled={isApplyingPromo}
+                      >
+                        {isApplyingPromo ? 'Проверка...' : 'Применить'}
+                      </button>
+                    </div>
+
+                    {appliedPromo && (
+                      <div className={styles.activePromoTag}>
+                        <div className={styles.activePromoInfo}>
+                          <span>{appliedPromo.code}:</span>
+                          <span className={styles.activePromoDiscount}>
+                            Скидка -{discountAmount.toLocaleString('ru-RU')} ₸
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className={styles.activePromoRemoveBtn}
+                          onClick={handleRemovePromo}
+                          title="Отменить промокод"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className={styles.testModeBanner}>
+                    <div className={styles.testModeBannerHeader}>
+                      <AlertTriangle size={18} />
+                      <span>{appliedPromo.title || `РЕЖИМ ТЕСТИРОВАНИЯ (${appliedPromo.targetPrice || 10} ₸)`}</span>
+                    </div>
+                    <p className={styles.testModeBannerText}>
+                      Активирован режим технического тестирования платформы. Сумма заказа снижена до {appliedPromo.targetPrice || 10} ₸ для верификации соединения с платёжным шлюзом ePay.
+                    </p>
+                    <div className={styles.testModeBannerLegal}>
+                      <strong>Юридическое примечание:</strong> Настоящий заказ является демонстрационным техническим тестом и <u>не порождает обязательств</u> Продавца по передаче, комплектации или доставке товаров согласно ст. 447, 449 Гражданского кодекса Республики Казахстан.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemovePromo}
+                      className={styles.testModeRemoveBtn}
+                    >
+                      Отменить тест-режим
+                    </button>
+                  </div>
+                )}
+
+                <div className={`${styles.summaryRow} ${styles.totalRow}`}>
+                  <span>К оплате</span>
+                  <div className={styles.totalPrice}>
+                    {discountAmount > 0 ? (
+                      <>
+                        <span className={styles.oldPriceCrossed}>
+                          {totalPrice.toLocaleString('ru-RU')} ₸
+                        </span>
+                        <span className={styles.finalPayAmount}>
+                          {finalPayAmount.toLocaleString('ru-RU')} ₸
+                        </span>
+                      </>
+                    ) : (
+                      <span className={styles.finalPayAmount}>
+                        {totalPrice.toLocaleString('ru-RU')} ₸
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </>
+            );
+          })()}
 
           <button 
             className={styles.checkoutBtn} 

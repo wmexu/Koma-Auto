@@ -193,6 +193,16 @@ export async function POST(request: Request) {
               customer_email = COALESCE(EXCLUDED.customer_email, orders.customer_email),
               updated_at = NOW();
           `;
+
+          // Increment promocode usage counter if order utilized a promocode
+          const usedPromoCode = updatedOrder?.promoCode;
+          if (usedPromoCode && typeof usedPromoCode === 'string') {
+            await client`
+              UPDATE promocodes 
+              SET used_count = used_count + 1 
+              WHERE LOWER(code) = LOWER(${usedPromoCode.trim()});
+            `.catch(e => console.warn('[Postlink] Promocode used_count update notice:', e));
+          }
         } catch (neonErr) {
           console.error('[Halyk Postlink] Failed to upsert Neon order payment_status:', neonErr);
         }

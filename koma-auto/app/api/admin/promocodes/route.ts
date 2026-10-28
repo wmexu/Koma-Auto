@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
     const promocodesList = await client`
       SELECT 
-        p.id, p.code, p.type, p.value, p.min_cart_total, p.max_discount,
+        p.id, p.code, p.type, p.value, p.min_cart_total, p.max_cart_total, p.max_discount,
         p.target_audience, p.bound_user_id, p.bound_emails, p.usage_limit, p.used_count,
         p.is_active, p.created_at, u.email as bound_user_email
       FROM promocodes p
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { 
-      code, type, value, minCartTotal, maxDiscount, 
+      code, type, value, minCartTotal, maxCartTotal, maxDiscount, 
       targetAudience, boundUserId, boundEmails, usageLimit, staffUserId 
     } = body;
 
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
 
     await client`
       INSERT INTO promocodes (
-        id, code, type, value, min_cart_total, max_discount,
+        id, code, type, value, min_cart_total, max_cart_total, max_discount,
         target_audience, bound_user_id, bound_emails, usage_limit, is_active,
         created_by, created_at
       ) VALUES (
@@ -69,6 +69,7 @@ export async function POST(request: Request) {
         ${type},
         ${value},
         ${minCartTotal || 0},
+        ${maxCartTotal || null},
         ${maxDiscount || null},
         ${targetAudience || 'all'},
         ${boundUserId || null},
@@ -82,6 +83,7 @@ export async function POST(request: Request) {
         type = EXCLUDED.type,
         value = EXCLUDED.value,
         min_cart_total = EXCLUDED.min_cart_total,
+        max_cart_total = EXCLUDED.max_cart_total,
         max_discount = EXCLUDED.max_discount,
         target_audience = EXCLUDED.target_audience,
         bound_user_id = EXCLUDED.bound_user_id,

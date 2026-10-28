@@ -170,6 +170,7 @@ export const promocodes = pgTable("promocodes", {
   type: varchar("type", { length: 20 }).notNull(),
   value: numeric("value").notNull(),
   minCartTotal: numeric("min_cart_total").notNull().default("0"),
+  maxCartTotal: numeric("max_cart_total"),
   maxDiscount: numeric("max_discount"),
   targetAudience: varchar("target_audience", { length: 20 }).notNull().default("all"),
   boundUserId: varchar("bound_user_id", { length: 255 }).references(() => users.id),

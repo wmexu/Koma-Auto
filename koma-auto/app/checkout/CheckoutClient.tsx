@@ -100,11 +100,20 @@ export default function CheckoutClient() {
   const [isApplyingPromo, setIsApplyingPromo] = useState(false);
   const [appliedPromo, setAppliedPromo] = useState<{
     code: string;
-    isTestMode: boolean;
-    title: string;
-    disclaimer: string;
-    targetPrice: number;
+    type?: 'percent' | 'fixed';
+    value?: number;
+    discountAmount?: number;
+    minCartTotal?: number;
+    maxCartTotal?: number;
+    maxDiscount?: number;
+    title?: string;
+    message?: string;
+    isTestMode?: boolean;
+    targetPrice?: number;
+    disclaimer?: string;
   } | null>(null);
+
+  const totalPrice = getTotalPrice();
 
   useEffect(() => {
     fetch('/api/admin/settings')
@@ -116,27 +125,65 @@ export default function CheckoutClient() {
       })
       .catch(() => {});
 
-    const savedPromo = sessionStorage.getItem('koma_test_promocode');
-    if (savedPromo) {
+    const savedPromoRaw = sessionStorage.getItem('koma_promocode') || sessionStorage.getItem('koma_test_promocode');
+    let codeToVerify = '';
+    if (savedPromoRaw) {
+      try {
+        const parsed = JSON.parse(savedPromoRaw);
+        codeToVerify = parsed.code || savedPromoRaw;
+      } catch {
+        codeToVerify = savedPromoRaw;
+      }
+    }
+
+    if (codeToVerify) {
       fetch('/api/promocode/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: savedPromo }),
+        body: JSON.stringify({ 
+          code: codeToVerify,
+          cartTotal: totalPrice,
+          userEmail: user?.email || '',
+          userId: user?.uid || null,
+          clientType: userProfile?.clientType || 'retail',
+        }),
       })
         .then((res) => res.json())
         .then((data) => {
-          if (data.valid && data.isTestMode) {
+          if (data.valid) {
             setAppliedPromo(data);
           } else {
+            sessionStorage.removeItem('koma_promocode');
             sessionStorage.removeItem('koma_test_promocode');
           }
         })
         .catch(() => {});
     }
-  }, []);
+  }, [user?.email, user?.uid, userProfile?.clientType]);
+
+  // Reactive verification: when cart price changes, check if promo requirements are still met
+  useEffect(() => {
+    if (appliedPromo && !appliedPromo.isTestMode && totalPrice > 0) {
+      if (appliedPromo.minCartTotal && totalPrice < appliedPromo.minCartTotal) {
+        addToast(
+          `Сумма вашей корзины слишком маленькая (минимум ${appliedPromo.minCartTotal.toLocaleString('ru-RU')} тенге). Промокод ${appliedPromo.code} не применен`,
+          'error'
+        );
+        setAppliedPromo(null);
+        sessionStorage.removeItem('koma_promocode');
+      } else if (appliedPromo.maxCartTotal && totalPrice > appliedPromo.maxCartTotal) {
+        addToast(
+          `Сумма вашей корзины слишком большая (до ${appliedPromo.maxCartTotal.toLocaleString('ru-RU')} тенге). Промокод ${appliedPromo.code} не применен`,
+          'error'
+        );
+        setAppliedPromo(null);
+        sessionStorage.removeItem('koma_promocode');
+      }
+    }
+  }, [totalPrice, appliedPromo]);
 
   const handleApplyPromo = async () => {
-    const code = promoCodeInput.trim();
+    const code = promoCodeInput.trim().toUpperCase();
     if (!code) {
       addToast('Введите промокод', 'error');
       return;
@@ -146,7 +193,13 @@ export default function CheckoutClient() {
       const res = await fetch('/api/promocode/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ 
+          code,
+          cartTotal: totalPrice,
+          userEmail: user?.email || formData.email || '',
+          userId: user?.uid || null,
+          clientType: userProfile?.clientType || 'retail',
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.valid) {
@@ -155,9 +208,9 @@ export default function CheckoutClient() {
       }
 
       setAppliedPromo(data);
-      sessionStorage.setItem('koma_test_promocode', code);
+      sessionStorage.setItem('koma_promocode', JSON.stringify({ code: data.code, timestamp: Date.now() }));
       setPromoCodeInput('');
-      addToast(`Тестовый режим успешно активирован! Сумма заказа: ${data.targetPrice || 10} ₸`, 'success');
+      addToast(data.message || 'Промокод успешно применен!', 'success');
     } catch (e: any) {
       addToast('Ошибка при проверке промокода', 'error');
     } finally {
@@ -166,9 +219,11 @@ export default function CheckoutClient() {
   };
 
   const handleRemovePromo = () => {
+    const promoName = appliedPromo?.code || '';
     setAppliedPromo(null);
+    sessionStorage.removeItem('koma_promocode');
     sessionStorage.removeItem('koma_test_promocode');
-    addToast('Тестовый режим отключен', 'info');
+    addToast(appliedPromo?.isTestMode ? 'Тестовый режим отключен' : `Промокод ${promoName} отменен`, 'info');
   };
 
   useEffect(() => {
@@ -286,8 +341,6 @@ export default function CheckoutClient() {
       phone: prev.phone || phoneToUse,
     }));
   }, [user, userProfile]);
-
-  const totalPrice = getTotalPrice();
   
   // Calculate delivery logic
   let deliveryCost = 0;
@@ -323,10 +376,25 @@ export default function CheckoutClient() {
 
   const isTestMode = Boolean(appliedPromo?.isTestMode);
   const testPrice = appliedPromo?.targetPrice ?? 10;
+
+  let promoDiscount = 0;
+  if (appliedPromo && !appliedPromo.isTestMode) {
+    if (appliedPromo.type === 'percent' && appliedPromo.value) {
+      let d = Math.round((totalPrice * appliedPromo.value) / 100);
+      if (appliedPromo.maxDiscount && d > appliedPromo.maxDiscount) {
+        d = appliedPromo.maxDiscount;
+      }
+      promoDiscount = d;
+    } else if (appliedPromo.type === 'fixed' && appliedPromo.value) {
+      promoDiscount = Math.min(totalPrice, appliedPromo.value);
+    }
+  }
+
+  const itemsDiscountedPrice = Math.max(0, totalPrice - promoDiscount);
   const calculatedDelivery = isTestMode ? 0 : deliveryCost;
   const finalPrice = isTestMode
     ? testPrice
-    : (formData.deliveryMethod === 'courier' ? totalPrice + deliveryCost : totalPrice);
+    : (formData.deliveryMethod === 'courier' ? itemsDiscountedPrice + deliveryCost : itemsDiscountedPrice);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -1046,28 +1114,56 @@ export default function CheckoutClient() {
               )}
             </div>
 
-            {!isTestMode ? (
-              <div className={styles.promoCode}>
-                <input
-                  type="text"
-                  placeholder="Промокод"
-                  value={promoCodeInput}
-                  onChange={(e) => setPromoCodeInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleApplyPromo();
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={handleApplyPromo}
-                  disabled={isApplyingPromo}
-                >
-                  {isApplyingPromo ? '...' : 'Применить'}
-                </button>
+            {promoDiscount > 0 && !appliedPromo?.isTestMode && (
+              <div className={styles.calcRow} style={{ color: '#16a34a', fontWeight: 600 }}>
+                <span>Скидка по промокоду ({appliedPromo?.code})</span>
+                <span>-{promoDiscount.toLocaleString('ru-RU')} ₸</span>
               </div>
+            )}
+
+            {!isTestMode ? (
+              <>
+                <div className={styles.promoCode}>
+                  <input
+                    type="text"
+                    placeholder="Промокод"
+                    value={promoCodeInput}
+                    onChange={(e) => setPromoCodeInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleApplyPromo();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApplyPromo}
+                    disabled={isApplyingPromo}
+                  >
+                    {isApplyingPromo ? '...' : 'Применить'}
+                  </button>
+                </div>
+
+                {appliedPromo && (
+                  <div className={styles.activePromoTag}>
+                    <div className={styles.activePromoInfo}>
+                      <span>{appliedPromo.code}:</span>
+                      <span className={styles.activePromoDiscount}>
+                        Скидка -{promoDiscount.toLocaleString('ru-RU')} ₸
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.activePromoRemoveBtn}
+                      onClick={handleRemovePromo}
+                      title="Отменить промокод"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
               <div className={styles.testModeBanner}>
                 <div className={styles.testModeBannerHeader}>
@@ -1092,7 +1188,22 @@ export default function CheckoutClient() {
 
             <div className={styles.totalRow}>
               <span>Итого к оплате</span>
-              <span className={styles.totalValue}>{finalPrice.toLocaleString()} ₸</span>
+              <div className={styles.totalValue}>
+                {promoDiscount > 0 ? (
+                  <>
+                    <span className={styles.oldPriceCrossed}>
+                      {(formData.deliveryMethod === 'courier' ? totalPrice + deliveryCost : totalPrice).toLocaleString('ru-RU')} ₸
+                    </span>
+                    <span className={styles.finalPayAmount}>
+                      {finalPrice.toLocaleString('ru-RU')} ₸
+                    </span>
+                  </>
+                ) : (
+                  <span className={styles.finalPayAmount}>
+                    {finalPrice.toLocaleString('ru-RU')} ₸
+                  </span>
+                )}
+              </div>
             </div>
             
             <div className={styles.agreementsBlock}>
