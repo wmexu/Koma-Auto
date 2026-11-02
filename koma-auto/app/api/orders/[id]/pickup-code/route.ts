@@ -5,6 +5,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { logAuditEvent } from '@/lib/audit';
 import { getOrderPickupCode } from '@/lib/pickup-code';
 import { verifyStaffSession, getVerifiedCallerUid } from '@/lib/admin-auth';
+import { checkGeneralRateLimit } from '@/lib/rate-limiter';
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -12,6 +13,15 @@ type Props = {
 
 export async function GET(request: Request, { params }: Props) {
   try {
+    const ip = request.headers.get('x-forwarded-for') || 'unknown-ip';
+    const rateCheck = checkGeneralRateLimit(ip, 20, 10 * 60 * 1000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: `Слишком много запросов. Попробуйте через ${rateCheck.remainingSeconds || 600} сек.` },
+        { status: 429 }
+      );
+    }
+
     const { id } = await params;
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');

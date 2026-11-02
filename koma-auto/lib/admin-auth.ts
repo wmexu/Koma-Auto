@@ -44,25 +44,7 @@ export async function verifyFirebaseIdToken(token: string): Promise<string | nul
     console.error('[VerifyFirebaseIdToken Error]:', err);
   }
 
-  // Resilient fallback: parse JWT payload to extract user_id / sub and verify unexpired aud
-  try {
-    const parts = token.split('.');
-    if (parts.length === 3) {
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-      const nowSec = Math.floor(Date.now() / 1000);
-      const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-      if (payload.exp && payload.exp > nowSec && (!projectId || payload.aud === projectId)) {
-        const uid = payload.user_id || payload.sub;
-        if (uid) {
-          VERIFIED_TOKEN_CACHE.set(token, { uid, expiresAt: payload.exp * 1000 });
-          return uid;
-        }
-      }
-    }
-  } catch {
-    // Ignore JWT parse error
-  }
-
+  // Strict Zero-Trust: If Google cryptographic validation fails or token is forged/invalid, reject immediately.
   return null;
 }
 
