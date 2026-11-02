@@ -1,6 +1,6 @@
 import { client, isDbConfigured } from '@/db';
 import { logAuditEvent } from '@/lib/audit';
-import { getFirebaseAdminAuth } from '@/lib/firebase-admin';
+import { getFirebaseAdminAuth, isFirebaseAdminConfigured } from '@/lib/firebase-admin';
 
 export interface StaffAuthResult {
   authorized: boolean;
@@ -23,29 +23,34 @@ export async function verifyFirebaseIdToken(token: string): Promise<string | nul
     return cached.uid;
   }
 
-  // 1. Fast local cryptographic verification via Firebase Admin SDK if configured
-  try {
-    const fbAdmin = getFirebaseAdminAuth();
-    if (fbAdmin) {
-      const decoded = await fbAdmin.verifyIdToken(token);
-      if (decoded && decoded.uid) {
-        VERIFIED_TOKEN_CACHE.set(token, { uid: decoded.uid, expiresAt: Date.now() + 10 * 60 * 1000 });
-        return decoded.uid;
+  // 1. Fast local cryptographic verification via Firebase Admin SDK ONLY IF real service account is configured
+  if (isFirebaseAdminConfigured()) {
+    try {
+      const fbAdmin = getFirebaseAdminAuth();
+      if (fbAdmin) {
+        const decoded = await fbAdmin.verifyIdToken(token);
+        if (decoded && decoded.uid) {
+          VERIFIED_TOKEN_CACHE.set(token, { uid: decoded.uid, expiresAt: Date.now() + 10 * 60 * 1000 });
+          return decoded.uid;
+        }
       }
+    } catch {
+      // If admin verification fails or token expired, fall through
     }
-  } catch {
-    // If admin verification fails or token expired, fall through
   }
 
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
   if (!apiKey) return null;
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
     const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
       method: 'POST',
+      signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken: token }),
-    });
+    }).finally(() => clearTimeout(timeout));
 
     if (res.ok) {
       const data = await res.json();

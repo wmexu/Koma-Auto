@@ -4,11 +4,8 @@ import { getAuth, Auth, UserRecord } from 'firebase-admin/auth';
 let isInitialized = false;
 
 /**
- * Initializes and returns Firebase Admin Auth instance if credentials are provided.
- * Supports:
- * 1. FIREBASE_SERVICE_ACCOUNT_KEY (raw JSON string or base64-encoded JSON)
- * 2. FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY + NEXT_PUBLIC_FIREBASE_PROJECT_ID
- * 3. Default Application Credentials (e.g. on GCP/Cloud Run)
+ * Initializes and returns Firebase Admin Auth instance ONLY IF real service account credentials exist.
+ * Never initializes an empty uncredentialed instance.
  */
 export function getFirebaseAdminAuth(): Auth | null {
   if (isInitialized && getApps().length > 0) {
@@ -24,12 +21,14 @@ export function getFirebaseAdminAuth(): Auth | null {
         rawJson = Buffer.from(rawJson, 'base64').toString('utf8');
       }
       const parsedCert = JSON.parse(rawJson);
-      initializeApp({
-        credential: cert(parsedCert),
-        projectId: parsedCert.project_id || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      });
-      isInitialized = true;
-      return getAuth();
+      if (parsedCert.client_email && parsedCert.private_key) {
+        initializeApp({
+          credential: cert(parsedCert),
+          projectId: parsedCert.project_id || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+        });
+        isInitialized = true;
+        return getAuth();
+      }
     } catch (err) {
       console.warn('[FirebaseAdmin] Failed to initialize from FIREBASE_SERVICE_ACCOUNT_KEY:', err);
     }
@@ -54,19 +53,6 @@ export function getFirebaseAdminAuth(): Auth | null {
     } catch (err) {
       console.warn('[FirebaseAdmin] Failed to initialize from individual env vars:', err);
     }
-  }
-
-  // 3. Fallback: try default application credentials if already running on Google Cloud
-  try {
-    if (!getApps().length) {
-      initializeApp({
-        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      });
-      isInitialized = true;
-      return getAuth();
-    }
-  } catch {
-    // Expected when running locally or on Vercel without GCP default credentials
   }
 
   return null;
