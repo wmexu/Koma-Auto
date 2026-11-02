@@ -59,14 +59,20 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
   const [locationModalOrder, setLocationModalOrder] = useState<Order | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
 
-  // 1. Load orders on mount and sync
+  // 1. Load orders on mount and sync with strict user isolation
   useEffect(() => {
     let mounted = true;
+    setOrders([]);
+    setIsLoading(true);
+
     async function load() {
-      setIsLoading(true);
       const list = await fetchUserOrders(userId);
       if (mounted) {
-        setOrders(list);
+        const strictlyIsolated = userId 
+          ? list.filter((o) => o.userId === userId)
+          : list.filter((o) => !o.userId);
+
+        setOrders(strictlyIsolated);
         setIsLoading(false);
       }
     }

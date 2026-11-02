@@ -31,6 +31,33 @@ export async function POST(request: Request) {
 
     // 2. Check production promocodes in Neon PostgreSQL
     if (isDbConfigured() && client) {
+      let resolvedEmail = userEmail;
+      let resolvedUserId = userId;
+
+      // Auto-resolve user email from DB if client provided userId but email is empty (e.g. during auth initialization)
+      if (!resolvedEmail && resolvedUserId) {
+        try {
+          const u = await client`SELECT email FROM users WHERE id = ${String(resolvedUserId)} LIMIT 1;`;
+          if (u && u.length > 0 && u[0].email) {
+            resolvedEmail = String(u[0].email).trim().toLowerCase();
+          }
+        } catch (dbErr) {
+          console.warn('[Promocode Validate] User email resolution warning:', dbErr);
+        }
+      }
+
+      // Auto-resolve user ID from DB if client provided email
+      if (resolvedEmail && !resolvedUserId) {
+        try {
+          const u = await client`SELECT id FROM users WHERE LOWER(email) = ${resolvedEmail} LIMIT 1;`;
+          if (u && u.length > 0 && u[0].id) {
+            resolvedUserId = String(u[0].id);
+          }
+        } catch (dbErr) {
+          console.warn('[Promocode Validate] User ID resolution warning:', dbErr);
+        }
+      }
+
       const rows = await client`
         SELECT 
           id, code, type, value, min_cart_total, max_cart_total, max_discount,
@@ -58,7 +85,7 @@ export async function POST(request: Request) {
         }
 
         const minCart = Number(p.min_cart_total) || 0;
-        if (minCart > 0 && cartTotal < minCart) {
+        if (minCart > 0 && cartTotal > 0 && cartTotal < minCart) {
           return NextResponse.json({
             valid: false,
             error: `Сумма вашей корзины слишком маленькая (минимум ${minCart.toLocaleString('ru-RU')} тенге). Промокод ${p.code} не применен`,
@@ -73,36 +100,29 @@ export async function POST(request: Request) {
           }, { status: 400 });
         }
 
-        // Email binding check
+        // Email binding check: either in bound_emails OR matching bound_user_id
         const boundEmails: string[] = Array.isArray(p.bound_emails) 
           ? p.bound_emails.map((e: any) => String(e).toLowerCase().trim()) 
           : [];
 
-        if (boundEmails.length > 0) {
-          if (!userEmail) {
+        const hasEmailBinding = boundEmails.length > 0;
+        const hasUserBinding = Boolean(p.bound_user_id);
+
+        if (hasEmailBinding || hasUserBinding) {
+          if (!resolvedEmail && !resolvedUserId) {
             return NextResponse.json({
               valid: false,
               error: 'Этот промокод привязан к отдельному аккаунту. Войдите в свой профиль для его использования.',
             }, { status: 403 });
           }
-          if (!boundEmails.includes(userEmail)) {
+
+          const emailMatches = Boolean(resolvedEmail && boundEmails.includes(resolvedEmail));
+          const idMatches = Boolean(resolvedUserId && p.bound_user_id && String(p.bound_user_id) === String(resolvedUserId));
+
+          if (!emailMatches && !idMatches) {
             return NextResponse.json({
               valid: false,
               error: `Этот промокод привязан к отдельному аккаунту. Промокод ${p.code} не применен`,
-            }, { status: 403 });
-          }
-        } else if (p.bound_user_id) {
-          // Fallback to bound_user_id only if bound_emails is empty
-          if (!userId && !userEmail) {
-            return NextResponse.json({
-              valid: false,
-              error: 'Этот промокод привязан к отдельному аккаунту. Войдите в свой профиль для его использования.',
-            }, { status: 403 });
-          }
-          if (userId && String(p.bound_user_id) !== String(userId)) {
-            return NextResponse.json({
-              valid: false,
-              error: `Этот промокод привязан к другому профилю. Промокод ${p.code} не применен`,
             }, { status: 403 });
           }
         }

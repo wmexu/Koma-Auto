@@ -586,6 +586,46 @@
   color: var(--color-navy);
 }
 
+.changePasswordIconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background-color: transparent;
+  color: var(--color-dark-gray);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.changePasswordIconBtn:hover {
+  background-color: #f0f2f5;
+  color: var(--color-navy);
+}
+
+.changePasswordInlineBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #f8fafc;
+  color: var(--color-navy);
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.changePasswordInlineBtn:hover {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #1e3a8a;
+}
+
 .passwordWrapper {
   position: relative;
   display: flex;

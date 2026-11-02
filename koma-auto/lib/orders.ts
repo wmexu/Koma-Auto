@@ -1,15 +1,23 @@
 import { Order, OrderStatus } from './order-types';
 
-const STORAGE_KEY = 'koma_orders';
+function getStorageKey(userId?: string | null): string {
+  if (userId) return `koma_orders_${userId}`;
+  return 'koma_orders_guest';
+}
 
-export function getLocalOrders(): Order[] {
+export function getLocalOrders(userId?: string | null): Order[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const key = getStorageKey(userId);
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed.sort(
+      const filtered = userId 
+        ? parsed.filter((o) => o.userId === userId)
+        : parsed.filter((o) => !o.userId);
+
+      return filtered.sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
     }
@@ -19,15 +27,39 @@ export function getLocalOrders(): Order[] {
   return [];
 }
 
-export function getLocalOrderById(orderId: string): Order | null {
-  const orders = getLocalOrders();
-  return orders.find((o) => o.id === orderId || o.invoiceId === orderId) || null;
+export function getLocalOrderById(orderId: string, userId?: string | null): Order | null {
+  if (typeof window === 'undefined') return null;
+  // Check user key first if provided
+  if (userId) {
+    const userOrders = getLocalOrders(userId);
+    const found = userOrders.find((o) => o.id === orderId || o.invoiceId === orderId);
+    if (found) return found;
+  }
+  // Check guest orders
+  const guestOrders = getLocalOrders(null);
+  const foundGuest = guestOrders.find((o) => o.id === orderId || o.invoiceId === orderId);
+  if (foundGuest) return foundGuest;
+
+  // Fallback: check legacy unpartitioned key
+  try {
+    const legacyRaw = localStorage.getItem('koma_orders');
+    if (legacyRaw) {
+      const parsed = JSON.parse(legacyRaw);
+      if (Array.isArray(parsed)) {
+        const found = parsed.find((o: any) => o.id === orderId || o.invoiceId === orderId);
+        if (found) return found;
+      }
+    }
+  } catch {}
+
+  return null;
 }
 
 export function saveLocalOrder(order: Order): void {
   if (typeof window === 'undefined') return;
   try {
-    const orders = getLocalOrders();
+    const key = getStorageKey(order.userId);
+    const orders = getLocalOrders(order.userId);
     const existingIndex = orders.findIndex(
       (o) => o.id === order.id || o.invoiceId === order.invoiceId
     );
@@ -36,16 +68,17 @@ export function saveLocalOrder(order: Order): void {
     } else {
       orders.unshift(order);
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
+    localStorage.setItem(key, JSON.stringify(orders));
   } catch (e) {
     console.error('Error saving local order:', e);
   }
 }
 
-export function updateLocalOrderStatus(orderId: string, status: OrderStatus): void {
+export function updateLocalOrderStatus(orderId: string, status: OrderStatus, userId?: string | null): void {
   if (typeof window === 'undefined') return;
   try {
-    const orders = getLocalOrders();
+    const key = getStorageKey(userId);
+    const orders = getLocalOrders(userId);
     let updated = false;
     const newOrders = orders.map((o) => {
       if (o.id === orderId || o.invoiceId === orderId) {
@@ -55,7 +88,7 @@ export function updateLocalOrderStatus(orderId: string, status: OrderStatus): vo
       return o;
     });
     if (updated) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newOrders));
+      localStorage.setItem(key, JSON.stringify(newOrders));
     }
   } catch (e) {
     console.error('Error updating local order status:', e);
@@ -81,20 +114,26 @@ export async function persistOrder(order: Order): Promise<void> {
 }
 
 /**
- * Syncs orders with backend
+ * Syncs orders with backend with strict user isolation
  */
 export async function fetchUserOrders(userId?: string | null): Promise<Order[]> {
-  const localOrders = getLocalOrders();
-
+  // If no userId, return only guest orders
   if (!userId) {
-    return localOrders;
+    return getLocalOrders(null).filter((o) => !o.userId);
+  }
+
+  // Clean legacy shared storage to prevent cross-account leaks
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('koma_orders');
+    } catch {}
   }
 
   try {
     let token: string | null = null;
     try {
       const { auth } = await import('@/lib/firebase');
-      if (auth?.currentUser) {
+      if (auth?.currentUser && auth.currentUser.uid === userId) {
         token = await auth.currentUser.getIdToken().catch(() => null);
       }
     } catch {}
@@ -111,44 +150,28 @@ export async function fetchUserOrders(userId?: string | null): Promise<Order[]> 
     });
     if (res.ok) {
       const serverOrders: Order[] = await res.json();
-      // Merge unique orders
-      const orderMap = new Map<string, Order>();
-      serverOrders.forEach((o) => orderMap.set(o.id, o));
-      localOrders.forEach((o) => {
-        if (!orderMap.has(o.id)) {
-          orderMap.set(o.id, o);
-        } else {
-          // If server order has paid status, prefer server
-          const sOrder = orderMap.get(o.id)!;
-          if (o.status === 'paid' && sOrder.status !== 'paid') {
-            orderMap.set(o.id, { ...sOrder, status: 'paid' });
-          }
-        }
-      });
-      const merged = Array.from(orderMap.values()).sort(
+      
+      // Server orders for this specific userId are authoritative.
+      // Filter strictly to ensure no orders belonging to other users or null are included.
+      const verifiedOrders = Array.isArray(serverOrders)
+        ? serverOrders.filter((o) => o.userId === userId)
+        : [];
+
+      verifiedOrders.sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
-      // Update local storage with merged list
+
+      // Cache only this user's verified orders in their user-scoped storage key
       if (typeof window !== 'undefined') {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+        localStorage.setItem(getStorageKey(userId), JSON.stringify(verifiedOrders));
       }
 
-      // Background sync: if any local order is missing on the server, sync it
-      localOrders.forEach((lo) => {
-        if (!serverOrders.some((so) => so.id === lo.id)) {
-          fetch('/api/orders', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(lo),
-          }).catch(() => {});
-        }
-      });
-
-      return merged;
+      return verifiedOrders;
     }
   } catch (e) {
     console.error('Error fetching server orders:', e);
   }
 
-  return localOrders;
+  // Fallback to local user-scoped storage only
+  return getLocalOrders(userId).filter((o) => o.userId === userId);
 }

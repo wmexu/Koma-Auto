@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useToastStore } from '../../store/useToastStore';
@@ -15,7 +15,9 @@ import {
   updatePassword,
   deleteUser,
   sendEmailVerification,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  EmailAuthProvider,
+  reauthenticateWithCredential
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
@@ -75,6 +77,23 @@ export default function ProfileClient() {
   const [isSendingResetEmail, setIsSendingResetEmail] = useState(false);
   const [resetEmailSentSuccess, setResetEmailSentSuccess] = useState(false);
   const [resetEmailError, setResetEmailError] = useState<string | null>(null);
+
+  // Change password state for authenticated user
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const loginTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (user) {
+      loginTimeRef.current = Date.now();
+    }
+  }, [user?.uid]);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -299,6 +318,7 @@ export default function ProfileClient() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    (document.activeElement as HTMLElement)?.blur();
 
     if (activeTab === 'register' && !isConsentAccepted) {
       addToast('Необходимо принять условия Пользовательского соглашения и Политики конфиденциальности', 'error');
@@ -345,6 +365,7 @@ export default function ProfileClient() {
     }
 
     setIsLoading(true);
+    loginTimeRef.current = Date.now();
 
     try {
       if (activeTab === 'login') {
@@ -369,6 +390,7 @@ export default function ProfileClient() {
             }).catch(console.warn);
           }).catch(console.warn);
         }
+        loginTimeRef.current = Date.now();
         sessionStorage.setItem('koma-just-logged-in', 'true');
         addToast('Вы успешно вошли в аккаунт!', 'success');
         setEmail('');
@@ -378,7 +400,11 @@ export default function ProfileClient() {
         const user = userCredential.user;
         
         if (name) {
-          await updateProfile(user, { displayName: name });
+          try {
+            await updateProfile(user, { displayName: name });
+          } catch (pErr) {
+            console.warn('[Register] updateProfile error:', pErr);
+          }
         }
 
         // Send Email Verification immediately for manual email/password registrations
@@ -397,8 +423,15 @@ export default function ProfileClient() {
           createdAt: new Date().toISOString()
         };
 
-        // Save extra data to Firestore
-        await setDoc(doc(db, 'users', user.uid), profileData);
+        // Save extra data to Firestore with timeout guard
+        try {
+          await Promise.race([
+            setDoc(doc(db, 'users', user.uid), profileData),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 6000))
+          ]);
+        } catch (fsErr) {
+          console.warn('[Register] Firestore setDoc timeout or error:', fsErr);
+        }
         setUserProfile(profileData as any);
 
         try {
@@ -407,29 +440,36 @@ export default function ProfileClient() {
           window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: visualName }));
         } catch {}
 
-        // Authoritatively sync user to PostgreSQL
+        // Non-blocking sync to PostgreSQL with AbortController timeout
         try {
-          const idToken = await user.getIdToken();
-          await fetch('/api/user/sync', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-user-id': user.uid,
-              ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
-            },
-            body: JSON.stringify({
-              userId: user.uid,
-              email: user.email,
-              fullName: name || '',
-              phone: user.phoneNumber || null,
-              clientType: clientType || 'retail',
-              isExplicitUpdate: true,
-            }),
-          });
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 5000);
+          user.getIdToken().then((idToken) => {
+            fetch('/api/user/sync', {
+              method: 'POST',
+              signal: controller.signal,
+              headers: {
+                'Content-Type': 'application/json',
+                'x-user-id': user.uid,
+                ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+              },
+              body: JSON.stringify({
+                userId: user.uid,
+                email: user.email,
+                fullName: name || '',
+                phone: user.phoneNumber || null,
+                clientType: clientType || 'retail',
+                isExplicitUpdate: true,
+              }),
+            })
+              .catch((syncErr) => console.warn('[Profile] User sync warning:', syncErr))
+              .finally(() => clearTimeout(timeout));
+          }).catch(() => clearTimeout(timeout));
         } catch (syncErr) {
-          console.warn('[Profile] User sync warning:', syncErr);
+          console.warn('[Profile] User sync error:', syncErr);
         }
 
+        loginTimeRef.current = Date.now();
         sessionStorage.setItem('koma-just-logged-in', 'true');
         addToast('Аккаунт успешно создан!', 'success');
         setEmail('');
@@ -511,6 +551,12 @@ export default function ProfileClient() {
 
   const handleSignOut = async () => {
     try {
+      if (user?.uid) {
+        try {
+          localStorage.removeItem(`koma_orders_${user.uid}`);
+          localStorage.removeItem('koma_orders');
+        } catch {}
+      }
       try {
         localStorage.removeItem('koma_cached_user_name');
         window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: null }));
@@ -759,6 +805,61 @@ export default function ProfileClient() {
       addToast('Ошибка при обновлении профиля', 'error');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPasswordInput) {
+      addToast('Введите текущий пароль', 'error');
+      return;
+    }
+    if (!newPasswordInput) {
+      addToast('Введите новый пароль', 'error');
+      return;
+    }
+    if (newPasswordInput.length < 6) {
+      addToast('Новый пароль должен содержать минимум 6 символов', 'error');
+      return;
+    }
+    if (newPasswordInput !== confirmNewPasswordInput) {
+      addToast('Новые пароли не совпадают', 'error');
+      return;
+    }
+    if (currentPasswordInput === newPasswordInput) {
+      addToast('Новый пароль должен отличаться от текущего', 'error');
+      return;
+    }
+    if (!user || !user.email) {
+      addToast('Пользователь не авторизован', 'error');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, currentPasswordInput);
+      await reauthenticateWithCredential(user, credential);
+      await updatePassword(user, newPasswordInput);
+      addToast('Пароль успешно изменен!', 'success');
+      setIsChangePasswordModalOpen(false);
+      setCurrentPasswordInput('');
+      setNewPasswordInput('');
+      setConfirmNewPasswordInput('');
+      setShowCurrentPassword(false);
+      setShowNewPassword(false);
+    } catch (err: any) {
+      console.error('Change password error:', err);
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        addToast('Неверный текущий пароль', 'error');
+      } else if (err.code === 'auth/weak-password') {
+        addToast('Слишком слабый новый пароль (минимум 6 символов)', 'error');
+      } else if (err.code === 'auth/requires-recent-login') {
+        addToast('Сессия устарела. Пожалуйста, выйдите и войдите в аккаунт снова', 'error');
+      } else {
+        addToast(err.message || 'Ошибка при изменении пароля', 'error');
+      }
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -1027,6 +1128,8 @@ export default function ProfileClient() {
       );
     }
 
+    const isPasswordUser = Boolean(user?.providerData?.some((p) => p.providerId === 'password'));
+
     return (
       <div className={styles.dashboardContainer}>
         <div className={styles.dashboardHeader}>
@@ -1034,7 +1137,14 @@ export default function ProfileClient() {
             <h1 className={styles.dashboardTitle}>Личный кабинет</h1>
             <p className={styles.dashboardSubtitle}>Добро пожаловать, {userProfile.name || (user.displayName && !user.displayName.includes('@') ? user.displayName : null) || 'Пользователь'}!</p>
           </div>
-          <button type="button" className={styles.logoutBtn} onClick={() => setIsLogoutModalOpen(true)}>
+          <button 
+            type="button" 
+            className={styles.logoutBtn} 
+            onClick={() => {
+              if (Date.now() - loginTimeRef.current < 1500) return;
+              setIsLogoutModalOpen(true);
+            }}
+          >
             <LogOut size={16} />
             Выйти
           </button>
@@ -1071,9 +1181,26 @@ export default function ProfileClient() {
                   <UserIcon size={20} />
                   Личные данные
                 </div>
-                <button className={styles.editBtn} onClick={handleOpenEditModal} title="Редактировать">
-                  <Pencil size={16} />
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {isPasswordUser && (
+                    <button 
+                      type="button" 
+                      className={styles.changePasswordIconBtn} 
+                      onClick={() => {
+                        setCurrentPasswordInput('');
+                        setNewPasswordInput('');
+                        setConfirmNewPasswordInput('');
+                        setIsChangePasswordModalOpen(true);
+                      }} 
+                      title="Изменить пароль"
+                    >
+                      <KeyRound size={16} />
+                    </button>
+                  )}
+                  <button className={styles.editBtn} onClick={handleOpenEditModal} title="Редактировать данные">
+                    <Pencil size={16} />
+                  </button>
+                </div>
               </div>
               
               <div className={styles.infoList}>
@@ -1097,6 +1224,24 @@ export default function ProfileClient() {
                     {formatDate(userProfile.dob)}
                   </span>
                 </div>
+
+                {isPasswordUser && (
+                  <div style={{ marginTop: '10px', paddingTop: '12px', borderTop: '1px solid #f0f2f5' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentPasswordInput('');
+                        setNewPasswordInput('');
+                        setConfirmNewPasswordInput('');
+                        setIsChangePasswordModalOpen(true);
+                      }}
+                      className={styles.changePasswordInlineBtn}
+                    >
+                      <KeyRound size={15} />
+                      <span>Изменить пароль</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1364,6 +1509,107 @@ export default function ProfileClient() {
                     disabled={isLoading}
                   >
                     {isLoading ? 'Сохранение...' : 'Сохранить'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+        {/* Change Password Modal */}
+        {isChangePasswordModalOpen && (
+          <div className={styles.modalOverlay} onClick={() => !isChangingPassword && setIsChangePasswordModalOpen(false)}>
+            <div className={styles.modalContent} onClick={(e) => e.stopPropagation()} style={{ textAlign: 'left' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+                <h3 className={styles.modalTitle} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <KeyRound size={20} color="var(--color-navy)" />
+                  Смена пароля
+                </h3>
+                <button
+                  type="button"
+                  className={styles.modalCloseBtn}
+                  onClick={() => setIsChangePasswordModalOpen(false)}
+                  disabled={isChangingPassword}
+                  title="Закрыть"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form className={styles.form} onSubmit={handleChangePassword} noValidate>
+                <div className={styles.inputGroup}>
+                  <label className={styles.label}>Текущий пароль</label>
+                  <div className={styles.passwordWrapper}>
+                    <input
+                      type={showCurrentPassword ? 'text' : 'password'}
+                      value={currentPasswordInput}
+                      onChange={(e) => setCurrentPasswordInput(e.target.value)}
+                      className={styles.input}
+                      placeholder="Введите текущий пароль"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className={styles.passwordToggle}
+                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                      tabIndex={-1}
+                    >
+                      {showCurrentPassword ? <EyeOff size={18} color="#888" /> : <Eye size={18} color="#888" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={styles.inputGroup}>
+                  <label className={styles.label}>Новый пароль</label>
+                  <div className={styles.passwordWrapper}>
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPasswordInput}
+                      onChange={(e) => setNewPasswordInput(e.target.value)}
+                      className={styles.input}
+                      placeholder="Минимум 6 символов"
+                      minLength={6}
+                      required
+                    />
+                    <button
+                      type="button"
+                      className={styles.passwordToggle}
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      tabIndex={-1}
+                    >
+                      {showNewPassword ? <EyeOff size={18} color="#888" /> : <Eye size={18} color="#888" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={styles.inputGroup}>
+                  <label className={styles.label}>Подтвердите новый пароль</label>
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={confirmNewPasswordInput}
+                    onChange={(e) => setConfirmNewPasswordInput(e.target.value)}
+                    className={styles.input}
+                    placeholder="Повторите новый пароль"
+                    minLength={6}
+                    required
+                  />
+                </div>
+
+                <div className={styles.modalActions} style={{ marginTop: '24px' }}>
+                  <button 
+                    type="button"
+                    className={styles.modalCancelBtn} 
+                    onClick={() => setIsChangePasswordModalOpen(false)}
+                    disabled={isChangingPassword}
+                  >
+                    Отмена
+                  </button>
+                  <button 
+                    type="submit"
+                    className={styles.submitBtn} 
+                    style={{ flex: 1, margin: 0 }}
+                    disabled={isChangingPassword}
+                  >
+                    {isChangingPassword ? 'Сохранение...' : 'Сменить пароль'}
                   </button>
                 </div>
               </form>

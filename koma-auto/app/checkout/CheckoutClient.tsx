@@ -8,6 +8,7 @@ import { CheckCircle, Shield, Package, AlertTriangle, Smartphone, X } from 'luci
 import { useCartStore } from '../../store/useCartStore';
 import { useToastStore } from '../../store/useToastStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { auth } from '@/lib/firebase';
 import { Order, getEffectiveOrderStatus } from '@/lib/order-types';
 import { persistOrder, getLocalOrderById } from '@/lib/orders';
 import styles from './Checkout.module.css';
@@ -136,15 +137,18 @@ export default function CheckoutClient() {
       }
     }
 
-    if (codeToVerify) {
+    if (codeToVerify && totalPrice > 0) {
+      const currentUserEmail = auth?.currentUser?.email || user?.email || userProfile?.email || '';
+      const currentUserId = auth?.currentUser?.uid || user?.uid || null;
+
       fetch('/api/promocode/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           code: codeToVerify,
           cartTotal: totalPrice,
-          userEmail: user?.email || '',
-          userId: user?.uid || null,
+          userEmail: currentUserEmail,
+          userId: currentUserId,
           clientType: userProfile?.clientType || 'retail',
         }),
       })
@@ -159,7 +163,7 @@ export default function CheckoutClient() {
         })
         .catch(() => {});
     }
-  }, [user?.email, user?.uid, userProfile?.clientType]);
+  }, [user?.email, user?.uid, userProfile?.clientType, totalPrice]);
 
   // Reactive verification: when cart price changes, check if promo requirements are still met
   useEffect(() => {
@@ -188,16 +192,23 @@ export default function CheckoutClient() {
       addToast('Введите промокод', 'error');
       return;
     }
+    if (items.length === 0 || totalPrice <= 0) {
+      addToast('Корзина пуста', 'error');
+      return;
+    }
     setIsApplyingPromo(true);
     try {
+      const currentUserEmail = auth?.currentUser?.email || user?.email || userProfile?.email || formData.email || '';
+      const currentUserId = auth?.currentUser?.uid || user?.uid || null;
+
       const res = await fetch('/api/promocode/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           code,
           cartTotal: totalPrice,
-          userEmail: user?.email || formData.email || '',
-          userId: user?.uid || null,
+          userEmail: currentUserEmail,
+          userId: currentUserId,
           clientType: userProfile?.clientType || 'retail',
         }),
       });

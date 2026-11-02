@@ -9,6 +9,7 @@ import { useFavoritesStore } from '../../store/useFavoritesStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useToastStore } from '../../store/useToastStore';
 import { useRouter } from 'next/navigation';
+import { auth } from '@/lib/firebase';
 import ProductCard from '../../components/ProductCard/ProductCard';
 import styles from './Cart.module.css';
 
@@ -72,15 +73,18 @@ export default function CartClient() {
       }
     }
 
-    if (codeToVerify) {
+    if (codeToVerify && totalPrice > 0) {
+      const activeEmail = (auth?.currentUser?.email || user?.email || userProfile?.email || '').trim().toLowerCase();
+      const activeUid = auth?.currentUser?.uid || user?.uid || null;
+
       fetch('/api/promocode/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           code: codeToVerify,
           cartTotal: totalPrice,
-          userEmail: user?.email || '',
-          userId: user?.uid || null,
+          userEmail: activeEmail,
+          userId: activeUid,
           clientType: userProfile?.clientType || 'retail',
         }),
       })
@@ -95,7 +99,7 @@ export default function CartClient() {
         })
         .catch(() => {});
     }
-  }, [user?.email, user?.uid, userProfile?.clientType]);
+  }, [user?.email, user?.uid, userProfile?.clientType, totalPrice]);
 
   // Reactive verification: when cart price changes, check if promo requirements are still met
   useEffect(() => {
@@ -124,6 +128,14 @@ export default function CartClient() {
       addToast('Введите промокод', 'error');
       return;
     }
+    if (validItems.length === 0 || totalPrice <= 0) {
+      addToast('Ваша корзина пуста. Добавьте товары перед применением промокода.', 'error');
+      return;
+    }
+
+    const activeEmail = (auth?.currentUser?.email || user?.email || userProfile?.email || '').trim().toLowerCase();
+    const activeUid = auth?.currentUser?.uid || user?.uid || null;
+
     setIsApplyingPromo(true);
     try {
       const res = await fetch('/api/promocode/validate', {
@@ -132,8 +144,8 @@ export default function CartClient() {
         body: JSON.stringify({ 
           code,
           cartTotal: totalPrice,
-          userEmail: user?.email || '',
-          userId: user?.uid || null,
+          userEmail: activeEmail,
+          userId: activeUid,
           clientType: userProfile?.clientType || 'retail',
         }),
       });

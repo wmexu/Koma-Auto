@@ -15,6 +15,7 @@ const firebaseConfig = {
 // Initialize Firebase only once
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
+auth.languageCode = 'ru';
 const db = getFirestore(app);
 
 export { app, auth, db };
