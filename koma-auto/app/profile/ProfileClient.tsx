@@ -909,21 +909,6 @@ export default function ProfileClient() {
                   Личные данные
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {isPasswordUser && (
-                    <button 
-                      type="button" 
-                      className={styles.changePasswordIconBtn} 
-                      onClick={() => {
-                        setCurrentPasswordInput('');
-                        setNewPasswordInput('');
-                        setConfirmNewPasswordInput('');
-                        setIsChangePasswordModalOpen(true);
-                      }} 
-                      title="Изменить пароль"
-                    >
-                      <KeyRound size={16} />
-                    </button>
-                  )}
                   <button className={styles.editBtn} onClick={handleOpenEditModal} title="Редактировать данные">
                     <Pencil size={16} />
                   </button>

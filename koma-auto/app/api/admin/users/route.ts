@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { client, isDbConfigured } from '@/db';
 import { logAuditEvent } from '@/lib/audit';
 import { verifyStaffSession } from '@/lib/admin-auth';
-import { getFirebaseAdminAuth, UserRecord } from '@/lib/firebase-admin';
 
 export async function GET(request: Request) {
   try {
@@ -43,39 +42,6 @@ export async function GET(request: Request) {
       `;
     } catch (backfillErr) {
       console.warn('[AdminUsers] Auto backfill notice:', backfillErr);
-    }
-
-    // Auto-sync users directly from Firebase Authentication if Firebase Admin is configured
-    try {
-      const fbAdmin = getFirebaseAdminAuth();
-      if (fbAdmin) {
-        let pageToken: string | undefined = undefined;
-        let syncedCount = 0;
-        do {
-          const listRes: { users: UserRecord[]; pageToken?: string } = await fbAdmin.listUsers(1000, pageToken);
-          for (const fbUser of listRes.users) {
-            if (!fbUser.email) continue;
-            const cleanEmail = fbUser.email.trim().toLowerCase();
-            const fullName = fbUser.displayName && !fbUser.displayName.includes('@') ? fbUser.displayName.trim() : null;
-            const phone = fbUser.phoneNumber ? fbUser.phoneNumber.trim() : null;
-            const createdAt = fbUser.metadata.creationTime ? new Date(fbUser.metadata.creationTime) : new Date();
-
-            await client`
-              INSERT INTO users (id, email, full_name, phone, role, is_blocked, failed_code_attempts, created_at, updated_at)
-              VALUES (${fbUser.uid}, ${cleanEmail}, ${fullName}, ${phone}, 'customer', false, 0, ${createdAt}, NOW())
-              ON CONFLICT (id) DO UPDATE SET
-                email = EXCLUDED.email,
-                full_name = COALESCE(NULLIF(EXCLUDED.full_name, 'Покупатель'), users.full_name),
-                phone = COALESCE(EXCLUDED.phone, users.phone),
-                updated_at = NOW();
-            `;
-            syncedCount++;
-          }
-          pageToken = listRes.pageToken;
-        } while (pageToken);
-      }
-    } catch (fbAdminErr) {
-      console.warn('[AdminUsers] Firebase Admin auto-sync notice:', fbAdminErr);
     }
 
     let usersList: any[] = await client`

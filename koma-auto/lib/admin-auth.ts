@@ -1,6 +1,5 @@
 import { client, isDbConfigured } from '@/db';
 import { logAuditEvent } from '@/lib/audit';
-import { getFirebaseAdminAuth, isFirebaseAdminConfigured } from '@/lib/firebase-admin';
 
 export interface StaffAuthResult {
   authorized: boolean;
@@ -21,22 +20,6 @@ export async function verifyFirebaseIdToken(token: string): Promise<string | nul
   const cached = VERIFIED_TOKEN_CACHE.get(token);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.uid;
-  }
-
-  // 1. Fast local cryptographic verification via Firebase Admin SDK ONLY IF real service account is configured
-  if (isFirebaseAdminConfigured()) {
-    try {
-      const fbAdmin = getFirebaseAdminAuth();
-      if (fbAdmin) {
-        const decoded = await fbAdmin.verifyIdToken(token);
-        if (decoded && decoded.uid) {
-          VERIFIED_TOKEN_CACHE.set(token, { uid: decoded.uid, expiresAt: Date.now() + 10 * 60 * 1000 });
-          return decoded.uid;
-        }
-      }
-    } catch {
-      // If admin verification fails or token expired, fall through
-    }
   }
 
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;

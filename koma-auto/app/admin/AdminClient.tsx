@@ -78,9 +78,6 @@ export default function AdminClient() {
   const [usersList, setUsersList] = useState<any[]>([]);
   const [userAudienceFilter, setUserAudienceFilter] = useState<'all' | 'retail' | 'wholesale' | 'courier' | 'manager' | 'director'>('all');
   const [userSearchQuery, setUserSearchQuery] = useState('');
-  const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
-  const [showFirebaseModal, setShowFirebaseModal] = useState(false);
-  const [serviceAccountInput, setServiceAccountInput] = useState('');
 
   // Tokens state
   const [tokensList, setTokensList] = useState<any[]>([]);
@@ -226,33 +223,6 @@ export default function AdminClient() {
         });
     }
   }, [activeTab, isDirector, user?.uid]);
-
-  // Trigger direct synchronization with Firebase Authentication
-  const handleSyncFirebase = async (customJson?: string) => {
-    setIsSyncingFirebase(true);
-    try {
-      const res = await adminFetch('/api/admin/firebase-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(customJson ? { serviceAccountJson: customJson } : {}),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        addToast(data.message || `Синхронизировано ${data.syncedCount} пользователей!`, 'success');
-        setShowFirebaseModal(false);
-        setServiceAccountInput('');
-        loadUsers();
-      } else if (data.requiresServiceAccount) {
-        setShowFirebaseModal(true);
-      } else {
-        addToast(data.error || 'Ошибка синхронизации', 'error');
-      }
-    } catch (err: any) {
-      addToast(err?.message || 'Ошибка сети при синхронизации', 'error');
-    } finally {
-      setIsSyncingFirebase(false);
-    }
-  };
 
   // Load users from PostgreSQL
   const loadUsers = async () => {
@@ -1623,8 +1593,10 @@ export default function AdminClient() {
               </div>
               <button
                 type="button"
-                onClick={() => handleSyncFirebase()}
-                disabled={isSyncingFirebase}
+                onClick={() => {
+                  loadUsers();
+                  addToast('Список пользователей обновлен', 'success');
+                }}
                 className={styles.filterPill}
                 style={{
                   display: 'inline-flex',
@@ -1633,15 +1605,15 @@ export default function AdminClient() {
                   background: '#0ea5e9',
                   color: '#ffffff',
                   fontWeight: 600,
-                  cursor: isSyncingFirebase ? 'not-allowed' : 'pointer',
+                  cursor: 'pointer',
                   padding: '8px 16px',
                   borderRadius: '8px',
                   border: 'none',
                   boxShadow: '0 2px 4px rgba(14, 165, 233, 0.2)',
                 }}
               >
-                <RefreshCw size={15} style={{ animation: isSyncingFirebase ? 'spin 1s linear infinite' : 'none' }} />
-                {isSyncingFirebase ? 'Синхронизация...' : 'Синхронизировать с Firebase'}
+                <RefreshCw size={15} />
+                Обновить список
               </button>
             </div>
 
@@ -2269,64 +2241,6 @@ export default function AdminClient() {
                   onClick={() => setIsPromoConfigModalOpen(false)}
                 >
                   Готово
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* MODAL 5: FIREBASE ADMIN SDK CONFIGURATION MODAL */}
-        {showFirebaseModal && (
-          <div className={styles.modalOverlay} onClick={() => setShowFirebaseModal(false)}>
-            <div className={styles.modalCard} onClick={e => e.stopPropagation()} style={{ maxWidth: '560px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <KeyRound size={22} color="#0ea5e9" />
-                  <h3 className={styles.modalTitle} style={{ margin: 0, fontSize: '1.15rem' }}>Подключение Firebase Admin SDK</h3>
-                </div>
-                <button type="button" onClick={() => setShowFirebaseModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-                  <X size={20} color="#64748b" />
-                </button>
-              </div>
-
-              <p style={{ fontSize: '0.88rem', color: '#475569', lineHeight: 1.5, marginBottom: '14px' }}>
-                Для прямого автоматического импорта всех существующих учетных записей из Firebase Authentication вставьте содержимое закрытого ключа (JSON):
-              </p>
-
-              <ol style={{ fontSize: '0.82rem', color: '#64748b', paddingLeft: '18px', marginBottom: '16px', lineHeight: 1.6 }}>
-                <li>Откройте <a href="https://console.firebase.google.com/project/koma-kz/settings/serviceaccounts/adminsdk" target="_blank" rel="noreferrer" style={{ color: '#0ea5e9', textDecoration: 'underline' }}>Firebase Console → Сервисные аккаунты</a></li>
-                <li>Нажмите кнопку <strong>«Создать закрытый ключ» (Generate new private key)</strong></li>
-                <li>Откройте скачанный .json файл, скопируйте его текст и вставьте в поле ниже:</li>
-              </ol>
-
-              <textarea
-                rows={6}
-                placeholder='{"type": "service_account", "project_id": "koma-kz", "private_key": "...", ...}'
-                value={serviceAccountInput}
-                onChange={e => setServiceAccountInput(e.target.value)}
-                className={styles.inputField}
-                style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical', marginBottom: '16px', boxSizing: 'border-box' }}
-              />
-
-              <div className={styles.modalFooter} style={{ marginTop: '16px' }}>
-                <button
-                  type="button"
-                  className={styles.cancelBtn}
-                  onClick={() => setShowFirebaseModal(false)}
-                >
-                  Отмена
-                </button>
-                <button
-                  type="button"
-                  disabled={!serviceAccountInput.trim() || isSyncingFirebase}
-                  onClick={() => handleSyncFirebase(serviceAccountInput.trim())}
-                  className={styles.submitBtn}
-                  style={{
-                    background: '#0ea5e9',
-                    opacity: (!serviceAccountInput.trim() || isSyncingFirebase) ? 0.6 : 1,
-                    cursor: (!serviceAccountInput.trim() || isSyncingFirebase) ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  {isSyncingFirebase ? 'Синхронизация...' : 'Сохранить и Синхронизировать'}
                 </button>
               </div>
             </div>
