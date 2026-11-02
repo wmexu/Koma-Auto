@@ -46,6 +46,7 @@ export default function ProfileClient() {
   const [dob, setDob] = useState('');
   const [clientType, setClientType] = useState('retail');
   const [isLoading, setIsLoading] = useState(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [isNameInitialized, setIsNameInitialized] = useState(false);
   const [isConsentAccepted, setIsConsentAccepted] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -84,10 +85,19 @@ export default function ProfileClient() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   const loginTimeRef = useRef<number>(0);
+  const canLogoutRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (user) {
       loginTimeRef.current = Date.now();
+      canLogoutRef.current = false;
+      const timer = setTimeout(() => {
+        canLogoutRef.current = true;
+      }, 3000);
+      return () => clearTimeout(timer);
+    } else {
+      canLogoutRef.current = false;
+      setIsLogoutModalOpen(false);
     }
   }, [user?.uid]);
 
@@ -854,7 +864,13 @@ export default function ProfileClient() {
           <button 
             type="button" 
             className={styles.logoutBtn} 
-            onClick={handleSignOut}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!canLogoutRef.current) return;
+              if (Date.now() - loginTimeRef.current < 3000) return;
+              setIsLogoutModalOpen(true);
+            }}
           >
             <LogOut size={16} />
             Выйти
@@ -1068,6 +1084,35 @@ export default function ProfileClient() {
             />
           </div>
         </div>
+
+        {/* Logout Confirmation Modal */}
+        {isLogoutModalOpen && (
+          <div className={styles.modalOverlay} onClick={() => setIsLogoutModalOpen(false)}>
+            <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+              <h3 className={styles.modalTitle}>Вы уверены?</h3>
+              <p className={styles.modalText}>Вы действительно хотите выйти из аккаунта?</p>
+              <div className={styles.modalActions}>
+                <button 
+                  type="button"
+                  className={styles.modalCancelBtn} 
+                  onClick={() => setIsLogoutModalOpen(false)}
+                >
+                  Отмена
+                </button>
+                <button 
+                  type="button"
+                  className={styles.modalConfirmBtn} 
+                  onClick={async () => {
+                    setIsLogoutModalOpen(false);
+                    await handleSignOut();
+                  }}
+                >
+                  Выйти
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Edit Profile Modal */}
         {isEditModalOpen && (
