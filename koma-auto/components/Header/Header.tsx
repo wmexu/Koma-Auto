@@ -82,6 +82,30 @@ export default function Header() {
       if (currentUser) {
         setProfileLoading(true);
         setProfileLoaded(false);
+
+        // Immediate authoritative sync to PostgreSQL
+        if (currentUser.email) {
+          currentUser.getIdToken().then(idToken => {
+            if (!idToken) return;
+            fetch('/api/user/sync', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-user-id': currentUser.uid,
+                'authorization': `Bearer ${idToken}`,
+              },
+              body: JSON.stringify({
+                userId: currentUser.uid,
+                email: currentUser.email,
+                fullName: currentUser.displayName && !currentUser.displayName.includes('@') ? currentUser.displayName : null,
+                phone: currentUser.phoneNumber || null,
+                clientType: 'retail',
+                isExplicitUpdate: false,
+              }),
+            }).catch(syncErr => console.warn('[UserSync] Background sync error:', syncErr));
+          }).catch(() => {});
+        }
+
         try {
           const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
           let profile = userDoc.exists() ? (userDoc.data() as any) : null;
@@ -118,19 +142,35 @@ export default function Header() {
               },
             });
             let dbFullName: string | null = null;
+            let dbRole: string | null = null;
             if (roleRes.ok) {
               const roleData = await roleRes.json();
               dbFullName = roleData.fullName || null;
-              if (roleData.role && profile) {
-                profile.role = roleData.role;
-                setDoc(doc(db, 'users', currentUser.uid), { role: roleData.role }, { merge: true }).catch(() => {});
-              }
+              dbRole = roleData.role || null;
             }
 
-            // If Firestore document exists and lacks full name, but DB has established real name, sync it
-            if (profile && !profile.name && dbFullName && dbFullName !== 'Покупатель') {
-              profile.name = dbFullName;
-              setDoc(doc(db, 'users', currentUser.uid), { name: dbFullName }, { merge: true }).catch(() => {});
+            // Unify: If user document in Firestore does not exist yet or profile is null,
+            // construct it immediately from PostgreSQL and Google Auth so user is NEVER left without a profile
+            if (!profile) {
+              const resolvedName = dbFullName || (currentUser.displayName && !currentUser.displayName.includes('@') ? currentUser.displayName : null) || currentUser.email?.split('@')[0] || 'Пользователь';
+              profile = {
+                name: resolvedName,
+                email: currentUser.email || '',
+                dob: '',
+                role: dbRole || 'customer',
+                clientType: 'retail',
+                createdAt: new Date().toISOString(),
+              };
+              setDoc(doc(db, 'users', currentUser.uid), profile, { merge: true }).catch(() => {});
+            } else {
+              if (dbRole) {
+                profile.role = dbRole;
+                setDoc(doc(db, 'users', currentUser.uid), { role: dbRole }, { merge: true }).catch(() => {});
+              }
+              if (dbFullName && dbFullName !== 'Покупатель') {
+                profile.name = dbFullName;
+                setDoc(doc(db, 'users', currentUser.uid), { name: dbFullName }, { merge: true }).catch(() => {});
+              }
             }
           } catch (rErr) {
             console.warn('Role sync warning:', rErr);

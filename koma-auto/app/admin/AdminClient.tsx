@@ -8,11 +8,10 @@ import { useToastStore } from '@/store/useToastStore';
 import { 
   Shield, Package, Truck, Users, Tag, Settings, KeyRound, 
   ArrowLeft, CheckCircle, AlertTriangle, Search, Copy, Check, Clock, Eye,
-  MoreVertical, Archive, XCircle, X, RotateCcw, Trash2, Lock
+  MoreVertical, Archive, XCircle, X, RotateCcw, Trash2, Lock, RefreshCw
 } from 'lucide-react';
 import { formatPickupCode, getOrderPickupCode } from '@/lib/pickup-code';
 import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
 import styles from './Admin.module.css';
 
 export default function AdminClient() {
@@ -79,6 +78,9 @@ export default function AdminClient() {
   const [usersList, setUsersList] = useState<any[]>([]);
   const [userAudienceFilter, setUserAudienceFilter] = useState<'all' | 'retail' | 'wholesale' | 'courier' | 'manager' | 'director'>('all');
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
+  const [showFirebaseModal, setShowFirebaseModal] = useState(false);
+  const [serviceAccountInput, setServiceAccountInput] = useState('');
 
   // Tokens state
   const [tokensList, setTokensList] = useState<any[]>([]);
@@ -225,38 +227,36 @@ export default function AdminClient() {
     }
   }, [activeTab, isDirector, user?.uid]);
 
-  // Load users when on tab with dynamic auto-discovery from Firestore
+  // Trigger direct synchronization with Firebase Authentication
+  const handleSyncFirebase = async (customJson?: string) => {
+    setIsSyncingFirebase(true);
+    try {
+      const res = await adminFetch('/api/admin/firebase-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(customJson ? { serviceAccountJson: customJson } : {}),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast(data.message || `Синхронизировано ${data.syncedCount} пользователей!`, 'success');
+        setShowFirebaseModal(false);
+        setServiceAccountInput('');
+        loadUsers();
+      } else if (data.requiresServiceAccount) {
+        setShowFirebaseModal(true);
+      } else {
+        addToast(data.error || 'Ошибка синхронизации', 'error');
+      }
+    } catch (err: any) {
+      addToast(err?.message || 'Ошибка сети при синхронизации', 'error');
+    } finally {
+      setIsSyncingFirebase(false);
+    }
+  };
+
+  // Load users from PostgreSQL
   const loadUsers = async () => {
     if (!isDirector || !user?.uid) return;
-
-    try {
-      // 1. Direct discovery from Firestore users collection
-      const usersSnap = await getDocs(collection(db, 'users'));
-      const foundUsers: any[] = [];
-      usersSnap.forEach(d => {
-        const data = d.data();
-        if (data.email) {
-          foundUsers.push({
-            id: d.id,
-            email: data.email,
-            fullName: data.name || data.fullName || null,
-            phone: data.phone || null,
-            role: data.role || (data.clientType === 'wholesale' ? 'wholesale' : 'customer'),
-            createdAt: data.createdAt || null
-          });
-        }
-      });
-
-      if (foundUsers.length > 0) {
-        await adminFetch('/api/admin/users/sync-batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ users: foundUsers })
-        });
-      }
-    } catch (e) {
-      // Quiet failover if client security rules disallow list
-    }
 
     adminFetch(`/api/admin/users?audience=${userAudienceFilter}&q=${encodeURIComponent(userSearchQuery)}`)
       .then(res => res.json())
@@ -1612,6 +1612,39 @@ export default function AdminClient() {
         {/* TAB 3: USERS (Director Only) */}
         {activeTab === 'users' && isDirector && (
           <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, margin: 0, color: '#0f172a' }}>
+                  Клиенты и Пользователи ({usersList.length})
+                </h3>
+                <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '2px 0 0 0' }}>
+                  База пользователей синхронизируется автоматически при каждом входе, регистрации и заказе.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleSyncFirebase()}
+                disabled={isSyncingFirebase}
+                className={styles.filterPill}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: '#0ea5e9',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                  cursor: isSyncingFirebase ? 'not-allowed' : 'pointer',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  boxShadow: '0 2px 4px rgba(14, 165, 233, 0.2)',
+                }}
+              >
+                <RefreshCw size={15} style={{ animation: isSyncingFirebase ? 'spin 1s linear infinite' : 'none' }} />
+                {isSyncingFirebase ? 'Синхронизация...' : 'Синхронизировать с Firebase'}
+              </button>
+            </div>
+
             <div className={styles.sectionFilters}>
               <div className={styles.filterGroup}>
                 <span className={styles.filterLabel}>Аудитория:</span>
@@ -2236,6 +2269,64 @@ export default function AdminClient() {
                   onClick={() => setIsPromoConfigModalOpen(false)}
                 >
                   Готово
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* MODAL 5: FIREBASE ADMIN SDK CONFIGURATION MODAL */}
+        {showFirebaseModal && (
+          <div className={styles.modalOverlay} onClick={() => setShowFirebaseModal(false)}>
+            <div className={styles.modalCard} onClick={e => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <KeyRound size={22} color="#0ea5e9" />
+                  <h3 className={styles.modalTitle} style={{ margin: 0, fontSize: '1.15rem' }}>Подключение Firebase Admin SDK</h3>
+                </div>
+                <button type="button" onClick={() => setShowFirebaseModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                  <X size={20} color="#64748b" />
+                </button>
+              </div>
+
+              <p style={{ fontSize: '0.88rem', color: '#475569', lineHeight: 1.5, marginBottom: '14px' }}>
+                Для прямого автоматического импорта всех существующих учетных записей из Firebase Authentication вставьте содержимое закрытого ключа (JSON):
+              </p>
+
+              <ol style={{ fontSize: '0.82rem', color: '#64748b', paddingLeft: '18px', marginBottom: '16px', lineHeight: 1.6 }}>
+                <li>Откройте <a href="https://console.firebase.google.com/project/koma-kz/settings/serviceaccounts/adminsdk" target="_blank" rel="noreferrer" style={{ color: '#0ea5e9', textDecoration: 'underline' }}>Firebase Console → Сервисные аккаунты</a></li>
+                <li>Нажмите кнопку <strong>«Создать закрытый ключ» (Generate new private key)</strong></li>
+                <li>Откройте скачанный .json файл, скопируйте его текст и вставьте в поле ниже:</li>
+              </ol>
+
+              <textarea
+                rows={6}
+                placeholder='{"type": "service_account", "project_id": "koma-kz", "private_key": "...", ...}'
+                value={serviceAccountInput}
+                onChange={e => setServiceAccountInput(e.target.value)}
+                className={styles.inputField}
+                style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical', marginBottom: '16px', boxSizing: 'border-box' }}
+              />
+
+              <div className={styles.modalFooter} style={{ marginTop: '16px' }}>
+                <button
+                  type="button"
+                  className={styles.cancelBtn}
+                  onClick={() => setShowFirebaseModal(false)}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  disabled={!serviceAccountInput.trim() || isSyncingFirebase}
+                  onClick={() => handleSyncFirebase(serviceAccountInput.trim())}
+                  className={styles.submitBtn}
+                  style={{
+                    background: '#0ea5e9',
+                    opacity: (!serviceAccountInput.trim() || isSyncingFirebase) ? 0.6 : 1,
+                    cursor: (!serviceAccountInput.trim() || isSyncingFirebase) ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {isSyncingFirebase ? 'Синхронизация...' : 'Сохранить и Синхронизировать'}
                 </button>
               </div>
             </div>

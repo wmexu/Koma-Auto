@@ -25,6 +25,29 @@ export default function SyncProvider() {
 
     if (!user) return;
 
+    // Automatic background sync to PostgreSQL on any authenticated page visit
+    if (user.email) {
+      user.getIdToken().then(idToken => {
+        if (!idToken) return;
+        fetch('/api/user/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': user.uid,
+            'authorization': `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            userId: user.uid,
+            email: user.email,
+            fullName: user.displayName && !user.displayName.includes('@') ? user.displayName : null,
+            phone: user.phoneNumber || null,
+            clientType: 'retail',
+            isExplicitUpdate: false,
+          }),
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+
     let unsubscribeSnapshot: (() => void) | null = null;
     let snapshotCounter = 0;
 

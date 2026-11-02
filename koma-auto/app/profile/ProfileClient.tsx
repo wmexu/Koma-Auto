@@ -48,11 +48,8 @@ export default function ProfileClient() {
   const [isLoading, setIsLoading] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [isNameInitialized, setIsNameInitialized] = useState(false);
-  const [completePassword, setCompletePassword] = useState('');
-  const [completeConfirmPassword, setCompleteConfirmPassword] = useState('');
   const [isConsentAccepted, setIsConsentAccepted] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [isReauthModalOpen, setIsReauthModalOpen] = useState(false);
   
   // Edit state
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -296,26 +293,6 @@ export default function ProfileClient() {
     return '';
   };
 
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-
-    // If user is logged in but profile is not complete, start 5 min timer
-    if (user && !userProfile) {
-      timeoutId = setTimeout(async () => {
-        try {
-          await signOut(auth);
-          addToast('Время на завершение регистрации истекло. Пожалуйста, авторизуйтесь заново.', 'error');
-        } catch (e) {
-          console.error(e);
-        }
-      }, 5 * 60 * 1000); // 5 minutes
-    }
-
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [user, userProfile, addToast]);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     (document.activeElement as HTMLElement)?.blur();
@@ -372,13 +349,14 @@ export default function ProfileClient() {
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const signedUser = userCredential.user;
         if (signedUser && signedUser.email) {
-          signedUser.getIdToken().then(idToken => {
-            fetch('/api/user/sync', {
+          try {
+            const idToken = await signedUser.getIdToken();
+            await fetch('/api/user/sync', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 'x-user-id': signedUser.uid,
-                ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+                'authorization': `Bearer ${idToken}`,
               },
               body: JSON.stringify({
                 userId: signedUser.uid,
@@ -387,8 +365,10 @@ export default function ProfileClient() {
                 phone: signedUser.phoneNumber || null,
                 clientType: 'retail',
               }),
-            }).catch(console.warn);
-          }).catch(console.warn);
+            });
+          } catch (syncErr) {
+            console.warn('[Login] Sync error:', syncErr);
+          }
         }
         loginTimeRef.current = Date.now();
         sessionStorage.setItem('koma-just-logged-in', 'true');
@@ -440,31 +420,25 @@ export default function ProfileClient() {
           window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: visualName }));
         } catch {}
 
-        // Non-blocking sync to PostgreSQL with AbortController timeout
+        // Guaranteed sync to PostgreSQL before finishing registration
         try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 5000);
-          user.getIdToken().then((idToken) => {
-            fetch('/api/user/sync', {
-              method: 'POST',
-              signal: controller.signal,
-              headers: {
-                'Content-Type': 'application/json',
-                'x-user-id': user.uid,
-                ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
-              },
-              body: JSON.stringify({
-                userId: user.uid,
-                email: user.email,
-                fullName: name || '',
-                phone: user.phoneNumber || null,
-                clientType: clientType || 'retail',
-                isExplicitUpdate: true,
-              }),
-            })
-              .catch((syncErr) => console.warn('[Profile] User sync warning:', syncErr))
-              .finally(() => clearTimeout(timeout));
-          }).catch(() => clearTimeout(timeout));
+          const idToken = await user.getIdToken();
+          await fetch('/api/user/sync', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-user-id': user.uid,
+              'authorization': `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({
+              userId: user.uid,
+              email: user.email,
+              fullName: name || '',
+              phone: user.phoneNumber || null,
+              clientType: clientType || 'retail',
+              isExplicitUpdate: true,
+            }),
+          });
         } catch (syncErr) {
           console.warn('[Profile] User sync error:', syncErr);
         }
@@ -499,8 +473,11 @@ export default function ProfileClient() {
       const user = result.user;
       
       if (user && user.email) {
-        user.getIdToken().then(async (idToken) => {
-          fetch('/api/user/sync', {
+        const idToken = await user.getIdToken().catch(() => null);
+
+        // Authoritatively sync user to PostgreSQL
+        try {
+          await fetch('/api/user/sync', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -510,19 +487,57 @@ export default function ProfileClient() {
             body: JSON.stringify({
               userId: user.uid,
               email: user.email,
-              fullName: null, // do not force overwrite existing name in DB with Google handle
+              fullName: user.displayName && !user.displayName.includes('@') ? user.displayName : null,
               phone: user.phoneNumber || null,
               clientType: 'retail',
               isExplicitUpdate: false,
             }),
-          }).catch(console.warn);
-        }).catch(console.warn);
+          });
+        } catch (syncErr) {
+          console.warn('[GoogleSignIn] Sync error:', syncErr);
+        }
+
+        // Fetch authoritative role and real established name from PostgreSQL
+        let dbRole = 'customer';
+        let dbName = user.displayName || user.email.split('@')[0] || 'Пользователь';
+        try {
+          const roleRes = await fetch(`/api/user/role?userId=${user.uid}`, {
+            headers: {
+              'x-user-id': user.uid,
+              ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+            },
+          });
+          if (roleRes.ok) {
+            const roleData = await roleRes.json();
+            if (roleData.role) dbRole = roleData.role;
+            if (roleData.fullName && roleData.fullName !== 'Покупатель') {
+              dbName = roleData.fullName;
+            }
+          }
+        } catch (roleErr) {
+          console.warn('[GoogleSignIn] Role error:', roleErr);
+        }
+
+        const profileData = {
+          name: dbName,
+          email: user.email,
+          dob: '',
+          role: dbRole,
+          clientType: 'retail',
+          createdAt: new Date().toISOString()
+        };
+
+        // Save to Firestore and immediately set store
+        await setDoc(doc(db, 'users', user.uid), profileData, { merge: true }).catch(() => {});
+        setUserProfile(profileData as any);
+
+        try {
+          localStorage.setItem('koma_cached_user_name', dbName);
+          window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: dbName }));
+        } catch {}
       }
 
-      // Note: we do NOT save full profile to Firestore here yet.
-      // The Header listener will fetch the doc, find it missing, and set userProfile to null,
-      // which will trigger the "incomplete registration" form.
-
+      loginTimeRef.current = Date.now();
       sessionStorage.setItem('koma-just-logged-in', 'true');
       addToast('Вы успешно вошли через Google!', 'success');
     } catch (error: any) {
@@ -568,139 +583,15 @@ export default function ProfileClient() {
     }
   };
 
-  const handleCancelIncompleteRegistration = async () => {
-    if (!user) return;
-    try {
-      setIsLoading(true);
-      await deleteUser(user);
-      addToast('Регистрация отменена', 'success');
-    } catch (error: any) {
-      console.error('Error deleting user:', error);
-      if (error.code === 'auth/requires-recent-login') {
-        await signOut(auth);
-        addToast('Регистрация прервана', 'success');
-      } else {
-        addToast('Ошибка при отмене регистрации', 'error');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleCompleteRegistration = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-
-    if (!isConsentAccepted) {
-      addToast('Необходимо принять условия Пользовательского соглашения и Политики конфиденциальности', 'error');
-      return;
-    }
-    
-    const isGoogleUser = Boolean(user?.providerData?.some(p => p.providerId === 'google.com'));
-
-    const newErrors: {name?: string, dob?: string, password?: string, confirmPassword?: string} = {};
-    let hasEmptyFields = false;
-
-    if (!name.trim()) { newErrors.name = 'Заполните это поле'; hasEmptyFields = true; }
-    if (!dob) { newErrors.dob = 'Заполните это поле'; hasEmptyFields = true; }
-    
-    if (!isGoogleUser) {
-      if (!completePassword) { newErrors.password = 'Заполните это поле'; hasEmptyFields = true; }
-      if (!completeConfirmPassword) { newErrors.confirmPassword = 'Заполните это поле'; hasEmptyFields = true; }
-
-      if (completePassword && completeConfirmPassword && completePassword !== completeConfirmPassword) {
-        newErrors.confirmPassword = 'Пароли не совпадают';
-      }
-    }
-
-    if (name.trim()) {
-      const nameErr = validateFullName(name);
-      if (nameErr) newErrors.name = nameErr;
-    }
-    
-    if (dob) {
-      const dobErr = validateDob(dob);
-      if (dobErr) newErrors.dob = dobErr;
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      if (hasEmptyFields) {
-        addToast('Пожалуйста, заполните все обязательные поля', 'error');
-      } else {
-        addToast('Пожалуйста, исправьте ошибки в форме', 'error');
-      }
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      if (!isGoogleUser && completePassword) {
-        await updatePassword(user, completePassword);
-      }
-
-      const profileData = {
-        name: name || '',
-        email: user.email,
-        dob: dob || '',
-        clientType: clientType || 'retail',
-        createdAt: new Date().toISOString()
-      };
-      
-      await setDoc(doc(db, 'users', user.uid), profileData);
-      setUserProfile(profileData as any);
-
-      try {
-        const visualName = name || user.displayName || user.email || 'Мой профиль';
-        localStorage.setItem('koma_cached_user_name', visualName);
-        window.dispatchEvent(new CustomEvent('koma_cached_name_change', { detail: visualName }));
-      } catch {}
-
-      // Authoritatively sync user to PostgreSQL
-      try {
-        const idToken = await user.getIdToken();
-        await fetch('/api/user/sync', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-id': user.uid,
-            ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
-          },
-          body: JSON.stringify({
-            userId: user.uid,
-            email: user.email,
-            fullName: name || '',
-            phone: user.phoneNumber || null,
-            clientType: clientType || 'retail',
-            isExplicitUpdate: true,
-          }),
-        });
-      } catch (syncErr) {
-        console.warn('[Profile] User sync warning:', syncErr);
-      }
-      setIsLogoutModalOpen(false);
-      addToast('Регистрация успешно завершена!', 'success');
-    } catch (error: any) {
-      console.error('Error completing registration:', error);
-      if (error.code === 'auth/requires-recent-login') {
-        setIsReauthModalOpen(true);
-      } else {
-        addToast('Ошибка при сохранении данных', 'error');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleOpenEditModal = () => {
-    if (!user || !userProfile) return;
-    setEditName(userProfile.name || user.displayName || '');
-    setEditDob(userProfile.dob || '');
-    const isStaff = Boolean(userProfile.role && ['director', 'manager', 'courier'].includes(userProfile.role));
+    if (!user) return;
+    setEditName(userProfile?.name || (user.displayName && !user.displayName.includes('@') ? user.displayName : '') || '');
+    setEditDob(userProfile?.dob || '');
+    const isStaff = Boolean(userProfile?.role && ['director', 'manager', 'courier'].includes(userProfile.role as any));
     if (isStaff) {
-      setEditClientType(userProfile.role!);
+      setEditClientType(userProfile!.role!);
     } else {
-      setEditClientType(userProfile.clientType || 'retail');
+      setEditClientType(userProfile?.clientType || 'retail');
     }
     setStaffTokenInput('');
     setIsEditModalOpen(true);
@@ -952,182 +843,6 @@ export default function ProfileClient() {
       );
     }
 
-    if (!userProfile || !userProfile.name || !userProfile.dob) {
-      const isGoogleUser = Boolean(user?.providerData?.some(p => p.providerId === 'google.com'));
-
-      return (
-        <div className={styles.pageContainer}>
-          <div className={styles.authCard}>
-            <h1 className={styles.title}>Осталось заполнить некоторые данные</h1>
-            <p style={{ textAlign: 'center', marginBottom: '24px', color: 'var(--color-dark-gray)' }}>
-              Пожалуйста, укажите ваши данные для завершения регистрации.
-            </p>
-            <form className={styles.form} onSubmit={handleCompleteRegistration} noValidate>
-              <div className={styles.inputGroup}>
-                <label htmlFor="complete-name" className={`${styles.label} ${errors.name ? styles.labelError : ''}`}>Имя и Фамилия</label>
-                <input
-                  id="complete-name"
-                  type="text"
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value);
-                    if (errors.name) setErrors(prev => ({ ...prev, name: undefined }));
-                  }}
-                  placeholder="Как к вам обращаться?"
-                  className={`${styles.input} ${errors.name ? styles.inputError : ''}`}
-                  maxLength={50}
-                  required
-                />
-                {errors.name && <span className={styles.errorText}>{errors.name}</span>}
-              </div>
-              
-              <div className={styles.inputGroup}>
-                <label htmlFor="complete-dob" className={`${styles.label} ${errors.dob ? styles.labelError : ''}`}>Дата рождения</label>
-                <input
-                  id="complete-dob"
-                  type="date"
-                  value={dob}
-                  onChange={(e) => {
-                    setDob(e.target.value);
-                    if (errors.dob) setErrors(prev => ({ ...prev, dob: undefined }));
-                  }}
-                  min="1900-01-01"
-                  max={getMin18Date()}
-                  className={`${styles.input} ${errors.dob ? styles.inputError : ''}`}
-                  required
-                />
-                {errors.dob && <span className={styles.errorText}>{errors.dob}</span>}
-              </div>
-
-              {!isGoogleUser && (
-                <>
-                  <div className={styles.inputGroup}>
-                    <label htmlFor="complete-password" className={`${styles.label} ${errors.password ? styles.labelError : ''}`}>Создайте пароль</label>
-                    <div className={styles.passwordWrapper}>
-                      <input
-                        id="complete-password"
-                        type={showPassword ? "text" : "password"}
-                        value={completePassword}
-                        onChange={(e) => {
-                          setCompletePassword(e.target.value);
-                          if (errors.password) setErrors(prev => ({ ...prev, password: undefined }));
-                        }}
-                        placeholder="Введите пароль"
-                        className={`${styles.input} ${styles.passwordInput} ${errors.password ? styles.inputError : ''}`}
-                        required
-                      />
-                      <button type="button" className={styles.passwordToggle} onClick={() => setShowPassword(!showPassword)} tabIndex={-1}>
-                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
-                    </div>
-                    {errors.password && <span className={styles.errorText}>{errors.password}</span>}
-                  </div>
-                  
-                  <div className={styles.inputGroup}>
-                    <label htmlFor="complete-confirmPassword" className={`${styles.label} ${errors.confirmPassword ? styles.labelError : ''}`}>Подтвердите пароль</label>
-                    <input
-                      id="complete-confirmPassword"
-                      type={showPassword ? "text" : "password"}
-                      value={completeConfirmPassword}
-                      onChange={(e) => {
-                        setCompleteConfirmPassword(e.target.value);
-                        if (errors.confirmPassword) setErrors(prev => ({ ...prev, confirmPassword: undefined }));
-                      }}
-                      placeholder="Подтвердите пароль"
-                      className={`${styles.input} ${errors.confirmPassword ? styles.inputError : ''}`}
-                      required
-                    />
-                    {errors.confirmPassword && <span className={styles.errorText}>{errors.confirmPassword}</span>}
-                  </div>
-                </>
-              )}
-
-              <div className={styles.inputGroup}>
-                <label htmlFor="complete-clientType" className={styles.label}>Укажите тип клиента:</label>
-                <select
-                  id="complete-clientType"
-                  value={clientType}
-                  onChange={(e) => setClientType(e.target.value)}
-                  className={styles.select}
-                >
-                  <option value="retail">Розничный клиент</option>
-                  <option value="wholesale">Оптовый клиент</option>
-                </select>
-              </div>
-
-              <div className={styles.consentGroup}>
-                <input 
-                  type="checkbox" 
-                  id="consent-complete" 
-                  className={styles.consentCheckbox}
-                  checked={isConsentAccepted}
-                  onChange={(e) => setIsConsentAccepted(e.target.checked)}
-                />
-                <label htmlFor="consent-complete" className={styles.consentText}>
-                  Я принимаю условия <Link href="/terms-of-service" className={styles.consentLink} target="_blank">Пользовательского соглашения</Link> и <Link href="/privacy-policy" className={styles.consentLink} target="_blank">Политики конфиденциальности</Link>, а также даю согласие на обработку персональных данных.
-                </label>
-              </div>
-
-              <button 
-                type="submit" 
-                className={styles.submitBtn}
-                disabled={isLoading}
-              >
-                {isLoading ? 'Сохранение...' : 'Завершить регистрацию'}
-              </button>
-              
-              <button 
-                type="button" 
-                onClick={handleCancelIncompleteRegistration}
-                disabled={isLoading}
-                style={{
-                  width: '100%',
-                  marginTop: '12px',
-                  padding: '16px',
-                  backgroundColor: 'transparent',
-                  color: 'var(--color-navy)',
-                  border: '1px solid #dcdfe6',
-                  borderRadius: 'var(--radius-sm)',
-                  fontWeight: 600,
-                  fontSize: '16px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseOver={(e) => e.currentTarget.style.borderColor = 'var(--color-navy)'}
-                onMouseOut={(e) => e.currentTarget.style.borderColor = '#dcdfe6'}
-              >
-                Выйти
-              </button>
-            </form>
-          </div>
-
-          {/* Reauth Modal */}
-          {isReauthModalOpen && (
-            <div className={styles.modalOverlay} onClick={() => setIsReauthModalOpen(false)}>
-              <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-                <h3 className={styles.modalTitle}>Сессия устарела</h3>
-                <p className={styles.modalText}>
-                  В целях безопасности Firebase требует недавней авторизации для установки пароля. Пожалуйста, войдите снова (это займёт пару секунд), чтобы завершить регистрацию.
-                </p>
-                <div className={styles.modalActions}>
-                  <button 
-                    className={styles.modalConfirmBtn} 
-                    onClick={async () => {
-                      setIsReauthModalOpen(false);
-                      await handleSignOut();
-                    }}
-                    style={{ width: '100%' }}
-                  >
-                    Понятно, перезайти
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
     const isPasswordUser = Boolean(user?.providerData?.some((p) => p.providerId === 'password'));
 
     return (
@@ -1135,7 +850,7 @@ export default function ProfileClient() {
         <div className={styles.dashboardHeader}>
           <div>
             <h1 className={styles.dashboardTitle}>Личный кабинет</h1>
-            <p className={styles.dashboardSubtitle}>Добро пожаловать, {userProfile.name || (user.displayName && !user.displayName.includes('@') ? user.displayName : null) || 'Пользователь'}!</p>
+            <p className={styles.dashboardSubtitle}>Добро пожаловать, {userProfile?.name || (user.displayName && !user.displayName.includes('@') ? user.displayName : null) || 'Пользователь'}!</p>
           </div>
           <button 
             type="button" 
@@ -1151,7 +866,7 @@ export default function ProfileClient() {
         </div>
 
         {/* Staff Management Panel Banner */}
-        {Boolean(userProfile?.role && ['courier', 'manager', 'director'].includes(userProfile.role)) && (
+        {Boolean(userProfile?.role && ['courier', 'manager', 'director'].includes(userProfile.role as any)) && (
           <div className={styles.staffPanelBanner}>
             <div className={styles.staffPanelLeft}>
               <Shield size={22} color="var(--color-navy)" />
@@ -1162,7 +877,7 @@ export default function ProfileClient() {
                 </div>
               </div>
               <span className={styles.staffRolePill}>
-                {userProfile.role === 'director' ? 'Директор' : userProfile.role === 'manager' ? 'Менеджер' : 'Курьер'}
+                {userProfile?.role === 'director' ? 'Директор' : userProfile?.role === 'manager' ? 'Менеджер' : 'Курьер'}
               </span>
             </div>
             <Link href="/admin" className={styles.staffPanelActionBtn}>
@@ -1206,14 +921,14 @@ export default function ProfileClient() {
               <div className={styles.infoList}>
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>Имя и Фамилия</span>
-                  <span className={styles.infoValue}>{userProfile.name || (user.displayName && !user.displayName.includes('@') ? user.displayName : null) || 'Не указано'}</span>
+                  <span className={styles.infoValue}>{userProfile?.name || (user.displayName && !user.displayName.includes('@') ? user.displayName : null) || 'Не указано'}</span>
                 </div>
                 
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>Email адрес</span>
                   <span className={styles.infoValue} style={{ wordBreak: 'break-all' }}>
                     <Mail size={16} color="#888" />
-                    {userProfile.email || user.email}
+                    {userProfile?.email || user.email}
                   </span>
                 </div>
 
@@ -1221,7 +936,7 @@ export default function ProfileClient() {
                   <span className={styles.infoLabel}>Дата рождения</span>
                   <span className={styles.infoValue}>
                     <Calendar size={16} color="#888" />
-                    {formatDate(userProfile.dob)}
+                    {formatDate(userProfile?.dob || '')}
                   </span>
                 </div>
 
@@ -1256,13 +971,13 @@ export default function ProfileClient() {
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>Тип клиента</span>
                   <div>
-                    {userProfile.role === 'director' ? (
+                    {userProfile?.role === 'director' ? (
                       <span className={styles.badgeDirector}>Директор</span>
-                    ) : userProfile.role === 'manager' ? (
+                    ) : userProfile?.role === 'manager' ? (
                       <span className={styles.badgeManager}>Менеджер</span>
-                    ) : userProfile.role === 'courier' ? (
+                    ) : userProfile?.role === 'courier' ? (
                       <span className={styles.badgeCourier}>Курьер</span>
-                    ) : userProfile.clientType === 'wholesale' ? (
+                    ) : userProfile?.clientType === 'wholesale' ? (
                       <span className={styles.badgeWholesale}>Оптовый клиент</span>
                     ) : (
                       <span className={styles.badgeRetail}>Розничный клиент</span>
@@ -1274,7 +989,7 @@ export default function ProfileClient() {
                   <span className={styles.infoLabel}>Дата регистрации</span>
                   <span className={styles.infoValue} style={{ fontSize: '14px' }}>
                     <Clock size={16} color="#888" />
-                    {formatDate(userProfile.createdAt)}
+                    {formatDate(userProfile?.createdAt || '')}
                   </span>
                 </div>
 
@@ -1425,7 +1140,7 @@ export default function ProfileClient() {
 
                 <div className={styles.inputGroup}>
                   <label htmlFor="edit-clientType" className={styles.label}>Укажите тип клиента:</label>
-                  {Boolean(userProfile?.role && ['director', 'manager', 'courier'].includes(userProfile.role)) ? (
+                  {Boolean(userProfile?.role && ['director', 'manager', 'courier'].includes(userProfile.role as any)) ? (
                     <>
                       <select
                         id="edit-clientType"
@@ -1435,9 +1150,9 @@ export default function ProfileClient() {
                       >
                         <option value="retail">Розничный клиент</option>
                         <option value="wholesale">Оптовый клиент</option>
-                        {userProfile.role === 'director' && <option value="director">Директор (Текущий статус)</option>}
-                        {userProfile.role === 'manager' && <option value="manager">Менеджер (Текущий статус)</option>}
-                        {userProfile.role === 'courier' && <option value="courier">Курьер (Текущий статус)</option>}
+                        {userProfile?.role === 'director' && <option value="director">Директор (Текущий статус)</option>}
+                        {userProfile?.role === 'manager' && <option value="manager">Менеджер (Текущий статус)</option>}
+                        {userProfile?.role === 'courier' && <option value="courier">Курьер (Текущий статус)</option>}
                       </select>
 
                       <button
