@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { formatPickupCode, getOrderPickupCode } from '@/lib/pickup-code';
 import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import styles from './Admin.module.css';
 
 export default function AdminClient() {
@@ -78,6 +79,7 @@ export default function AdminClient() {
   const [usersList, setUsersList] = useState<any[]>([]);
   const [userAudienceFilter, setUserAudienceFilter] = useState<'all' | 'retail' | 'wholesale' | 'courier' | 'manager' | 'director'>('all');
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
 
   // Tokens state
   const [tokensList, setTokensList] = useState<any[]>([]);
@@ -224,6 +226,59 @@ export default function AdminClient() {
     }
   }, [activeTab, isDirector, user?.uid]);
 
+  // Batch discovery and sync of users from Firebase Firestore into Neon PostgreSQL
+  const handleSyncFromFirebase = async (showToast = true) => {
+    if (!isDirector || !user?.uid) return;
+    setIsSyncingFirebase(true);
+
+    try {
+      // 1. Direct discovery from Firestore users collection
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const foundUsers: any[] = [];
+      usersSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data && data.email) {
+          foundUsers.push({
+            id: docSnap.id,
+            email: data.email,
+            fullName: data.name || data.fullName || null,
+            phone: data.phone || null,
+            role: data.role || (data.clientType === 'wholesale' ? 'wholesale' : 'customer'),
+            createdAt: data.createdAt || null,
+          });
+        }
+      });
+
+      if (foundUsers.length > 0) {
+        const res = await adminFetch('/api/admin/users/sync-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ users: foundUsers }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (showToast) {
+            addToast(`Синхронизировано ${data.processed} пользователей из Firebase!`, 'success');
+          }
+        } else if (showToast) {
+          addToast(data.error || 'Ошибка синхронизации пользователей', 'error');
+        }
+      } else if (showToast) {
+        addToast('Новых пользователей в Firebase не обнаружено', 'info');
+      }
+
+      await loadUsers();
+    } catch (err: any) {
+      console.warn('[SyncFromFirebase Error]:', err);
+      if (showToast) {
+        addToast('Ошибка синхронизации Firebase: ' + (err?.message || 'Ошибка доступа'), 'error');
+      }
+      await loadUsers();
+    } finally {
+      setIsSyncingFirebase(false);
+    }
+  };
+
   // Load users from PostgreSQL
   const loadUsers = async () => {
     if (!isDirector || !user?.uid) return;
@@ -239,6 +294,8 @@ export default function AdminClient() {
   useEffect(() => {
     if (activeTab === 'users' && isDirector && user?.uid) {
       loadUsers();
+      // Auto-sync existing users from Firebase in the background
+      handleSyncFromFirebase(false);
     }
   }, [activeTab, userAudienceFilter, userSearchQuery, isDirector, user?.uid]);
 
@@ -1591,30 +1648,57 @@ export default function AdminClient() {
                   База пользователей синхронизируется автоматически при каждом входе, регистрации и заказе.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  loadUsers();
-                  addToast('Список пользователей обновлен', 'success');
-                }}
-                className={styles.filterPill}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  background: '#0ea5e9',
-                  color: '#ffffff',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  padding: '8px 16px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  boxShadow: '0 2px 4px rgba(14, 165, 233, 0.2)',
-                }}
-              >
-                <RefreshCw size={15} />
-                Обновить список
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => handleSyncFromFirebase(true)}
+                  disabled={isSyncingFirebase}
+                  className={styles.filterPill}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: '#10b981',
+                    color: '#ffffff',
+                    fontWeight: 600,
+                    cursor: isSyncingFirebase ? 'not-allowed' : 'pointer',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    opacity: isSyncingFirebase ? 0.7 : 1,
+                    boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)',
+                  }}
+                  title="Синхронизировать всех пользователей из Firebase Firestore в базу данных Neon"
+                >
+                  <RefreshCw size={15} style={{ animation: isSyncingFirebase ? 'spin 1s linear infinite' : 'none' }} />
+                  <span>{isSyncingFirebase ? 'Синхронизация...' : 'Синхронизировать из Firebase'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    loadUsers();
+                    addToast('Список пользователей обновлен', 'success');
+                  }}
+                  className={styles.filterPill}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: '#0ea5e9',
+                    color: '#ffffff',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    boxShadow: '0 2px 4px rgba(14, 165, 233, 0.2)',
+                  }}
+                >
+                  <RefreshCw size={15} />
+                  Обновить список
+                </button>
+              </div>
             </div>
 
             <div className={styles.sectionFilters}>

