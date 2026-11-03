@@ -402,7 +402,7 @@ export default function CheckoutClient() {
   }
 
   const itemsDiscountedPrice = Math.max(0, totalPrice - promoDiscount);
-  const calculatedDelivery = isTestMode ? 0 : deliveryCost;
+  const calculatedDelivery = isTestMode || formData.deliveryMethod === 'pickup' ? 0 : deliveryCost;
   const finalPrice = isTestMode
     ? testPrice
     : (formData.deliveryMethod === 'courier' ? itemsDiscountedPrice + deliveryCost : itemsDiscountedPrice);
@@ -421,8 +421,8 @@ export default function CheckoutClient() {
   const rawKaspi = (customKaspiPhone || formData.phone || '').replace(/\D/g, '');
   const kaspiFormattedDigits = rawKaspi.length >= 10 ? rawKaspi.slice(-10) : rawKaspi;
   const displayKaspiPhone = kaspiFormattedDigits.length === 10
-    ? `+7${kaspiFormattedDigits}`
-    : (kaspiFormattedDigits.length > 0 ? `+7${kaspiFormattedDigits}` : '+7 (укажите в контактах)');
+    ? `+7 ${formatKazakhPhone(kaspiFormattedDigits)}`
+    : (kaspiFormattedDigits.length > 0 ? `+7 ${formatKazakhPhone(kaspiFormattedDigits)}` : '+7 (укажите в контактах)');
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatKazakhPhone(e.target.value);
@@ -861,119 +861,7 @@ export default function CheckoutClient() {
           </div>
 
           <div className={styles.section}>
-            <h2>2. Адрес доставки</h2>
-            <div className={styles.formGrid}>
-              <div className={`${styles.inputGroup} ${styles.cityInputWrapper}`}>
-                <label>Населенный пункт *</label>
-                <input 
-                  required 
-                  type="text" 
-                  name="city" 
-                  value={formData.city} 
-                  readOnly
-                  onClick={() => setIsCityModalOpen(true)}
-                  onFocus={() => setIsCityModalOpen(true)}
-                  placeholder="Выберите город" 
-                  autoComplete="off"
-                  style={{ cursor: 'pointer' }}
-                />
-                {isCityModalOpen && (
-                  <>
-                    <div className={styles.cityModalOverlay} onClick={() => setIsCityModalOpen(false)} />
-                    <div className={styles.cityDropdown}>
-                      {sortedLetters.map(letter => (
-                        <div key={letter} className={styles.cityGroup}>
-                          <div className={styles.cityLetter}>{letter}</div>
-                          {groupedCities[letter].map(city => (
-                            <div 
-                              key={city} 
-                              className={styles.cityItem}
-                              onClick={() => {
-                                setFormData(prev => ({ ...prev, city }));
-                                setIsCityModalOpen(false);
-                              }}
-                            >
-                              {city}
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className={styles.inputGroup}>
-                <label>Улица / Микрорайон *</label>
-                <input 
-                  required 
-                  type="text" 
-                  name="street" 
-                  value={formData.street} 
-                  onChange={handleChange} 
-                  placeholder="Например: ул. Абая или мкр. Самал-2"
-                />
-              </div>
-              <div className={styles.inputGroup}>
-                <label>Дом / Здание *</label>
-                <input 
-                  required 
-                  type="text" 
-                  name="house" 
-                  value={formData.house} 
-                  onChange={handleChange} 
-                  placeholder="Например: 15/2"
-                />
-              </div>
-              <div className={styles.inputGroup}>
-                <label>Квартира / Офис *</label>
-                <input 
-                  required 
-                  type="text" 
-                  name="apartment" 
-                  value={formData.apartment} 
-                  onChange={handleChange} 
-                  placeholder="Например: 42"
-                />
-              </div>
-            </div>
-            
-            <h3 className={styles.subHeading} style={{ marginTop: '24px', marginBottom: '16px', fontSize: '18px', fontWeight: '500', color: 'var(--color-navy)' }}>Дополнительные данные</h3>
-            <div className={styles.formGrid}>
-              <div className={styles.inputGroup}>
-                <label>Подъезд / Код / Этаж</label>
-                <input 
-                  type="text" 
-                  name="entrance" 
-                  value={formData.entrance} 
-                  onChange={handleChange} 
-                  placeholder="Например: 2 подъезд, 4 этаж"
-                />
-              </div>
-              <div className={styles.inputGroup}>
-                <label>Почтовый индекс</label>
-                <input 
-                  type="text" 
-                  name="postalCode" 
-                  value={formData.postalCode} 
-                  onChange={handleChange} 
-                  placeholder="Например: 050000"
-                />
-              </div>
-            </div>
-            <div className={styles.inputGroup} style={{ marginTop: '16px' }}>
-              <label>Комментарий для курьера</label>
-              <textarea 
-                name="comment" 
-                value={formData.comment} 
-                onChange={handleChange} 
-                rows={2} 
-                placeholder="Например: позвонить за 30 минут, оставить у консьержа..."
-              />
-            </div>
-          </div>
-
-          <div className={styles.section}>
-            <h2>3. Способ доставки</h2>
+            <h2>2. Способ доставки</h2>
             <div className={styles.radioGroup}>
               <label className={`${styles.radioCard} ${!courierAvailable ? styles.disabledCard : ''}`}>
                 <input
@@ -1026,8 +914,122 @@ export default function CheckoutClient() {
             )}
           </div>
 
+          {formData.deliveryMethod === 'courier' && (
+            <div className={styles.section}>
+              <h2>3. Адрес доставки</h2>
+              <div className={styles.formGrid}>
+                <div className={`${styles.inputGroup} ${styles.cityInputWrapper}`}>
+                  <label>Населенный пункт *</label>
+                  <input 
+                    required 
+                    type="text" 
+                    name="city" 
+                    value={formData.city} 
+                    readOnly
+                    onClick={() => setIsCityModalOpen(true)}
+                    onFocus={() => setIsCityModalOpen(true)}
+                    placeholder="Выберите город" 
+                    autoComplete="off"
+                    style={{ cursor: 'pointer' }}
+                  />
+                  {isCityModalOpen && (
+                    <>
+                      <div className={styles.cityModalOverlay} onClick={() => setIsCityModalOpen(false)} />
+                      <div className={styles.cityDropdown}>
+                        {sortedLetters.map(letter => (
+                          <div key={letter} className={styles.cityGroup}>
+                            <div className={styles.cityLetter}>{letter}</div>
+                            {groupedCities[letter].map(city => (
+                              <div 
+                                key={city} 
+                                className={styles.cityItem}
+                                onClick={() => {
+                                  setFormData(prev => ({ ...prev, city }));
+                                  setIsCityModalOpen(false);
+                                }}
+                              >
+                                {city}
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className={styles.inputGroup}>
+                  <label>Улица / Микрорайон *</label>
+                  <input 
+                    required 
+                    type="text" 
+                    name="street" 
+                    value={formData.street} 
+                    onChange={handleChange} 
+                    placeholder="Например: ул. Абая или мкр. Самал-2"
+                  />
+                </div>
+                <div className={styles.inputGroup}>
+                  <label>Дом / Здание *</label>
+                  <input 
+                    required 
+                    type="text" 
+                    name="house" 
+                    value={formData.house} 
+                    onChange={handleChange} 
+                    placeholder="Например: 15/2"
+                  />
+                </div>
+                <div className={styles.inputGroup}>
+                  <label>Квартира / Офис *</label>
+                  <input 
+                    required 
+                    type="text" 
+                    name="apartment" 
+                    value={formData.apartment} 
+                    onChange={handleChange} 
+                    placeholder="Например: 42"
+                  />
+                </div>
+              </div>
+              
+              <h3 className={styles.subHeading} style={{ marginTop: '24px', marginBottom: '16px', fontSize: '18px', fontWeight: '500', color: 'var(--color-navy)' }}>Дополнительные данные</h3>
+              <div className={styles.formGrid}>
+                <div className={styles.inputGroup}>
+                  <label>Подъезд / Код / Этаж</label>
+                  <input 
+                    type="text" 
+                    name="entrance" 
+                    value={formData.entrance} 
+                    onChange={handleChange} 
+                    placeholder="Например: 2 подъезд, 4 этаж"
+                  />
+                </div>
+                <div className={styles.inputGroup}>
+                  <label>Почтовый индекс</label>
+                  <input 
+                    type="text" 
+                    name="postalCode" 
+                    value={formData.postalCode} 
+                    onChange={handleChange} 
+                    placeholder="Например: 050000"
+                  />
+                </div>
+              </div>
+              <div className={styles.inputGroup} style={{ marginTop: '16px' }}>
+                <label>Комментарий для курьера</label>
+                <textarea 
+                  name="comment" 
+                  value={formData.comment} 
+                  onChange={handleChange} 
+                  rows={2} 
+                  placeholder="Например: позвонить за 30 минут, оставить у консьержа..."
+                />
+              </div>
+            </div>
+          )}
+
           <div className={styles.section}>
-            <h2>4. Способ оплаты</h2>
+            <h2>{formData.deliveryMethod === 'pickup' ? '3' : '4'}. Способ оплаты</h2>
             <div className={styles.radioGroup}>
               <label className={`${styles.radioCard} ${formData.paymentMethod === 'online' ? styles.activeRadioCard : ''}`}>
                 <input
@@ -1073,8 +1075,8 @@ export default function CheckoutClient() {
               <div className={styles.kaspiInfoBox}>
                 <Smartphone size={16} color="var(--color-navy)" style={{ minWidth: '16px', marginTop: '2px' }} />
                 <span>
-                  Менеджер Koma Auto выставит счёт на ваш Kaspi счёт. Убедитесь, что номер{' '}
-                  <strong>{displayKaspiPhone}</strong> принадлежит вашему Kaspi счёту, либо вы можете его{' '}
+                  Менеджер Koma Auto выставит счёт в ваш Kaspi. Убедитесь, что номер{' '}
+                  <strong>{displayKaspiPhone}</strong> привязан к Kaspi, либо вы можете его{' '}
                   <button
                     type="button"
                     onClick={handleOpenKaspiModal}
