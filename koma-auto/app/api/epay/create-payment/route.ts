@@ -84,8 +84,12 @@ export async function POST(request: Request) {
           calculatedItemsTotal += genuinePrice * qty;
         }
 
-        // Secure Production Promocode verification against Neon PostgreSQL
-        if (promoCode && typeof promoCode === 'string' && isDbConfigured() && client) {
+        // 1. Check test promo codes (10, 50, 100 ₸)
+        const testPromo = promoCode ? getTestPromoConfig(promoCode) : null;
+        if (testPromo) {
+          calculatedItemsTotal = testPromo.targetPrice;
+        } else if (promoCode && typeof promoCode === 'string' && isDbConfigured() && client) {
+          // 2. Secure Production Promocode verification against Neon PostgreSQL
           try {
             const promoRows = await client`
               SELECT id, code, type, value, min_cart_total, max_cart_total, max_discount, is_active, bound_emails, bound_user_id, usage_limit, used_count
@@ -126,9 +130,9 @@ export async function POST(request: Request) {
 
         const isCourier = deliveryMethod === 'courier';
         const isAlmaty = (city || '').toLowerCase().includes('алмат');
-        const deliveryFee = (isCourier && isAlmaty && calculatedItemsTotal < 20000) ? 6500 : 0;
+        const deliveryFee = (!testPromo && isCourier && isAlmaty && calculatedItemsTotal < 20000) ? 6500 : 0;
 
-        effectiveAmount = Math.round(calculatedItemsTotal + deliveryFee);
+        effectiveAmount = testPromo ? testPromo.targetPrice : Math.round(calculatedItemsTotal + deliveryFee);
       } else {
         effectiveAmount = Math.round(Number(amount) || 0);
       }

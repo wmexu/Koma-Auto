@@ -1,18 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getTestPromoConfig, getTestPromoDisclaimer } from '@/lib/promocode';
 import { client, isDbConfigured } from '@/db';
-import { checkGeneralRateLimit } from '@/lib/rate-limiter';
 
 export async function POST(request: Request) {
   try {
-    const ip = request.headers.get('x-forwarded-for') || 'unknown-ip';
-    const rateCheck = checkGeneralRateLimit(ip, 30, 60 * 1000); // Max 30 attempts per minute
-    if (!rateCheck.allowed) {
-      return NextResponse.json(
-        { valid: false, error: `Слишком много запросов. Попробуйте через ${rateCheck.remainingSeconds || 60} сек.` },
-        { status: 429 }
-      );
-    }
 
     const body = await request.json();
     const code = (body?.code || '').trim();

@@ -9,6 +9,7 @@ import { resolveAndEnsureUserId } from '@/lib/db-users';
 import { verifyStaffSession, getVerifiedCallerUid } from '@/lib/admin-auth';
 import { isKillSwitchActive } from '@/lib/system-settings';
 import { getOrderPickupCode } from '@/lib/pickup-code';
+import { getTestPromoConfig } from '@/lib/promocode';
 
 export async function POST(request: Request) {
   try {
@@ -45,14 +46,20 @@ export async function POST(request: Request) {
         // Server-Side Promocode Re-Verification & Atomic Discount Enforcement
         if (order.promoCode && typeof order.promoCode === 'string') {
           try {
-            const promoRows = await client`
-              SELECT 
-                id, code, type, value, min_cart_total, max_cart_total, max_discount,
-                is_active, bound_emails, bound_user_id, usage_limit, used_count
-              FROM promocodes
-              WHERE LOWER(code) = LOWER(${order.promoCode.trim()}) AND is_active = true
-              LIMIT 1;
-            `;
+            const testPromo = getTestPromoConfig(order.promoCode);
+            if (testPromo) {
+              order.itemsPrice = testPromo.targetPrice;
+              order.deliveryCost = 0;
+              order.amount = testPromo.targetPrice;
+            } else {
+              const promoRows = await client`
+                SELECT 
+                  id, code, type, value, min_cart_total, max_cart_total, max_discount,
+                  is_active, bound_emails, bound_user_id, usage_limit, used_count
+                FROM promocodes
+                WHERE LOWER(code) = LOWER(${order.promoCode.trim()}) AND is_active = true
+                LIMIT 1;
+              `;
             if (promoRows && promoRows.length > 0) {
               const p = promoRows[0];
               const calculatedRawItems = Array.isArray(order.items)
@@ -92,6 +99,7 @@ export async function POST(request: Request) {
                 `;
               }
             }
+          }
           } catch (promoErr) {
             console.warn('[Orders POST] Server promocode verification notice:', promoErr);
           }

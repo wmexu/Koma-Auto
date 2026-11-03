@@ -6,15 +6,17 @@ export interface TestPromoConfig {
 
 export function getTestPromoConfig(code?: string | null): TestPromoConfig | null {
   if (!code || typeof code !== 'string') return null;
-  const trimmed = code.trim();
+  const trimmed = code.trim().toLowerCase();
   if (!trimmed) return null;
 
+  const cleanEnv = (val?: string) => (val || '').trim().replace(/^["']|["']$/g, '').toLowerCase();
+
   // 10 KZT Promo Codes (current primary test code)
-  const code10 = (process.env.TEST_ORDER_PROMO_CODE || process.env.TEST_ORDER_PROMO_CODE_10 || '').trim();
+  const code10 = cleanEnv(process.env.TEST_ORDER_PROMO_CODE || process.env.TEST_ORDER_PROMO_CODE_10);
   // 50 KZT Promo Code
-  const code50 = (process.env.TEST_ORDER_PROMO_CODE_50 || '').trim();
+  const code50 = cleanEnv(process.env.TEST_ORDER_PROMO_CODE_50);
   // 100 KZT Promo Code
-  const code100 = (process.env.TEST_ORDER_PROMO_CODE_100 || '').trim();
+  const code100 = cleanEnv(process.env.TEST_ORDER_PROMO_CODE_100);
 
   if (code10 && trimmed === code10) {
     return {
