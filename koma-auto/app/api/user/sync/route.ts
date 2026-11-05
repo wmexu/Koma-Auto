@@ -35,6 +35,21 @@ export async function POST(request: Request) {
     const desiredRole = clientType === 'wholesale' ? 'wholesale' : 'customer';
     const isExplicitUpdate = Boolean(body.isExplicitUpdate);
 
+    const isPlaceholderOrTestName = (name: string | null | undefined): boolean => {
+      if (!name) return true;
+      const lower = name.trim().toLowerCase();
+      return (
+        lower === 'покупатель' ||
+        lower === 'пользователь' ||
+        lower === 'клиент' ||
+        lower.includes('тестовый заказ') ||
+        lower.includes('тестовый покупатель') ||
+        lower === 'тест' ||
+        lower === 'test' ||
+        lower === 'test user'
+      );
+    };
+
     // 1. Check if user with this ID already exists
     const byId = await client`
       SELECT id, email, full_name, phone, role
@@ -49,15 +64,14 @@ export async function POST(request: Request) {
       const isElevated = ['courier', 'manager', 'director'].includes(currentRole);
       const finalRole = isElevated ? currentRole : (clientType === 'wholesale' ? 'wholesale' : currentRole);
 
-      // Protect established real name (e.g. "Алан Манкусов") from being overwritten by OAuth handles (e.g. "wmexu")
       const existingName = byId[0].full_name;
-      const isExistingReal = Boolean(existingName && existingName.trim().length > 0 && existingName !== 'Покупатель');
-      const isIncomingReal = Boolean(cleanName && cleanName.trim().length >= 2 && cleanName !== 'Покупатель' && !cleanName.includes('@') && cleanName !== cleanEmail.split('@')[0]);
+      const isExistingReal = Boolean(existingName && !isPlaceholderOrTestName(existingName));
+      const isIncomingReal = Boolean(cleanName && !isPlaceholderOrTestName(cleanName));
 
-      // If explicit update was requested from Profile editing OR incoming is a valid human name, adopt it
+      // If explicit update was requested from Profile editing OR incoming is a valid name while existing was a test/empty name, adopt it
       const finalName = isExplicitUpdate 
         ? (cleanName || existingName) 
-        : (isIncomingReal ? cleanName : (isExistingReal ? existingName : (cleanName || existingName)));
+        : (isIncomingReal && !isExistingReal ? cleanName : (cleanName || existingName));
 
       await client`
         UPDATE users
@@ -104,12 +118,12 @@ export async function POST(request: Request) {
       const finalRole = isElevated ? currentRole : (clientType === 'wholesale' ? 'wholesale' : currentRole);
 
       const existingName = byEmail[0].full_name;
-      const isExistingReal = Boolean(existingName && existingName.trim().length > 0 && existingName !== 'Покупатель');
-      const isIncomingReal = Boolean(cleanName && cleanName.trim().length >= 2 && cleanName !== 'Покупатель' && !cleanName.includes('@') && cleanName !== cleanEmail.split('@')[0]);
+      const isExistingReal = Boolean(existingName && !isPlaceholderOrTestName(existingName));
+      const isIncomingReal = Boolean(cleanName && !isPlaceholderOrTestName(cleanName));
 
       const finalName = isExplicitUpdate 
         ? (cleanName || existingName) 
-        : (isIncomingReal ? cleanName : (isExistingReal ? existingName : (cleanName || existingName)));
+        : (isIncomingReal && !isExistingReal ? cleanName : (cleanName || existingName));
 
       // Re-link foreign keys to the new Firebase UID
       try {

@@ -20,21 +20,33 @@ export async function GET(request: Request) {
       isStaff = staffAuth.authorized;
     }
 
-    // If neither owner nor staff, return safe default without revealing staff existence
+    // If neither owner nor staff, return unauthorized error so client never falsely overwrites staff roles
     if (!isOwner && !isStaff) {
-      return NextResponse.json({ success: true, role: 'customer' });
+      return NextResponse.json({ success: false, error: 'Требуется авторизация', role: 'customer' }, { status: 401 });
     }
 
     if (!isDbConfigured() || !client) {
       return NextResponse.json({ error: 'База данных недоступна' }, { status: 503 });
     }
 
-    const rows = await client`
+    let rows = await client`
       SELECT role, full_name, email
       FROM users
       WHERE id = ${String(userId)}
       LIMIT 1;
     `;
+
+    if (!rows || rows.length === 0) {
+      const emailParam = searchParams.get('email');
+      if (emailParam) {
+        rows = await client`
+          SELECT role, full_name, email
+          FROM users
+          WHERE LOWER(email) = ${emailParam.trim().toLowerCase()}
+          LIMIT 1;
+        `;
+      }
+    }
 
     if (!rows || rows.length === 0) {
       return NextResponse.json({ success: true, role: 'customer' });

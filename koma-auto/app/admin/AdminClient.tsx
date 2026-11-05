@@ -8,7 +8,8 @@ import { useToastStore } from '@/store/useToastStore';
 import { 
   Shield, Package, Truck, Users, Tag, Settings, KeyRound, 
   ArrowLeft, CheckCircle, AlertTriangle, Search, Copy, Check, Clock, Eye,
-  MoreVertical, Archive, XCircle, X, RotateCcw, Trash2, Lock, RefreshCw
+  MoreVertical, Archive, XCircle, X, RotateCcw, Trash2, Lock, RefreshCw,
+  Calendar, ChevronLeft, ChevronRight, CreditCard
 } from 'lucide-react';
 import { formatPickupCode, getOrderPickupCode } from '@/lib/pickup-code';
 import { db } from '@/lib/firebase';
@@ -32,14 +33,45 @@ export default function AdminClient() {
   // Orders state
   const [orders, setOrders] = useState<any[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
-  const [period, setPeriod] = useState<'30' | '60' | '360' | 'all'>('30');
+  const [period, setPeriod] = useState<'30' | '60' | '360' | 'all' | 'custom'>('30');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [couriersList, setCouriersList] = useState<any[]>([]);
 
-  // Orders search & sub-tab state
+  // Orders search & sub-tab state (Default is 'active', 2nd tab as requested)
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
-  const [orderSubTab, setOrderSubTab] = useState<'active' | 'pending_payment' | 'cancelled' | 'archive'>('active');
+  const [orderSubTab, setOrderSubTab] = useState<'active' | 'kaspi' | 'pending_payment' | 'cancelled' | 'archive'>('active');
   const [activeMenuOrderId, setActiveMenuOrderId] = useState<string | null>(null);
+
+  // Live timer for 20-minute payment countdown
+  const [currentTime, setCurrentTime] = useState(Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatOrderRemainingTime = (createdAt: string) => {
+    try {
+      const expiresMs = new Date(createdAt).getTime() + 20 * 60 * 1000;
+      const diff = expiresMs - currentTime;
+      if (diff <= 0) return '00:00';
+      const totalSeconds = Math.floor(diff / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    } catch {
+      return '20:00';
+    }
+  };
+
+  // Date range picker modal state (Default reference today is 05.11.2026)
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [calendarYear, setCalendarYear] = useState(2026);
+  const [calendarMonth, setCalendarMonth] = useState(10); // 10 = November (0-indexed)
+  const [pickerStartDate, setPickerStartDate] = useState<Date | null>(new Date(2026, 10, 1));
+  const [pickerEndDate, setPickerEndDate] = useState<Date | null>(new Date(2026, 10, 5));
+  const [appliedDateRange, setAppliedDateRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
 
   // Deleted orders & settings view
   const [settingsSubView, setSettingsSubView] = useState<'general' | 'deleted'>('general');
@@ -139,7 +171,9 @@ export default function AdminClient() {
     if (!user?.uid) return;
     if (!silent) setOrdersLoading(true);
     try {
-      const url = `/api/admin/orders?period=${period}&role=${userRole}&userId=${user?.uid || ''}&status=${statusFilter}&includeDeleted=true`;
+      const url = appliedDateRange.start
+        ? `/api/admin/orders?period=custom&startDate=${encodeURIComponent(appliedDateRange.start)}&endDate=${encodeURIComponent(appliedDateRange.end || appliedDateRange.start)}&role=${userRole}&userId=${user?.uid || ''}&status=${statusFilter}&includeDeleted=true`
+        : `/api/admin/orders?period=${period}&role=${userRole}&userId=${user?.uid || ''}&status=${statusFilter}&includeDeleted=true`;
       const res = await adminFetch(url);
       const data = await res.json();
       if (data.success && Array.isArray(data.orders)) {
@@ -162,7 +196,7 @@ export default function AdminClient() {
       loadOrders();
       loadDeletedOrders();
     }
-  }, [isStaff, period, statusFilter, userRole, user?.uid]);
+  }, [isStaff, period, statusFilter, userRole, user?.uid, appliedDateRange.start, appliedDateRange.end]);
 
   // Live global server search for orders across all time and all statuses (including deleted)
   useEffect(() => {
@@ -856,12 +890,25 @@ export default function AdminClient() {
                     <button
                       key={p}
                       type="button"
-                      className={`${styles.filterPill} ${period === p ? styles.activeFilterPill : ''}`}
-                      onClick={() => setPeriod(p)}
+                      className={`${styles.filterPill} ${period === p && !appliedDateRange.start ? styles.activeFilterPill : ''}`}
+                      onClick={() => {
+                        setPeriod(p);
+                        setAppliedDateRange({ start: null, end: null });
+                      }}
                     >
                       {p === 'all' ? 'За все время' : `За ${p} дней`}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    className={`${styles.filterPill} ${period === 'custom' || appliedDateRange.start ? styles.activeFilterPill : ''}`}
+                    onClick={() => setIsDatePickerOpen(true)}
+                  >
+                    <Calendar size={14} />
+                    {appliedDateRange.start
+                      ? `${new Date(appliedDateRange.start).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })} — ${new Date(appliedDateRange.end || appliedDateRange.start).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}`
+                      : 'Выбрать период'}
+                  </button>
                 </div>
               )}
 
@@ -894,28 +941,40 @@ export default function AdminClient() {
 
               const isOrderCancelled = (o: any) => {
                 if (isOrderDeleted(o)) return false;
-                return o.fulfillment_status === 'cancelled' || 
-                       o.payment_status === 'declined' || 
-                       o.payment_status === 'cancelled' || 
-                       o.payment_status === 'failed' ||
-                       o.status === 'declined';
+                return (
+                  o.fulfillment_status === 'cancelled' || 
+                  o.payment_status === 'declined' || 
+                  o.payment_status === 'cancelled' || 
+                  o.payment_status === 'failed' ||
+                  o.status === 'declined' ||
+                  o.status === 'cancelled'
+                );
               };
 
               const isOrderCompleted = (o: any) => {
-                if (isOrderDeleted(o)) return false;
-                return o.fulfillment_status === 'completed';
+                if (isOrderDeleted(o) || isOrderCancelled(o)) return false;
+                return o.fulfillment_status === 'completed' || o.fulfillment_status === 'delivered';
+              };
+
+              const isOrderKaspiPending = (o: any) => {
+                if (isOrderDeleted(o) || isOrderCancelled(o) || isOrderCompleted(o)) return false;
+                return (
+                  o.payment_method === 'kaspi_pay' &&
+                  (o.payment_status === 'pending' || o.status === 'pending_payment' || !o.payment_status)
+                );
               };
 
               const isOrderPendingPayment = (o: any) => {
-                if (isOrderDeleted(o)) return false;
-                return !isOrderCancelled(o) && !isOrderCompleted(o) && (o.payment_status === 'pending' || o.status === 'pending_payment');
+                if (isOrderDeleted(o) || isOrderCancelled(o) || isOrderCompleted(o)) return false;
+                return o.payment_status === 'pending' || o.status === 'pending_payment';
               };
 
               const isOrderActive = (o: any) => {
-                if (isOrderDeleted(o)) return false;
-                return !isOrderCancelled(o) && !isOrderCompleted(o) && !isOrderPendingPayment(o);
+                if (isOrderDeleted(o) || isOrderCancelled(o) || isOrderCompleted(o)) return false;
+                return !isOrderPendingPayment(o);
               };
 
+              const kaspiOrdersCount = orders.filter(isOrderKaspiPending).length;
               const activeOrdersCount = orders.filter(isOrderActive).length;
               const pendingOrdersCount = orders.filter(isOrderPendingPayment).length;
               const cancelledOrdersCount = orders.filter(isOrderCancelled).length;
@@ -961,15 +1020,27 @@ export default function AdminClient() {
                     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
                   });
               } else {
-                if (orderSubTab === 'active') {
-                  displayedOrders = orders.filter(isOrderActive);
-                } else if (orderSubTab === 'pending_payment') {
+                if (orderSubTab === 'kaspi' && kaspiOrdersCount > 0) {
+                  displayedOrders = orders.filter(isOrderKaspiPending);
+                } else if (orderSubTab === 'pending_payment' && pendingOrdersCount > 0) {
                   displayedOrders = orders.filter(isOrderPendingPayment);
                 } else if (orderSubTab === 'cancelled') {
                   displayedOrders = orders.filter(isOrderCancelled);
-                } else {
+                } else if (orderSubTab === 'archive') {
                   displayedOrders = orders.filter(isOrderCompleted);
+                } else {
+                  displayedOrders = orders.filter(isOrderActive);
                 }
+              }
+
+              // Apply in-memory custom date range if selected
+              if (appliedDateRange.start) {
+                const startMs = new Date(appliedDateRange.start).getTime();
+                const endMs = new Date(appliedDateRange.end || appliedDateRange.start).getTime();
+                displayedOrders = displayedOrders.filter(o => {
+                  const oTime = new Date(o.created_at).getTime();
+                  return oTime >= startMs && oTime <= endMs;
+                });
               }
 
               return (
@@ -997,6 +1068,20 @@ export default function AdminClient() {
                     </div>
 
                     <div className={styles.orderSubTabs}>
+                      {kaspiOrdersCount > 0 && (
+                        <button
+                          type="button"
+                          className={`${styles.subTabBtn} ${orderSubTab === 'kaspi' ? styles.subTabBtnActive : ''}`}
+                          onClick={() => setOrderSubTab('kaspi')}
+                        >
+                          <CreditCard size={15} />
+                          Выставить Kaspi
+                          <span className={styles.subTabBadge} style={{ background: '#ef4444', color: '#fff' }}>
+                            {kaspiOrdersCount}
+                          </span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         className={`${styles.subTabBtn} ${orderSubTab === 'active' ? styles.subTabBtnActive : ''}`}
@@ -1005,14 +1090,18 @@ export default function AdminClient() {
                         Активные заказы
                         <span className={styles.subTabBadge}>{activeOrdersCount}</span>
                       </button>
-                      <button
-                        type="button"
-                        className={`${styles.subTabBtn} ${orderSubTab === 'pending_payment' ? styles.subTabBtnActive : ''}`}
-                        onClick={() => setOrderSubTab('pending_payment')}
-                      >
-                        Ожидающие платежа
-                        <span className={styles.subTabBadge}>{pendingOrdersCount}</span>
-                      </button>
+
+                      {pendingOrdersCount > 0 && (
+                        <button
+                          type="button"
+                          className={`${styles.subTabBtn} ${orderSubTab === 'pending_payment' ? styles.subTabBtnActive : ''}`}
+                          onClick={() => setOrderSubTab('pending_payment')}
+                        >
+                          Ожидает оплаты
+                          <span className={styles.subTabBadge}>{pendingOrdersCount}</span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         className={`${styles.subTabBtn} ${orderSubTab === 'cancelled' ? styles.subTabBtnActive : ''}`}
@@ -1021,6 +1110,7 @@ export default function AdminClient() {
                         Отмененные заказы
                         <span className={styles.subTabBadge}>{cancelledOrdersCount}</span>
                       </button>
+
                       <button
                         type="button"
                         className={`${styles.subTabBtn} ${orderSubTab === 'archive' ? styles.subTabBtnActive : ''}`}
@@ -1116,8 +1206,16 @@ export default function AdminClient() {
                                   </span>
                                 )}
                               </div>
-                              <div style={{ fontSize: '13px', color: '#64748b' }}>
-                                {new Date(order.created_at).toLocaleString('ru-RU')}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <div style={{ fontSize: '13px', color: '#64748b' }}>
+                                  {new Date(order.created_at).toLocaleString('ru-RU')}
+                                </div>
+                                {isPendingPayment && (
+                                  <span className={styles.timerBadge}>
+                                    <Clock size={12} />
+                                    <span>Осталось: {formatOrderRemainingTime(order.created_at)}</span>
+                                  </span>
+                                )}
                               </div>
                             </div>
 
@@ -1651,31 +1749,6 @@ export default function AdminClient() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  onClick={() => handleSyncFromFirebase(true)}
-                  disabled={isSyncingFirebase}
-                  className={styles.filterPill}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    background: '#10b981',
-                    color: '#ffffff',
-                    fontWeight: 600,
-                    cursor: isSyncingFirebase ? 'not-allowed' : 'pointer',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    opacity: isSyncingFirebase ? 0.7 : 1,
-                    boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)',
-                  }}
-                  title="Синхронизировать всех пользователей из Firebase Firestore в базу данных Neon"
-                >
-                  <RefreshCw size={15} style={{ animation: isSyncingFirebase ? 'spin 1s linear infinite' : 'none' }} />
-                  <span>{isSyncingFirebase ? 'Синхронизация...' : 'Синхронизировать из Firebase'}</span>
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => {
                     loadUsers();
                     addToast('Список пользователей обновлен', 'success');
@@ -1696,7 +1769,7 @@ export default function AdminClient() {
                   }}
                 >
                   <RefreshCw size={15} />
-                  Обновить список
+                  <span>Обновить список</span>
                 </button>
               </div>
             </div>
@@ -2326,6 +2399,338 @@ export default function AdminClient() {
                 >
                   Готово
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DATE RANGE PICKER MODAL */}
+        {isDatePickerOpen && (
+          <div className={styles.modalOverlay} onClick={() => setIsDatePickerOpen(false)}>
+            <div className={styles.datePickerModalCard} onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div className={styles.datePickerHeader}>
+                <h3 className={styles.datePickerTitle}>
+                  <Calendar size={20} color="var(--color-navy)" />
+                  Выбрать дату
+                </h3>
+                <button
+                  type="button"
+                  className={styles.datePickerCloseBtn}
+                  onClick={() => setIsDatePickerOpen(false)}
+                  title="Закрыть"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Body: Calendar + Draggable Timeline Scrubber */}
+              <div className={styles.datePickerBody}>
+                <div className={styles.calendarSection}>
+                  {/* Month / Year Navigator */}
+                  <div className={styles.calendarNav}>
+                    <button
+                      type="button"
+                      className={styles.calendarNavBtn}
+                      onClick={() => {
+                        if (calendarMonth === 0) {
+                          setCalendarMonth(11);
+                          setCalendarYear(prev => prev - 1);
+                        } else {
+                          setCalendarMonth(prev => prev - 1);
+                        }
+                      }}
+                      title="Предыдущий месяц"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <span className={styles.calendarMonthTitle}>
+                      {new Date(calendarYear, calendarMonth, 1).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }).replace(/^./, str => str.toUpperCase())}
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.calendarNavBtn}
+                      disabled={calendarYear === 2026 && calendarMonth >= 10}
+                      onClick={() => {
+                        if (calendarYear === 2026 && calendarMonth >= 10) return;
+                        if (calendarMonth === 11) {
+                          setCalendarMonth(0);
+                          setCalendarYear(prev => prev + 1);
+                        } else {
+                          setCalendarMonth(prev => prev + 1);
+                        }
+                      }}
+                      title="Следующий месяц"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+
+                  {/* Weekday Names */}
+                  <div className={styles.calendarWeekdays}>
+                    {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(wd => (
+                      <span key={wd}>{wd}</span>
+                    ))}
+                  </div>
+
+                  {/* Days Grid */}
+                  <div className={styles.calendarDaysGrid}>
+                    {(() => {
+                      const firstDayOfWeek = (new Date(calendarYear, calendarMonth, 1).getDay() + 6) % 7;
+                      const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+                      const blanks = Array.from({ length: firstDayOfWeek });
+                      const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+                      // Reference date: Today is 05.11.2026
+                      const isNov2026 = calendarYear === 2026 && calendarMonth === 10;
+                      const isFutureMonth = calendarYear > 2026 || (calendarYear === 2026 && calendarMonth > 10);
+
+                      return (
+                        <>
+                          {blanks.map((_, idx) => (
+                            <div key={`blank-${idx}`} style={{ width: 36, height: 36 }} />
+                          ))}
+                          {days.map(dayNum => {
+                            const thisDate = new Date(calendarYear, calendarMonth, dayNum);
+                            const isFutureDay = isFutureMonth || (isNov2026 && dayNum > 5);
+                            const isSelectable = !isFutureDay;
+
+                            const isStart = pickerStartDate && (
+                              pickerStartDate.getFullYear() === calendarYear &&
+                              pickerStartDate.getMonth() === calendarMonth &&
+                              pickerStartDate.getDate() === dayNum
+                            );
+
+                            const isEnd = pickerEndDate && (
+                              pickerEndDate.getFullYear() === calendarYear &&
+                              pickerEndDate.getMonth() === calendarMonth &&
+                              pickerEndDate.getDate() === dayNum
+                            );
+
+                            const isInRange = Boolean(
+                              pickerStartDate && pickerEndDate &&
+                              thisDate > pickerStartDate && thisDate < pickerEndDate
+                            );
+
+                            const handleDayClick = () => {
+                              if (!isSelectable) return;
+                              const clickedDate = new Date(calendarYear, calendarMonth, dayNum, 0, 0, 0);
+
+                              if (!pickerStartDate || (pickerStartDate && pickerEndDate)) {
+                                setPickerStartDate(clickedDate);
+                                setPickerEndDate(null);
+                              } else {
+                                if (clickedDate < pickerStartDate) {
+                                  setPickerEndDate(pickerStartDate);
+                                  setPickerStartDate(clickedDate);
+                                } else {
+                                  setPickerEndDate(new Date(calendarYear, calendarMonth, dayNum, 23, 59, 59));
+                                }
+                              }
+                            };
+
+                            let dayClasses = `${styles.calendarDay} `;
+                            if (isSelectable) {
+                              dayClasses += `${styles.daySelectable} `;
+                            } else {
+                              dayClasses += `${styles.dayDisabled} `;
+                            }
+                            if (isStart || isEnd) {
+                              dayClasses += `${styles.daySelected} `;
+                            } else if (isInRange) {
+                              dayClasses += `${styles.dayInRange} `;
+                            }
+
+                            return (
+                              <button
+                                key={dayNum}
+                                type="button"
+                                disabled={!isSelectable}
+                                className={dayClasses}
+                                onClick={handleDayClick}
+                                title={isSelectable ? `${dayNum}.${calendarMonth + 1}.${calendarYear}` : 'Будущая дата недоступна'}
+                              >
+                                {String(dayNum).padStart(2, '0')}
+                              </button>
+                            );
+                          })}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Draggable Timeline Scrubber on the Right */}
+                <div className={styles.scrubberSection}>
+                  <div className={styles.scrubberHeading}>Таймлайн</div>
+                  <div
+                    className={styles.scrubberTrackContainer}
+                    onPointerDown={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const handleMove = (moveEv: PointerEvent) => {
+                        const ratio = Math.max(0, Math.min(1, (moveEv.clientY - rect.top) / rect.height));
+                        const monthIndex = Math.min(5, Math.floor(ratio * 6));
+                        const targetMonths = [
+                          { m: 10, y: 2026 },
+                          { m: 9, y: 2026 },
+                          { m: 8, y: 2026 },
+                          { m: 7, y: 2026 },
+                          { m: 6, y: 2026 },
+                          { m: 5, y: 2026 },
+                        ];
+                        setCalendarMonth(targetMonths[monthIndex].m);
+                        setCalendarYear(targetMonths[monthIndex].y);
+                      };
+                      handleMove(e.nativeEvent);
+                      const handleUp = () => {
+                        window.removeEventListener('pointermove', handleMove);
+                        window.removeEventListener('pointerup', handleUp);
+                      };
+                      window.addEventListener('pointermove', handleMove);
+                      window.addEventListener('pointerup', handleUp);
+                    }}
+                  >
+                    <div className={styles.scrubberRail} />
+                    <div
+                      className={styles.scrubberThumb}
+                      style={{
+                        top: `${(() => {
+                          const targetMonths = [
+                            { m: 10, y: 2026 },
+                            { m: 9, y: 2026 },
+                            { m: 8, y: 2026 },
+                            { m: 7, y: 2026 },
+                            { m: 6, y: 2026 },
+                            { m: 5, y: 2026 },
+                          ];
+                          const idx = targetMonths.findIndex(t => t.m === calendarMonth && t.y === calendarYear);
+                          return idx >= 0 ? `${(idx / 5) * 85 + 5}%` : '5%';
+                        })()}`,
+                      }}
+                    />
+                    <div className={styles.scrubberTicks}>
+                      {[
+                        { label: 'Ноя 26', m: 10, y: 2026 },
+                        { label: 'Окт 26', m: 9, y: 2026 },
+                        { label: 'Сен 26', m: 8, y: 2026 },
+                        { label: 'Авг 26', m: 7, y: 2026 },
+                        { label: 'Июл 26', m: 6, y: 2026 },
+                        { label: 'Июн 26', m: 5, y: 2026 },
+                      ].map(t => (
+                        <div
+                          key={`${t.y}-${t.m}`}
+                          className={`${styles.scrubberTickItem} ${calendarMonth === t.m && calendarYear === t.y ? styles.scrubberTickActive : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCalendarMonth(t.m);
+                            setCalendarYear(t.y);
+                          }}
+                        >
+                          {t.label}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Presets */}
+              <div className={styles.datePickerPresets}>
+                <button
+                  type="button"
+                  className={styles.presetPill}
+                  onClick={() => {
+                    setCalendarYear(2026);
+                    setCalendarMonth(10);
+                    setPickerStartDate(new Date(2026, 10, 5, 0, 0, 0));
+                    setPickerEndDate(new Date(2026, 10, 5, 23, 59, 59));
+                  }}
+                >
+                  Сегодня (05.11)
+                </button>
+                <button
+                  type="button"
+                  className={styles.presetPill}
+                  onClick={() => {
+                    setCalendarYear(2026);
+                    setCalendarMonth(10);
+                    setPickerStartDate(new Date(2026, 10, 1, 0, 0, 0));
+                    setPickerEndDate(new Date(2026, 10, 5, 23, 59, 59));
+                  }}
+                >
+                  Весь ноябрь 2026 (01–05)
+                </button>
+                <button
+                  type="button"
+                  className={styles.presetPill}
+                  onClick={() => {
+                    setCalendarYear(2026);
+                    setCalendarMonth(10);
+                    setPickerStartDate(new Date(2026, 9, 29, 0, 0, 0));
+                    setPickerEndDate(new Date(2026, 10, 5, 23, 59, 59));
+                  }}
+                >
+                  Последние 7 дней
+                </button>
+                <button
+                  type="button"
+                  className={styles.presetPill}
+                  onClick={() => {
+                    setCalendarYear(2026);
+                    setCalendarMonth(10);
+                    setPickerStartDate(new Date(2026, 9, 6, 0, 0, 0));
+                    setPickerEndDate(new Date(2026, 10, 5, 23, 59, 59));
+                  }}
+                >
+                  Последние 30 дней
+                </button>
+              </div>
+
+              {/* Footer */}
+              <div className={styles.datePickerFooter}>
+                <div className={styles.dateRangeSummary}>
+                  {pickerStartDate ? (
+                    <span>
+                      Выбрано: <strong>{pickerStartDate.toLocaleDateString('ru-RU')}</strong>
+                      {pickerEndDate ? ` — ` : ''}
+                      {pickerEndDate && <strong>{pickerEndDate.toLocaleDateString('ru-RU')}</strong>}
+                    </span>
+                  ) : (
+                    <span style={{ color: '#94a3b8' }}>Выберите дату или диапазон</span>
+                  )}
+                </div>
+
+                <div className={styles.datePickerActions}>
+                  <button
+                    type="button"
+                    className={styles.cancelBtn}
+                    onClick={() => {
+                      setPickerStartDate(null);
+                      setPickerEndDate(null);
+                      setAppliedDateRange({ start: null, end: null });
+                      setPeriod('30');
+                      setIsDatePickerOpen(false);
+                    }}
+                  >
+                    Сбросить
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.submitBtn}
+                    disabled={!pickerStartDate}
+                    onClick={() => {
+                      if (!pickerStartDate) return;
+                      const startIso = pickerStartDate.toISOString();
+                      const endIso = (pickerEndDate || new Date(pickerStartDate.getTime() + 24 * 60 * 60 * 1000 - 1)).toISOString();
+                      setAppliedDateRange({ start: startIso, end: endIso });
+                      setPeriod('custom');
+                      setIsDatePickerOpen(false);
+                      addToast(`Период выбран: ${pickerStartDate.toLocaleDateString('ru-RU')} — ${(pickerEndDate || pickerStartDate).toLocaleDateString('ru-RU')}`, 'success');
+                    }}
+                  >
+                    Применить
+                  </button>
+                </div>
               </div>
             </div>
           </div>

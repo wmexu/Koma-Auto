@@ -109,6 +109,54 @@ export default function ProfileClient() {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
+  // Authoritative role & name synchronization from PostgreSQL Single Source of Truth
+  useEffect(() => {
+    if (!user?.uid) return;
+    let isCancelled = false;
+
+    const syncAuthoritativeRole = async () => {
+      try {
+        const idToken = await user.getIdToken().catch(() => null);
+        const res = await fetch(`/api/user/role?userId=${user.uid}`, {
+          headers: {
+            'x-user-id': user.uid,
+            ...(idToken ? { 'authorization': `Bearer ${idToken}` } : {}),
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && !isCancelled && data.role) {
+            const currentProf = userProfile || {
+              name: (data.fullName && data.fullName !== 'Покупатель') ? data.fullName : (user.displayName || 'Пользователь'),
+              email: user.email || '',
+              dob: '',
+              role: data.role,
+              clientType: 'retail',
+              createdAt: new Date().toISOString(),
+            };
+            const hasChanged = currentProf.role !== data.role || (data.fullName && data.fullName !== 'Покупатель' && currentProf.name !== data.fullName);
+            if (hasChanged || !userProfile) {
+              const updated = {
+                ...currentProf,
+                role: data.role,
+                name: (data.fullName && data.fullName !== 'Покупатель') ? data.fullName : currentProf.name,
+              };
+              setUserProfile(updated);
+              setDoc(doc(db, 'users', user.uid), { role: updated.role, name: updated.name }, { merge: true }).catch(() => {});
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[ProfileClient] Role sync error:', err);
+      }
+    };
+
+    syncAuthoritativeRole();
+    return () => {
+      isCancelled = true;
+    };
+  }, [user?.uid, setUserProfile]);
+
   const handleCheckEmailVerification = async () => {
     if (!user) return;
     setIsCheckingEmailVerification(true);

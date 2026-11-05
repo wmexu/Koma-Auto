@@ -167,7 +167,12 @@ export default function Header() {
                 profile.role = dbRole;
                 setDoc(doc(db, 'users', currentUser.uid), { role: dbRole }, { merge: true }).catch(() => {});
               }
-              if (dbFullName && dbFullName !== 'Покупатель') {
+              const isTestName = dbFullName && (
+                dbFullName === 'Покупатель' ||
+                dbFullName.toLowerCase().includes('тестовый заказ') ||
+                dbFullName.toLowerCase() === 'тест'
+              );
+              if (dbFullName && !isTestName) {
                 profile.name = dbFullName;
                 setDoc(doc(db, 'users', currentUser.uid), { name: dbFullName }, { merge: true }).catch(() => {});
               }

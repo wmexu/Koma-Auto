@@ -62,12 +62,15 @@ export async function POST(request: Request) {
           const currentRole = byId[0].role;
           const isElevated = ['courier', 'manager', 'director'].includes(currentRole);
           const finalRole = isElevated ? currentRole : targetRole;
+          const existingName = byId[0].full_name;
+          const isOldTest = existingName && (existingName.toLowerCase().includes('тестов') || existingName.toLowerCase() === 'покупатель');
+          const resolvedName = (cleanName && cleanName !== 'Покупатель') ? cleanName : (isOldTest ? (cleanName || null) : (cleanName || existingName));
 
           await client`
             UPDATE users
             SET
               email = ${cleanEmail},
-              full_name = COALESCE(${cleanName}, full_name),
+              full_name = ${resolvedName},
               phone = COALESCE(${cleanPhone}, phone),
               role = ${finalRole},
               updated_at = NOW()

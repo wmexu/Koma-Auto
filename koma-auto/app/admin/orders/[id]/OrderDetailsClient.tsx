@@ -67,6 +67,29 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
   const [selectedCourierId, setSelectedCourierId] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [phoneBottomSheet, setPhoneBottomSheet] = useState<{ isOpen: boolean; phone: string; name: string } | null>(null);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  // Timer ticker for live 20-minute payment countdown
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const getPendingRemainingTime = (createdAt: string) => {
+    try {
+      const expiresMs = new Date(createdAt).getTime() + 20 * 60 * 1000;
+      const diff = expiresMs - currentTime;
+      if (diff <= 0) return '00:00';
+      const totalSeconds = Math.floor(diff / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    } catch {
+      return '20:00';
+    }
+  };
 
   // Authenticated fetch helper with Bearer ID token
   const adminFetch = async (url: string, options: RequestInit = {}) => {
@@ -421,7 +444,9 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
               {statusLabel}
             </span>
             <span className={`${styles.badge} ${isPaid ? styles.badgePaid : styles.badgePending}`}>
-              {isPaid ? 'Оплачен онлайн (ePay)' : 'Ожидает оплаты'}
+              {isPaid 
+                ? (order.payment_method === 'kaspi_pay' ? 'Оплачен (Kaspi Pay)' : 'Оплачен онлайн (ePay)') 
+                : `Ожидает оплаты: ${getPendingRemainingTime(order.created_at)}`}
             </span>
           </div>
         </div>

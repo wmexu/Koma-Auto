@@ -17,7 +17,9 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const orderId = searchParams.get('orderId');
     const q = (searchParams.get('q') || '').trim();
-    const period = searchParams.get('period') || '30'; // 30, 60, 360, all
+    const period = searchParams.get('period') || '30'; // 30, 60, 360, all, custom
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
     const status = searchParams.get('status');
     const includeDeleted = searchParams.get('includeDeleted') === 'true';
 
@@ -166,6 +168,35 @@ export async function GET(request: Request) {
               completed_at, created_at, updated_at
             FROM orders
             WHERE fulfillment_status != 'deleted'
+            ORDER BY created_at DESC;
+          `;
+        }
+      } else if (startDate) {
+        const startIso = new Date(startDate).toISOString();
+        const endIso = endDate ? new Date(endDate).toISOString() : new Date().toISOString();
+        if (includeDeleted) {
+          ordersList = await client`
+            SELECT 
+              id, invoice_id, user_id, amount, items_price, delivery_cost,
+              delivery_method, payment_method, payment_status, fulfillment_status,
+              assigned_courier_id, customer_name, customer_phone, customer_email,
+              kaspi_phone, delivery_address, city, items, warehouse_id,
+              completed_at, created_at, updated_at
+            FROM orders
+            WHERE created_at >= ${startIso}::timestamptz AND created_at <= ${endIso}::timestamptz
+            ORDER BY created_at DESC;
+          `;
+        } else {
+          ordersList = await client`
+            SELECT 
+              id, invoice_id, user_id, amount, items_price, delivery_cost,
+              delivery_method, payment_method, payment_status, fulfillment_status,
+              assigned_courier_id, customer_name, customer_phone, customer_email,
+              kaspi_phone, delivery_address, city, items, warehouse_id,
+              completed_at, created_at, updated_at
+            FROM orders
+            WHERE created_at >= ${startIso}::timestamptz AND created_at <= ${endIso}::timestamptz
+              AND fulfillment_status != 'deleted'
             ORDER BY created_at DESC;
           `;
         }
