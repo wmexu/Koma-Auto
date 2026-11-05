@@ -106,21 +106,66 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'База данных недоступна' }, { status: 503 });
     }
 
+    // Find the target user in the database by id or email
+    const targetRows = await client`
+      SELECT id, email, full_name, role FROM users
+      WHERE id = ${String(targetUserId)} 
+         OR (email IS NOT NULL AND LOWER(email) = LOWER(${String(targetUserId)}))
+      LIMIT 1;
+    `;
+
+    if (!targetRows || targetRows.length === 0) {
+      return NextResponse.json({ error: 'Пользователь не найден в базе данных' }, { status: 404 });
+    }
+
+    const target = targetRows[0];
+    const isProtectedDirector = 
+      target.id === 'ohwKkhkKHmdaI5CkbcGJcunNuID2' || 
+      target.email?.toLowerCase() === 'acooldumb123@gmail.com';
+
+    if (isProtectedDirector && newRole !== 'director') {
+      return NextResponse.json({ 
+        error: 'Запрещено: основной аккаунт директора защищен и не может быть понижен в роли' 
+      }, { status: 403 });
+    }
+
+    // Update user role in Neon PostgreSQL Single Source of Truth
     await client`
       UPDATE users
       SET role = ${newRole}, updated_at = NOW()
-      WHERE id = ${targetUserId};
+      WHERE id = ${target.id};
     `;
 
     logAuditEvent({
-      userId: staffUserId || null,
+      userId: auth.user?.id || staffUserId || null,
       action: 'ROLE_CHANGED',
       entityType: 'user',
-      entityId: targetUserId,
-      details: { newRole },
+      entityId: target.id,
+      details: {
+        newRole,
+        previousRole: target.role,
+        targetEmail: target.email,
+        targetName: target.full_name,
+        changedBy: auth.user?.email || staffUserId,
+      },
     });
 
-    return NextResponse.json({ success: true, message: `Роль пользователя изменена на "${newRole}"` });
+    const roleLabels: Record<string, string> = {
+      customer: 'Клиент',
+      wholesale: 'Оптовик',
+      courier: 'Курьер',
+      manager: 'Менеджер',
+      director: 'Директор',
+    };
+
+    return NextResponse.json({ 
+      success: true, 
+      message: `Роль пользователя ${target.email || target.full_name || target.id} изменена на "${roleLabels[newRole] || newRole}"`,
+      user: {
+        id: target.id,
+        role: newRole,
+      }
+    });
   } catch (error: any) {
     console.error('[AdminUsers PATCH Error]:', error);
     return NextResponse.json({ error: error?.message || 'Ошибка изменения роли' }, { status: 500 });

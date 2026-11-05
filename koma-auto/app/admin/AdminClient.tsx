@@ -18,7 +18,7 @@ import styles from './Admin.module.css';
 
 export default function AdminClient() {
   const router = useRouter();
-  const { user, userProfile } = useAuthStore();
+  const { user, userProfile, setUserProfile } = useAuthStore();
   const { addToast } = useToastStore();
 
   const userRole = (userProfile?.role || 'customer') as 'customer' | 'wholesale' | 'courier' | 'manager' | 'director';
@@ -67,11 +67,88 @@ export default function AdminClient() {
 
   // Date range picker modal state (Default reference today is 05.11.2026)
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  const [calendarYear, setCalendarYear] = useState(2026);
-  const [calendarMonth, setCalendarMonth] = useState(10); // 10 = November (0-indexed)
   const [pickerStartDate, setPickerStartDate] = useState<Date | null>(new Date(2026, 10, 1));
   const [pickerEndDate, setPickerEndDate] = useState<Date | null>(new Date(2026, 10, 5));
   const [appliedDateRange, setAppliedDateRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
+  const [scrollRatio, setScrollRatio] = useState(0);
+
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const trackRef = React.useRef<HTMLDivElement>(null);
+
+  // Generate 5 years (60 months) from November 2026 back to December 2021
+  const monthsList = React.useMemo(() => {
+    const list: Array<{ year: number; month: number; name: string }> = [];
+    let y = 2026;
+    let m = 10;
+    for (let i = 0; i < 60; i++) {
+      const d = new Date(y, m, 1);
+      const name = d.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }).replace(/^./, str => str.toUpperCase());
+      list.push({ year: y, month: m, name });
+      m--;
+      if (m < 0) {
+        m = 11;
+        y--;
+      }
+    }
+    return list;
+  }, []);
+
+  const handleContainerScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    const maxScroll = scrollHeight - clientHeight;
+    if (maxScroll > 0) {
+      setScrollRatio(scrollTop / maxScroll);
+    } else {
+      setScrollRatio(0);
+    }
+  };
+
+  const handleTrackPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!trackRef.current || !scrollContainerRef.current) return;
+
+    const trackRect = trackRef.current.getBoundingClientRect();
+    const updateScroll = (clientY: number) => {
+      const relY = clientY - trackRect.top;
+      const ratio = Math.max(0, Math.min(1, relY / trackRect.height));
+      setScrollRatio(ratio);
+      if (scrollContainerRef.current) {
+        const maxScroll = scrollContainerRef.current.scrollHeight - scrollContainerRef.current.clientHeight;
+        scrollContainerRef.current.scrollTop = ratio * maxScroll;
+      }
+    };
+
+    updateScroll(e.clientY);
+
+    const handlePointerMove = (ev: PointerEvent) => {
+      updateScroll(ev.clientY);
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  };
+
+  const handleDayClick = (year: number, month: number, day: number) => {
+    const clickedDate = new Date(year, month, day, 0, 0, 0);
+
+    if (!pickerStartDate || (pickerStartDate && pickerEndDate)) {
+      setPickerStartDate(clickedDate);
+      setPickerEndDate(null);
+    } else {
+      if (clickedDate < pickerStartDate) {
+        setPickerEndDate(pickerStartDate);
+        setPickerStartDate(clickedDate);
+      } else {
+        setPickerEndDate(new Date(year, month, day, 23, 59, 59));
+      }
+    }
+  };
 
   // Deleted orders & settings view
   const [settingsSubView, setSettingsSubView] = useState<'general' | 'deleted'>('general');
@@ -112,6 +189,7 @@ export default function AdminClient() {
   const [userAudienceFilter, setUserAudienceFilter] = useState<'all' | 'retail' | 'wholesale' | 'courier' | 'manager' | 'director'>('all');
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
+  const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null);
 
   // Tokens state
   const [tokensList, setTokensList] = useState<any[]>([]);
@@ -229,13 +307,21 @@ export default function AdminClient() {
 
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        loadOrders(true);
+        if (activeTab === 'orders') {
+          loadOrders(true);
+        } else if (activeTab === 'users' && isDirector) {
+          loadUsers();
+        }
       }
     }, 5000);
 
     const handleFocus = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        loadOrders(true);
+        if (activeTab === 'orders') {
+          loadOrders(true);
+        } else if (activeTab === 'users' && isDirector) {
+          loadUsers();
+        }
       }
     };
 
@@ -247,7 +333,7 @@ export default function AdminClient() {
       window.removeEventListener('visibilitychange', handleFocus);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [isStaff, user?.uid, period, statusFilter, userRole]);
+  }, [isStaff, isDirector, activeTab, user?.uid, period, statusFilter, userRole, userAudienceFilter, userSearchQuery]);
 
   // Load promocodes when on tab
   useEffect(() => {
@@ -328,8 +414,6 @@ export default function AdminClient() {
   useEffect(() => {
     if (activeTab === 'users' && isDirector && user?.uid) {
       loadUsers();
-      // Auto-sync existing users from Firebase in the background
-      handleSyncFromFirebase(false);
     }
   }, [activeTab, userAudienceFilter, userSearchQuery, isDirector, user?.uid]);
 
@@ -713,8 +797,14 @@ export default function AdminClient() {
     }
   };
 
-  // Handle Change User Role
+  // Handle Change User Role with optimistic feedback and server synchronization
   const handleChangeUserRole = async (targetUserId: string, newRole: string) => {
+    const prevUsers = [...usersList];
+
+    // Optimistic UI update: instantly update local list
+    setUsersList(prev => prev.map(u => u.id === targetUserId ? { ...u, role: newRole } : u));
+    setUpdatingRoleId(targetUserId);
+
     try {
       const res = await adminFetch('/api/admin/users', {
         method: 'PATCH',
@@ -725,13 +815,25 @@ export default function AdminClient() {
           staffUserId: user?.uid,
         }),
       });
-      const data = await res.json();
-      if (data.success) {
-        addToast(data.message || 'Роль изменена', 'success');
-        loadUsers();
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.success) {
+        addToast(data.message || 'Роль пользователя успешно обновлена', 'success');
+        if (targetUserId === user?.uid && userProfile) {
+          setUserProfile({ ...userProfile, role: newRole });
+        }
+        await loadUsers();
+      } else {
+        // Rollback optimistic update on server error
+        setUsersList(prevUsers);
+        addToast(data.error || 'Ошибка изменения роли: доступ ограничен', 'error');
       }
-    } catch {
-      addToast('Ошибка изменения роли', 'error');
+    } catch (err: any) {
+      setUsersList(prevUsers);
+      addToast(err?.message || 'Ошибка сети при изменении роли', 'error');
+    } finally {
+      setUpdatingRoleId(null);
     }
   };
 
@@ -904,7 +1006,6 @@ export default function AdminClient() {
                     className={`${styles.filterPill} ${period === 'custom' || appliedDateRange.start ? styles.activeFilterPill : ''}`}
                     onClick={() => setIsDatePickerOpen(true)}
                   >
-                    <Calendar size={14} />
                     {appliedDateRange.start
                       ? `${new Date(appliedDateRange.start).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })} — ${new Date(appliedDateRange.end || appliedDateRange.start).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}`
                       : 'Выбрать период'}
@@ -1746,32 +1847,6 @@ export default function AdminClient() {
                   База пользователей синхронизируется автоматически при каждом входе, регистрации и заказе.
                 </p>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    loadUsers();
-                    addToast('Список пользователей обновлен', 'success');
-                  }}
-                  className={styles.filterPill}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    background: '#0ea5e9',
-                    color: '#ffffff',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    padding: '8px 16px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    boxShadow: '0 2px 4px rgba(14, 165, 233, 0.2)',
-                  }}
-                >
-                  <RefreshCw size={15} />
-                  <span>Обновить список</span>
-                </button>
-              </div>
             </div>
 
             <div className={styles.sectionFilters}>
@@ -1841,21 +1916,36 @@ export default function AdminClient() {
                       <td>{u.orders_count || 0}</td>
                       <td>{new Date(u.created_at).toLocaleDateString('ru-RU')}</td>
                       <td onClick={e => e.stopPropagation()}>
-                        <select
-                          value={u.role}
-                          onClick={e => e.stopPropagation()}
-                          onChange={e => {
-                            e.stopPropagation();
-                            handleChangeUserRole(u.id, e.target.value);
-                          }}
-                          style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '12px', cursor: 'pointer' }}
-                        >
-                          <option value="customer">Розничный</option>
-                          <option value="wholesale">Оптовый</option>
-                          <option value="courier">Курьер</option>
-                          <option value="manager">Менеджер</option>
-                          <option value="director">Директор</option>
-                        </select>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          <select
+                            value={u.role}
+                            disabled={updatingRoleId === u.id || (u.id === 'ohwKkhkKHmdaI5CkbcGJcunNuID2' && u.role === 'director')}
+                            title={u.id === 'ohwKkhkKHmdaI5CkbcGJcunNuID2' ? 'Основной аккаунт директора защищен' : undefined}
+                            onClick={e => e.stopPropagation()}
+                            onChange={e => {
+                              e.stopPropagation();
+                              handleChangeUserRole(u.id, e.target.value);
+                            }}
+                            style={{
+                              padding: '5px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              fontSize: '12px',
+                              cursor: updatingRoleId === u.id ? 'wait' : (u.id === 'ohwKkhkKHmdaI5CkbcGJcunNuID2' ? 'not-allowed' : 'pointer'),
+                              backgroundColor: updatingRoleId === u.id ? '#f1f5f9' : '#ffffff',
+                              fontWeight: 500,
+                            }}
+                          >
+                            <option value="customer">Розничный</option>
+                            <option value="wholesale">Оптовый</option>
+                            <option value="courier">Курьер</option>
+                            <option value="manager">Менеджер</option>
+                            <option value="director">Директор</option>
+                          </select>
+                          {updatingRoleId === u.id && (
+                            <span style={{ fontSize: '11px', color: '#0ea5e9' }}>...</span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -2411,7 +2501,7 @@ export default function AdminClient() {
               {/* Header */}
               <div className={styles.datePickerHeader}>
                 <h3 className={styles.datePickerTitle}>
-                  <Calendar size={20} color="var(--color-navy)" />
+                  <Calendar size={18} color="var(--color-navy)" />
                   Выбрать дату
                 </h3>
                 <button
@@ -2424,110 +2514,53 @@ export default function AdminClient() {
                 </button>
               </div>
 
-              {/* Body: Calendar + Draggable Timeline Scrubber */}
+              {/* Body: Scrollable Months + Draggable Circle Slider */}
               <div className={styles.datePickerBody}>
-                <div className={styles.calendarSection}>
-                  {/* Month / Year Navigator */}
-                  <div className={styles.calendarNav}>
-                    <button
-                      type="button"
-                      className={styles.calendarNavBtn}
-                      onClick={() => {
-                        if (calendarMonth === 0) {
-                          setCalendarMonth(11);
-                          setCalendarYear(prev => prev - 1);
-                        } else {
-                          setCalendarMonth(prev => prev - 1);
-                        }
-                      }}
-                      title="Предыдущий месяц"
-                    >
-                      <ChevronLeft size={16} />
-                    </button>
-                    <span className={styles.calendarMonthTitle}>
-                      {new Date(calendarYear, calendarMonth, 1).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }).replace(/^./, str => str.toUpperCase())}
-                    </span>
-                    <button
-                      type="button"
-                      className={styles.calendarNavBtn}
-                      disabled={calendarYear === 2026 && calendarMonth >= 10}
-                      onClick={() => {
-                        if (calendarYear === 2026 && calendarMonth >= 10) return;
-                        if (calendarMonth === 11) {
-                          setCalendarMonth(0);
-                          setCalendarYear(prev => prev + 1);
-                        } else {
-                          setCalendarMonth(prev => prev + 1);
-                        }
-                      }}
-                      title="Следующий месяц"
-                    >
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
+                <div
+                  ref={scrollContainerRef}
+                  className={styles.kaspiCalendarScroll}
+                  onScroll={handleContainerScroll}
+                >
+                  {monthsList.map(({ year, month, name }) => {
+                    const firstDayOfWeek = (new Date(year, month, 1).getDay() + 6) % 7;
+                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+                    const blanks = Array.from({ length: firstDayOfWeek });
+                    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-                  {/* Weekday Names */}
-                  <div className={styles.calendarWeekdays}>
-                    {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(wd => (
-                      <span key={wd}>{wd}</span>
-                    ))}
-                  </div>
-
-                  {/* Days Grid */}
-                  <div className={styles.calendarDaysGrid}>
-                    {(() => {
-                      const firstDayOfWeek = (new Date(calendarYear, calendarMonth, 1).getDay() + 6) % 7;
-                      const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
-                      const blanks = Array.from({ length: firstDayOfWeek });
-                      const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
-                      // Reference date: Today is 05.11.2026
-                      const isNov2026 = calendarYear === 2026 && calendarMonth === 10;
-                      const isFutureMonth = calendarYear > 2026 || (calendarYear === 2026 && calendarMonth > 10);
-
-                      return (
-                        <>
-                          {blanks.map((_, idx) => (
-                            <div key={`blank-${idx}`} style={{ width: 36, height: 36 }} />
+                    return (
+                      <div key={`${year}-${month}`} className={styles.kaspiMonthBlock}>
+                        <div className={styles.kaspiMonthTitle}>{name}</div>
+                        <div className={styles.kaspiWeekdays}>
+                          {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(wd => (
+                            <span key={wd}>{wd}</span>
                           ))}
-                          {days.map(dayNum => {
-                            const thisDate = new Date(calendarYear, calendarMonth, dayNum);
-                            const isFutureDay = isFutureMonth || (isNov2026 && dayNum > 5);
-                            const isSelectable = !isFutureDay;
+                        </div>
+                        <div className={styles.kaspiDaysGrid}>
+                          {blanks.map((_, bIdx) => (
+                            <div key={`blank-${bIdx}`} style={{ width: 36, height: 36 }} />
+                          ))}
+                          {days.map(dNum => {
+                            const thisDate = new Date(year, month, dNum);
+                            // Reference today is 05.11.2026: Nov 2026 days > 5 are disabled
+                            const isFuture = (year === 2026 && month === 10 && dNum > 5) || (year === 2026 && month > 10) || year > 2026;
+                            const isSelectable = !isFuture;
 
                             const isStart = pickerStartDate && (
-                              pickerStartDate.getFullYear() === calendarYear &&
-                              pickerStartDate.getMonth() === calendarMonth &&
-                              pickerStartDate.getDate() === dayNum
+                              pickerStartDate.getFullYear() === year &&
+                              pickerStartDate.getMonth() === month &&
+                              pickerStartDate.getDate() === dNum
                             );
 
                             const isEnd = pickerEndDate && (
-                              pickerEndDate.getFullYear() === calendarYear &&
-                              pickerEndDate.getMonth() === calendarMonth &&
-                              pickerEndDate.getDate() === dayNum
+                              pickerEndDate.getFullYear() === year &&
+                              pickerEndDate.getMonth() === month &&
+                              pickerEndDate.getDate() === dNum
                             );
 
                             const isInRange = Boolean(
                               pickerStartDate && pickerEndDate &&
                               thisDate > pickerStartDate && thisDate < pickerEndDate
                             );
-
-                            const handleDayClick = () => {
-                              if (!isSelectable) return;
-                              const clickedDate = new Date(calendarYear, calendarMonth, dayNum, 0, 0, 0);
-
-                              if (!pickerStartDate || (pickerStartDate && pickerEndDate)) {
-                                setPickerStartDate(clickedDate);
-                                setPickerEndDate(null);
-                              } else {
-                                if (clickedDate < pickerStartDate) {
-                                  setPickerEndDate(pickerStartDate);
-                                  setPickerStartDate(clickedDate);
-                                } else {
-                                  setPickerEndDate(new Date(calendarYear, calendarMonth, dayNum, 23, 59, 59));
-                                }
-                              }
-                            };
 
                             let dayClasses = `${styles.calendarDay} `;
                             if (isSelectable) {
@@ -2543,147 +2576,38 @@ export default function AdminClient() {
 
                             return (
                               <button
-                                key={dayNum}
+                                key={dNum}
                                 type="button"
                                 disabled={!isSelectable}
                                 className={dayClasses}
-                                onClick={handleDayClick}
-                                title={isSelectable ? `${dayNum}.${calendarMonth + 1}.${calendarYear}` : 'Будущая дата недоступна'}
+                                onClick={() => isSelectable && handleDayClick(year, month, dNum)}
                               >
-                                {String(dayNum).padStart(2, '0')}
+                                {dNum}
                               </button>
                             );
                           })}
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-
-                {/* Draggable Timeline Scrubber on the Right */}
-                <div className={styles.scrubberSection}>
-                  <div className={styles.scrubberHeading}>Таймлайн</div>
-                  <div
-                    className={styles.scrubberTrackContainer}
-                    onPointerDown={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const handleMove = (moveEv: PointerEvent) => {
-                        const ratio = Math.max(0, Math.min(1, (moveEv.clientY - rect.top) / rect.height));
-                        const monthIndex = Math.min(5, Math.floor(ratio * 6));
-                        const targetMonths = [
-                          { m: 10, y: 2026 },
-                          { m: 9, y: 2026 },
-                          { m: 8, y: 2026 },
-                          { m: 7, y: 2026 },
-                          { m: 6, y: 2026 },
-                          { m: 5, y: 2026 },
-                        ];
-                        setCalendarMonth(targetMonths[monthIndex].m);
-                        setCalendarYear(targetMonths[monthIndex].y);
-                      };
-                      handleMove(e.nativeEvent);
-                      const handleUp = () => {
-                        window.removeEventListener('pointermove', handleMove);
-                        window.removeEventListener('pointerup', handleUp);
-                      };
-                      window.addEventListener('pointermove', handleMove);
-                      window.addEventListener('pointerup', handleUp);
-                    }}
-                  >
-                    <div className={styles.scrubberRail} />
-                    <div
-                      className={styles.scrubberThumb}
-                      style={{
-                        top: `${(() => {
-                          const targetMonths = [
-                            { m: 10, y: 2026 },
-                            { m: 9, y: 2026 },
-                            { m: 8, y: 2026 },
-                            { m: 7, y: 2026 },
-                            { m: 6, y: 2026 },
-                            { m: 5, y: 2026 },
-                          ];
-                          const idx = targetMonths.findIndex(t => t.m === calendarMonth && t.y === calendarYear);
-                          return idx >= 0 ? `${(idx / 5) * 85 + 5}%` : '5%';
-                        })()}`,
-                      }}
-                    />
-                    <div className={styles.scrubberTicks}>
-                      {[
-                        { label: 'Ноя 26', m: 10, y: 2026 },
-                        { label: 'Окт 26', m: 9, y: 2026 },
-                        { label: 'Сен 26', m: 8, y: 2026 },
-                        { label: 'Авг 26', m: 7, y: 2026 },
-                        { label: 'Июл 26', m: 6, y: 2026 },
-                        { label: 'Июн 26', m: 5, y: 2026 },
-                      ].map(t => (
-                        <div
-                          key={`${t.y}-${t.m}`}
-                          className={`${styles.scrubberTickItem} ${calendarMonth === t.m && calendarYear === t.y ? styles.scrubberTickActive : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCalendarMonth(t.m);
-                            setCalendarYear(t.y);
-                          }}
-                        >
-                          {t.label}
                         </div>
-                      ))}
-                    </div>
-                  </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
 
-              {/* Quick Presets */}
-              <div className={styles.datePickerPresets}>
-                <button
-                  type="button"
-                  className={styles.presetPill}
-                  onClick={() => {
-                    setCalendarYear(2026);
-                    setCalendarMonth(10);
-                    setPickerStartDate(new Date(2026, 10, 5, 0, 0, 0));
-                    setPickerEndDate(new Date(2026, 10, 5, 23, 59, 59));
-                  }}
+                {/* Draggable Circle Slider (Only track + circle thumb, NO text, NO labels) */}
+                <div
+                  ref={trackRef}
+                  className={styles.sliderTrackWrapper}
+                  onPointerDown={handleTrackPointerDown}
+                  title="Перетащите ползунок для прокрутки"
                 >
-                  Сегодня (05.11)
-                </button>
-                <button
-                  type="button"
-                  className={styles.presetPill}
-                  onClick={() => {
-                    setCalendarYear(2026);
-                    setCalendarMonth(10);
-                    setPickerStartDate(new Date(2026, 10, 1, 0, 0, 0));
-                    setPickerEndDate(new Date(2026, 10, 5, 23, 59, 59));
-                  }}
-                >
-                  Весь ноябрь 2026 (01–05)
-                </button>
-                <button
-                  type="button"
-                  className={styles.presetPill}
-                  onClick={() => {
-                    setCalendarYear(2026);
-                    setCalendarMonth(10);
-                    setPickerStartDate(new Date(2026, 9, 29, 0, 0, 0));
-                    setPickerEndDate(new Date(2026, 10, 5, 23, 59, 59));
-                  }}
-                >
-                  Последние 7 дней
-                </button>
-                <button
-                  type="button"
-                  className={styles.presetPill}
-                  onClick={() => {
-                    setCalendarYear(2026);
-                    setCalendarMonth(10);
-                    setPickerStartDate(new Date(2026, 9, 6, 0, 0, 0));
-                    setPickerEndDate(new Date(2026, 10, 5, 23, 59, 59));
-                  }}
-                >
-                  Последние 30 дней
-                </button>
+                  <div className={styles.sliderRail} />
+                  <div
+                    className={styles.sliderThumbCircle}
+                    style={{
+                      top: `${scrollRatio * 100}%`,
+                      transform: `translateY(-${scrollRatio * 100}%)`,
+                    }}
+                  />
+                </div>
               </div>
 
               {/* Footer */}
@@ -2696,7 +2620,7 @@ export default function AdminClient() {
                       {pickerEndDate && <strong>{pickerEndDate.toLocaleDateString('ru-RU')}</strong>}
                     </span>
                   ) : (
-                    <span style={{ color: '#94a3b8' }}>Выберите дату или диапазон</span>
+                    <span style={{ color: '#94a3b8' }}>Выберите период</span>
                   )}
                 </div>
 
