@@ -16,7 +16,7 @@ export function formatOrderReport(order: Order): string {
 
   const userAccountStr = order.userAccountDetails
     ? `Зарегистрирован на сайте (UID: ${order.userAccountDetails.uid}${order.userAccountDetails.email ? `, Email: ${order.userAccountDetails.email}` : ''})`
-    : 'Гостевой заказ (без авторизации)';
+    : (order.userId ? `Зарегистрирован на сайте (UID: ${order.userId}${order.customer?.email ? `, Email: ${order.customer.email}` : ''})` : 'Гостевой заказ (без авторизации)');
 
   const itemsList = order.items && order.items.length > 0
     ? order.items
@@ -88,10 +88,23 @@ ${paymentGatewayLines}
 Дата и время: ${new Date(order.createdAt).toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' })}`;
 }
 
+// Deduplication cache for Telegram notifications (prevents duplicate webhook / redirect pushes)
+const recentTelegramPushes = new Map<string, number>();
+const PUSH_DEDUP_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
 /**
  * Sends push notifications across configured channels (Telegram bot, Webhooks)
  */
 export async function sendOrderPushNotification(order: Order): Promise<{ success: boolean; channels: string[] }> {
+  const orderKey = String(order.id).trim();
+  const now = Date.now();
+  const lastSent = recentTelegramPushes.get(orderKey);
+
+  if (lastSent && now - lastSent < PUSH_DEDUP_WINDOW_MS) {
+    console.log(`[Notification] Duplicate Telegram push suppressed for order #${orderKey}`);
+    return { success: true, channels: ['telegram (deduplicated)'] };
+  }
+
   const message = formatOrderReport(order);
   const channels: string[] = [];
 
@@ -113,6 +126,7 @@ export async function sendOrderPushNotification(order: Order): Promise<{ success
 
       if (tgRes.ok) {
         channels.push('telegram');
+        recentTelegramPushes.set(orderKey, now);
         console.log(`[Notification] Telegram push sent for order #${order.id}`);
       } else {
         const tgErr = await tgRes.text();

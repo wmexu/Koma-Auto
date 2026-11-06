@@ -113,8 +113,8 @@ export async function POST(request: Request) {
           if (!resolvedEmail && !resolvedUserId) {
             return NextResponse.json({
               valid: false,
-              error: 'Этот промокод привязан к отдельному аккаунту. Войдите в свой профиль для его использования.',
-            }, { status: 403 });
+              error: 'Такой промокод не существует',
+            }, { status: 404 });
           }
 
           const emailMatches = Boolean(resolvedEmail && boundEmails.includes(resolvedEmail));
@@ -123,8 +123,8 @@ export async function POST(request: Request) {
           if (!emailMatches && !idMatches) {
             return NextResponse.json({
               valid: false,
-              error: `Этот промокод привязан к отдельному аккаунту. Промокод ${p.code} не применен`,
-            }, { status: 403 });
+              error: 'Такой промокод не существует',
+            }, { status: 404 });
           }
         }
 
@@ -132,14 +132,14 @@ export async function POST(request: Request) {
         if (p.target_audience === 'wholesale' && clientType !== 'wholesale') {
           return NextResponse.json({
             valid: false,
-            error: `Этот промокод доступен только для оптовых покупателей. Промокод ${p.code} не применен`,
-          }, { status: 403 });
+            error: 'Такой промокод не существует',
+          }, { status: 404 });
         }
         if (p.target_audience === 'retail' && clientType === 'wholesale') {
           return NextResponse.json({
             valid: false,
-            error: `Этот промокод доступен только для розничных покупателей. Промокод ${p.code} не применен`,
-          }, { status: 403 });
+            error: 'Такой промокод не существует',
+          }, { status: 404 });
         }
 
         const numVal = Number(p.value);

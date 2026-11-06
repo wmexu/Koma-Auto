@@ -52,7 +52,14 @@ export const useCartStore = create<CartState>()(
           }),
         }));
       },
-      clearCart: () => set({ items: [] }),
+      clearCart: () => {
+        try {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('koma-cart-storage');
+          }
+        } catch (e) {}
+        set({ items: [] });
+      },
       setItems: (items) => set({ items: items.filter((item) => item && item.price >= 500) }),
       getTotalItems: () => {
         return get().items.filter((i) => i.price >= 500).reduce((total, item) => total + item.quantity, 0);

@@ -68,11 +68,7 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
     async function load() {
       const list = await fetchUserOrders(userId);
       if (mounted) {
-        const strictlyIsolated = userId 
-          ? list.filter((o) => o.userId === userId)
-          : list.filter((o) => !o.userId);
-
-        setOrders(strictlyIsolated);
+        setOrders(list);
         setIsLoading(false);
       }
     }
@@ -235,6 +231,28 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
         <span className={`${styles.statusBadge} ${styles.statusDeclined}`}>
           <XCircle size={15} />
           <span>{isStaffCancelled ? 'Отменен менеджером' : 'Отклонен'}</span>
+        </span>
+      );
+    }
+
+    if (order.paymentMethod === 'kaspi_pay' && effectiveStatus === 'pending') {
+      const isKaspiInvoiced =
+        (order as any).paymentStatus === 'invoiced' ||
+        (order as any).kaspiStatus === 'invoiced';
+
+      if (isKaspiInvoiced) {
+        return (
+          <span className={styles.statusBadge} style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe' }}>
+            <CreditCard size={15} />
+            <span>Счет выставлен в приложении Kaspi</span>
+          </span>
+        );
+      }
+
+      return (
+        <span className={`${styles.statusBadge} ${styles.statusPending}`}>
+          <Clock size={15} />
+          <span>Ожидает выставления счета в Kaspi</span>
         </span>
       );
     }
@@ -534,7 +552,32 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
             {/* Modal Body */}
             <div className={styles.modalBody}>
               {/* Payment Timer Notice for pending orders */}
-              {getEffectiveOrderStatus(selectedOrder) === 'pending' && (() => {
+              {getEffectiveOrderStatus(selectedOrder) === 'pending' && selectedOrder.paymentMethod === 'kaspi_pay' && (() => {
+                const isKaspiInvoiced =
+                  (selectedOrder as any).paymentStatus === 'invoiced' ||
+                  (selectedOrder as any).kaspiStatus === 'invoiced';
+                return (
+                  <div
+                    className={styles.timerNoticeBox}
+                    style={{
+                      backgroundColor: isKaspiInvoiced ? '#eff6ff' : '#fffbeb',
+                      borderColor: isKaspiInvoiced ? '#bfdbfe' : '#fde68a',
+                      color: isKaspiInvoiced ? '#1e40af' : '#92400e',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CreditCard size={18} />
+                      <span>
+                        {isKaspiInvoiced
+                          ? `Счет на оплату выставлен в приложении Kaspi на номер ${selectedOrder.kaspiPhone || selectedOrder.customer?.phone || ''}`
+                          : `Ожидает выставления счета в приложении Kaspi на номер ${selectedOrder.kaspiPhone || selectedOrder.customer?.phone || ''}`}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {getEffectiveOrderStatus(selectedOrder) === 'pending' && selectedOrder.paymentMethod !== 'kaspi_pay' && (() => {
                 const modalRem = getRemainingTimeData(selectedOrder);
                 const isLongExpiry = selectedOrder.expiresAt && selectedOrder.createdAt &&
                   (new Date(selectedOrder.expiresAt).getTime() - new Date(selectedOrder.createdAt).getTime() > 3600000);
@@ -696,6 +739,21 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
 
             {/* Modal Footer with Actions */}
             <div className={styles.modalFooter}>
+              {getEffectiveOrderStatus(selectedOrder) === 'pending' && selectedOrder.paymentMethod === 'kaspi_pay' && (
+                <a
+                  href={`https://wa.me/77079194462?text=${encodeURIComponent(
+                    `Здравствуйте! Я оформил заказ №${selectedOrder.id} через Kaspi Pay на сумму ${selectedOrder.amount.toLocaleString('ru-RU')} ₸.\nМой номер для счета: ${selectedOrder.kaspiPhone || selectedOrder.customer?.phone || ''}`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={styles.payBtn}
+                  style={{ background: '#25D366', borderColor: '#25D366' }}
+                >
+                  <WhatsAppIcon size={16} color="#fff" />
+                  <span>Написать в WhatsApp для ускорения счета</span>
+                </a>
+              )}
+
               {getEffectiveOrderStatus(selectedOrder) === 'pending' && selectedOrder.paymentUrl && (
                 <button
                   className={styles.payBtn}

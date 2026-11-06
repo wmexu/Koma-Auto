@@ -112,6 +112,14 @@ export async function POST(request: Request) {
           customerPhone
         );
 
+        const paymentStatusToInsert = order.paymentMethod === 'kaspi_pay'
+          ? ((order as any).paymentStatus || 'pending')
+          : ((order.status as any) === 'paid' || (order as any).paymentStatus === 'paid' ? 'paid' : 'pending');
+
+        const validCreatedAt = order.createdAt && !isNaN(new Date(order.createdAt).getTime())
+          ? new Date(order.createdAt)
+          : new Date();
+
         await client`
           INSERT INTO orders (
             id, invoice_id, user_id, amount, items_price, delivery_cost,
@@ -122,12 +130,12 @@ export async function POST(request: Request) {
             ${orderId},
             ${order.invoiceId || orderId},
             ${linkedUserId},
-            ${order.amount || 0},
-            ${order.itemsPrice || 0},
-            ${order.deliveryCost || 0},
+            ${Number(order.amount) || 0},
+            ${Number(order.itemsPrice) || Number(order.amount) || 0},
+            ${Number(order.deliveryCost) || 0},
             ${order.deliveryMethod || 'pickup'},
             ${order.paymentMethod || 'online'},
-            ${(order.status as any) === 'paid' || (order as any).paymentStatus === 'paid' ? 'paid' : 'pending'},
+            ${paymentStatusToInsert},
             ${order.fulfillmentStatus || 'assembling'},
             ${customerName},
             ${customerPhone},
@@ -137,7 +145,7 @@ export async function POST(request: Request) {
             ${order.city || 'Алматы'},
             ${JSON.stringify(order.items || [])}::jsonb,
             'car_city_podval',
-            ${order.createdAt ? new Date(order.createdAt) : new Date()},
+            ${validCreatedAt},
             NOW()
           )
           ON CONFLICT (id) DO UPDATE SET
@@ -146,10 +154,15 @@ export async function POST(request: Request) {
             amount = EXCLUDED.amount,
             items_price = EXCLUDED.items_price,
             items = EXCLUDED.items,
+            kaspi_phone = COALESCE(EXCLUDED.kaspi_phone, orders.kaspi_phone),
             updated_at = NOW();
         `;
-      } catch (neonErr) {
+      } catch (neonErr: any) {
         console.error('[Orders POST] Neon order insert error:', neonErr);
+        return NextResponse.json(
+          { error: `Ошибка сохранения заказа в базе данных: ${neonErr?.message || 'Не удалось сохранить заказ'}` },
+          { status: 500 }
+        );
       }
     }
 
@@ -407,29 +420,78 @@ export async function PATCH(request: Request) {
         );
       }
 
-      if (targetOrder) {
-        if (epayCheck.amount && epayCheck.amount > 0) {
-          targetOrder.amount = epayCheck.amount;
-        }
-        await notifyMoySkladOrderPaid(targetOrder);
+      // Check if already paid in Neon DB to prevent duplicate Telegram/MoySklad alerts
+      let alreadyPaid = false;
+      if (isDbConfigured() && client) {
+        try {
+          const checkPaid = await client`SELECT payment_status FROM orders WHERE id = ${orderId} LIMIT 1;`;
+          if (checkPaid && checkPaid.length > 0 && checkPaid[0].payment_status === 'paid') {
+            alreadyPaid = true;
+          }
+        } catch {}
+      }
+
+      if (alreadyPaid) {
+        console.log(`[Orders PATCH] Order #${orderId} already processed as paid. Skipping duplicate notification.`);
       } else {
-        const fallbackOrder: Order = {
-          id: orderId,
-          invoiceId: orderId,
-          createdAt: new Date().toISOString(),
-          expiresAt: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
-          status: 'paid',
-          amount: epayCheck.amount || 0,
-          itemsPrice: epayCheck.amount || 0,
-          deliveryCost: 0,
-          deliveryMethod: 'pickup',
-          address: 'Адрес из заказа',
-          customer: { name: 'Покупатель', phone: '' },
-          paymentMethod: 'online',
-          items: [],
-          notificationSent: true,
-        };
-        await notifyMoySkladOrderPaid(fallbackOrder);
+        if (targetOrder) {
+          if (epayCheck.amount && epayCheck.amount > 0) {
+            targetOrder.amount = epayCheck.amount;
+          }
+          await notifyMoySkladOrderPaid(targetOrder);
+        } else {
+          // Attempt lookup in Neon DB before using fallback
+          let dbFallback: Order | null = null;
+          if (isDbConfigured() && client) {
+            try {
+              const ordRows = await client`SELECT * FROM orders WHERE id = ${orderId} LIMIT 1;`;
+              if (ordRows && ordRows.length > 0) {
+                const r = ordRows[0];
+                let items: any[] = [];
+                if (Array.isArray(r.items)) items = r.items;
+                else if (typeof r.items === 'string') {
+                  try { items = JSON.parse(r.items); } catch {}
+                }
+                dbFallback = {
+                  id: orderId,
+                  invoiceId: orderId,
+                  createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+                  expiresAt: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
+                  status: 'paid',
+                  amount: epayCheck.amount || Number(r.amount) || 0,
+                  itemsPrice: Number(r.items_price) || Number(r.amount) || 0,
+                  deliveryCost: Number(r.delivery_cost) || 0,
+                  deliveryMethod: (r.delivery_method as any) || 'pickup',
+                  address: r.delivery_address || 'Самовывоз: Car City',
+                  city: r.city || 'Алматы',
+                  customer: { name: r.customer_name || 'Покупатель', phone: r.customer_phone || '', email: r.customer_email || '' },
+                  paymentMethod: (r.payment_method as any) || 'online',
+                  items,
+                  userId: r.user_id || null,
+                  notificationSent: true,
+                };
+              }
+            } catch {}
+          }
+
+          const fallbackOrder: Order = dbFallback || {
+            id: orderId,
+            invoiceId: orderId,
+            createdAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
+            status: 'paid',
+            amount: epayCheck.amount || 0,
+            itemsPrice: epayCheck.amount || 0,
+            deliveryCost: 0,
+            deliveryMethod: 'pickup',
+            address: 'Адрес из заказа',
+            customer: { name: 'Покупатель', phone: '' },
+            paymentMethod: 'online',
+            items: [],
+            notificationSent: true,
+          };
+          await notifyMoySkladOrderPaid(fallbackOrder);
+        }
       }
     } else if (status === 'declined') {
       const staffAuth = await verifyStaffSession(request, ['director', 'manager']);

@@ -8,7 +8,8 @@ import { CheckCircle, Shield, Package, AlertTriangle, Smartphone, X } from 'luci
 import { useCartStore } from '../../store/useCartStore';
 import { useToastStore } from '../../store/useToastStore';
 import { useAuthStore } from '../../store/useAuthStore';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
+import { doc, setDoc } from 'firebase/firestore';
 import { Order, getEffectiveOrderStatus } from '@/lib/order-types';
 import { persistOrder, getLocalOrderById } from '@/lib/orders';
 import styles from './Checkout.module.css';
@@ -538,6 +539,16 @@ export default function CheckoutClient() {
         setLastPaymentMethod('kaspi_pay');
         setIsSuccess(true);
         clearCart();
+        try {
+          localStorage.removeItem('koma-cart-storage');
+        } catch (e) {}
+        if (user?.uid) {
+          try {
+            await setDoc(doc(db, 'users', user.uid), { cart: [] }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore cart clear error:', e);
+          }
+        }
         addToast('Заказ принят! Менеджер сформирует счет в Kaspi Pay.', 'success');
       } catch (err: any) {
         console.error('Kaspi order error:', err);
@@ -649,6 +660,16 @@ export default function CheckoutClient() {
 
         // Clear cart now that order is securely registered
         clearCart();
+        try {
+          localStorage.removeItem('koma-cart-storage');
+        } catch (e) {}
+        if (user?.uid) {
+          try {
+            await setDoc(doc(db, 'users', user.uid), { cart: [] }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore cart clear error:', e);
+          }
+        }
 
         // Redirect to Halyk ePay
         if (typeof window !== 'undefined' && window.halyk && typeof window.halyk.pay === 'function') {
@@ -706,6 +727,16 @@ export default function CheckoutClient() {
     setLastOrderId(offlineOrderId);
     setIsSuccess(true);
     clearCart();
+    try {
+      localStorage.removeItem('koma-cart-storage');
+    } catch (e) {}
+    if (user?.uid) {
+      try {
+        await setDoc(doc(db, 'users', user.uid), { cart: [] }, { merge: true });
+      } catch (e) {
+        console.warn('Firestore cart clear error:', e);
+      }
+    }
   };
 
   if (isSuccess) {
@@ -726,7 +757,7 @@ export default function CheckoutClient() {
               Способ оплаты: <strong>Kaspi Pay</strong> &middot; Сумма к оплате: <strong>{finalPrice.toLocaleString()} ₸</strong>
             </p>
             <p className={styles.kaspiSuccessText}>
-              Менеджер магазина Koma Auto сейчас сформирует и выставит удаленный счет на оплату в приложении Kaspi на ваш номер <strong>{phoneFormatted}</strong>.
+              Менеджер магазина Koma Auto сформирует и выставит удаленный счет на оплату в приложении Kaspi на ваш номер <strong>{phoneFormatted}</strong> в ближайшее время.
             </p>
             <a
               href={whatsappKaspiUrl}

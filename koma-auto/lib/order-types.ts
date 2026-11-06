@@ -107,6 +107,7 @@ export function getEffectiveOrderStatus(order: Order): OrderStatus {
   if (order.status === 'declined') return 'declined';
 
   if (order.status === 'pending') {
+    if (order.paymentMethod === 'kaspi_pay') return 'pending';
     if (order.expiresAt && new Date() > new Date(order.expiresAt)) {
       return 'declined';
     }

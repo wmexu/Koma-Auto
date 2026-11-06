@@ -89,6 +89,67 @@ export async function POST(request: Request) {
         console.warn('[Halyk Postlink] Firestore access skipped/failed (will proceed with fallback):', fbErr);
       }
 
+      // If Firestore didn't have order, fetch authoritative order data from Neon PostgreSQL
+      if (!updatedOrder && isDbConfigured() && client) {
+        try {
+          const dbRows = await client`
+            SELECT * FROM orders WHERE id = ${String(invoiceId)} OR invoice_id = ${String(invoiceId)} LIMIT 1;
+          `;
+          if (dbRows && dbRows.length > 0) {
+            const row = dbRows[0];
+            let items: any[] = [];
+            if (Array.isArray(row.items)) items = row.items;
+            else if (typeof row.items === 'string') {
+              try { items = JSON.parse(row.items); } catch {}
+            }
+
+            // Also check if user has user details in users table
+            let userAccountDetails = null;
+            if (row.user_id) {
+              try {
+                const uRows = await client`SELECT id, email, full_name, phone FROM users WHERE id = ${row.user_id} LIMIT 1;`;
+                if (uRows && uRows.length > 0) {
+                  userAccountDetails = {
+                    uid: uRows[0].id,
+                    email: uRows[0].email,
+                    displayName: uRows[0].full_name,
+                    phone: uRows[0].phone,
+                  };
+                }
+              } catch {}
+            }
+
+            updatedOrder = {
+              id: String(row.id),
+              invoiceId: row.invoice_id || String(row.id),
+              createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+              expiresAt: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
+              status: 'paid',
+              amount: Number(row.amount) || amount || 0,
+              itemsPrice: Number(row.items_price) || Number(row.amount) || 0,
+              deliveryCost: Number(row.delivery_cost) || 0,
+              deliveryMethod: (row.delivery_method as any) || 'pickup',
+              address: row.delivery_address || (row.delivery_method === 'courier' ? 'Адрес доставки' : 'Самовывоз: Car City'),
+              city: row.city || 'Алматы',
+              customer: {
+                name: row.customer_name || data.name || 'Покупатель',
+                phone: row.customer_phone || data.phone || '',
+                email: row.customer_email || data.email || '',
+              },
+              paymentMethod: (row.payment_method as any) || 'online',
+              receiptUrl: `https://epay.homebank.kz/receipt/${invoiceId}`,
+              items,
+              userId: row.user_id || null,
+              userAccountDetails,
+              notificationSent: true,
+            };
+            console.log(`[Halyk Postlink] Order ${invoiceId} loaded authoritatively from Neon PostgreSQL.`);
+          }
+        } catch (dbErr) {
+          console.warn('[Halyk Postlink] Neon DB lookup warning:', dbErr);
+        }
+      }
+
       if (!updatedOrder) {
         // Fallback: construct valid order from ePay callback data
         console.log(`[Halyk Postlink] Order ${invoiceId} using fallback payload for MoySklad & Telegram notification.`);

@@ -103,13 +103,19 @@ export async function persistOrder(order: Order): Promise<void> {
   saveLocalOrder(order);
 
   try {
-    await fetch('/api/orders', {
+    const res = await fetch('/api/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(order),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      console.error('Server order save error:', data);
+      throw new Error(data.error || 'Ошибка при сохранении заказа на сервере');
+    }
   } catch (e) {
     console.error('Failed to persist order to server API:', e);
+    throw e;
   }
 }
 
@@ -153,9 +159,7 @@ export async function fetchUserOrders(userId?: string | null): Promise<Order[]> 
       
       // Server orders for this specific userId are authoritative.
       // Filter strictly to ensure no orders belonging to other users or null are included.
-      const verifiedOrders = Array.isArray(serverOrders)
-        ? serverOrders.filter((o) => o.userId === userId)
-        : [];
+      const verifiedOrders = Array.isArray(serverOrders) ? serverOrders : [];
 
       verifiedOrders.sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()

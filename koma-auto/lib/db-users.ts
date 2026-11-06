@@ -69,23 +69,30 @@ export async function resolveAndEnsureUserId(
     // 3. User does not exist at all in PostgreSQL: create customer record so foreign key is valid
     if (cleanUserId) {
       const fallbackEmail = cleanEmail || `customer_${cleanUserId}@koma.kz`;
-      await client`
-        INSERT INTO users (id, email, full_name, phone, role, created_at, updated_at)
-        VALUES (
-          ${cleanUserId},
-          ${fallbackEmail},
-          ${cleanName},
-          ${cleanPhone},
-          'customer',
-          NOW(),
-          NOW()
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          full_name = COALESCE(NULLIF(EXCLUDED.full_name, 'Покупатель'), users.full_name),
-          phone = COALESCE(EXCLUDED.phone, users.phone),
-          updated_at = NOW();
-      `;
-      return cleanUserId;
+      try {
+        await client`
+          INSERT INTO users (id, email, full_name, phone, role, created_at, updated_at)
+          VALUES (
+            ${cleanUserId},
+            ${fallbackEmail},
+            ${cleanName},
+            ${cleanPhone},
+            'customer',
+            NOW(),
+            NOW()
+          )
+          ON CONFLICT (id) DO UPDATE SET
+            full_name = COALESCE(NULLIF(EXCLUDED.full_name, 'Покупатель'), users.full_name),
+            phone = COALESCE(EXCLUDED.phone, users.phone),
+            updated_at = NOW();
+        `;
+        return cleanUserId;
+      } catch (insertErr) {
+        if (cleanEmail) {
+          const byEmail = await client`SELECT id FROM users WHERE LOWER(email) = LOWER(${cleanEmail}) LIMIT 1`;
+          if (byEmail && byEmail.length > 0) return byEmail[0].id;
+        }
+      }
     }
   } catch (err) {
     console.warn('[resolveAndEnsureUserId] Handled user resolution notice:', err);

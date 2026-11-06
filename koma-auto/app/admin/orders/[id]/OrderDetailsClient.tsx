@@ -261,6 +261,35 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
     }
   };
 
+  const handleSetKaspiStatus = async (targetStatus: 'pending' | 'invoiced' | 'paid') => {
+    if (targetStatus === 'paid') {
+      return handleConfirmKaspiPayment();
+    }
+
+    try {
+      const res = await adminFetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'set_kaspi_status',
+          orderId: order.id,
+          status: targetStatus,
+          staffUserId: user?.uid,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Ошибка изменения статуса счета');
+      }
+
+      addToast(data.message || 'Статус Kaspi Pay обновлен', 'success');
+      loadOrder();
+    } catch (err: any) {
+      addToast(err.message || 'Не удалось изменить статус', 'error');
+    }
+  };
+
   const handleAssignCourier = async () => {
     if (!selectedCourierId) return;
     const courier = couriersList.find(c => c.id === selectedCourierId);
@@ -489,7 +518,9 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
             <span className={`${styles.badge} ${isPaid ? styles.badgePaid : styles.badgePending}`}>
               {isPaid 
                 ? (order.payment_method === 'kaspi_pay' ? 'Оплачен (Kaspi Pay)' : 'Оплачен онлайн (ePay)') 
-                : `Ожидает оплаты: ${getPendingRemainingTime(order.created_at)}`}
+                : (order.payment_method === 'kaspi_pay'
+                    ? (order.payment_status === 'invoiced' ? 'Счет выставлен (Kaspi Pay)' : 'Ожидает выставления (Kaspi Pay)')
+                    : `Ожидает оплаты: ${getPendingRemainingTime(order.created_at)}`)}
             </span>
           </div>
         </div>
@@ -667,16 +698,40 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
                   </button>
                 )}
 
-                {order.payment_method === 'kaspi_pay' && order.payment_status === 'pending' && !isCancelled && !isDeleted && (
-                  <button
-                    type="button"
-                    className={`${styles.actionBtn} ${styles.confirmKaspiBtn}`}
-                    onClick={handleConfirmKaspiPayment}
-                    title="Подтвердить получение оплаты через Kaspi Pay"
-                  >
-                    <CheckCircle size={16} />
-                    <span>Подтвердить оплату (Kaspi Pay)</span>
-                  </button>
+                {order.payment_method === 'kaspi_pay' && order.payment_status !== 'paid' && !isCancelled && !isDeleted && (
+                  <>
+                    {order.payment_status !== 'invoiced' ? (
+                      <button
+                        type="button"
+                        className={`${styles.actionBtn} ${styles.secondaryActionBtn}`}
+                        style={{ backgroundColor: '#2563eb', color: '#fff', borderColor: '#2563eb' }}
+                        onClick={() => handleSetKaspiStatus('invoiced')}
+                        title="Пометить, что счет выставлен клиенту в приложении Kaspi"
+                      >
+                        <CreditCard size={16} />
+                        <span>Выставить счет</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className={`${styles.actionBtn} ${styles.secondaryActionBtn}`}
+                        onClick={() => handleSetKaspiStatus('pending')}
+                        title="Вернуть статус в «Ожидает выставления»"
+                      >
+                        <span>Вернуть в ожидание</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      className={`${styles.actionBtn} ${styles.confirmKaspiBtn}`}
+                      onClick={() => handleSetKaspiStatus('paid')}
+                      title="Подтвердить получение оплаты через Kaspi Pay"
+                    >
+                      <CheckCircle size={16} />
+                      <span>Подтвердить оплату (Kaspi Pay)</span>
+                    </button>
+                  </>
                 )}
 
                 {order.delivery_method === 'courier' && !isCompleted && !isCancelled && !isDeleted && (

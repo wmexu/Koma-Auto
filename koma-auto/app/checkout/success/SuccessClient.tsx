@@ -7,6 +7,8 @@ import { CheckCircle, ShoppingBag, Package } from 'lucide-react';
 import { useCartStore } from '@/store/useCartStore';
 import { updateLocalOrderStatus, getLocalOrderById } from '@/lib/orders';
 import { Order } from '@/lib/order-types';
+import { auth, db } from '@/lib/firebase';
+import { doc, setDoc } from 'firebase/firestore';
 import styles from '../Checkout.module.css';
 
 export default function SuccessClient() {
@@ -18,6 +20,14 @@ export default function SuccessClient() {
   useEffect(() => {
     // Clear cart upon successful payment confirmation
     clearCart();
+    try {
+      localStorage.removeItem('koma-cart-storage');
+    } catch (e) {}
+    if (auth?.currentUser?.uid) {
+      setDoc(doc(db, 'users', auth.currentUser.uid), { cart: [] }, { merge: true }).catch((err) => {
+        console.warn('Error clearing cart in Firestore upon success:', err);
+      });
+    }
 
     // Mark order as paid
     if (orderId) {

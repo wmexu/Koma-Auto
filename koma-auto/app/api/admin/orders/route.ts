@@ -268,7 +268,80 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'База данных недоступна' }, { status: 503 });
     }
 
-    if (action === 'confirm_kaspi_payment' || action === 'confirm_payment') {
+    if (action === 'set_kaspi_status') {
+      if (status === 'invoiced' || status === 'invoice_sent') {
+        await client`
+          UPDATE orders
+          SET 
+            payment_status = 'invoiced',
+            updated_at = NOW()
+          WHERE id = ${String(orderId)};
+        `;
+
+        try {
+          const orderRef = doc(db, 'orders', String(orderId));
+          await updateDoc(orderRef, {
+            paymentStatus: 'invoiced',
+            kaspiStatus: 'invoiced',
+            customStatusText: 'Счет выставлен в приложении Kaspi',
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (fsErr) {
+          console.warn('[AdminOrders] Firestore kaspi invoiced sync warning:', fsErr);
+        }
+
+        logAuditEvent({
+          userId: auth.user.id,
+          action: 'ORDER_STATUS_CHANGED',
+          entityType: 'order',
+          entityId: String(orderId),
+          details: { action: 'KASPI_STATUS_CHANGED', paymentStatus: 'invoiced' },
+        });
+
+        return NextResponse.json({
+          success: true,
+          message: 'Статус Kaspi Pay обновлен: Счет выставлен',
+        });
+      }
+
+      if (status === 'pending') {
+        await client`
+          UPDATE orders
+          SET 
+            payment_status = 'pending',
+            updated_at = NOW()
+          WHERE id = ${String(orderId)};
+        `;
+
+        try {
+          const orderRef = doc(db, 'orders', String(orderId));
+          await updateDoc(orderRef, {
+            paymentStatus: 'pending',
+            kaspiStatus: 'pending',
+            customStatusText: 'Ожидает выставления счета в Kaspi',
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (fsErr) {
+          console.warn('[AdminOrders] Firestore kaspi pending sync warning:', fsErr);
+        }
+
+        logAuditEvent({
+          userId: auth.user.id,
+          action: 'ORDER_STATUS_CHANGED',
+          entityType: 'order',
+          entityId: String(orderId),
+          details: { action: 'KASPI_STATUS_CHANGED', paymentStatus: 'pending' },
+        });
+
+        return NextResponse.json({
+          success: true,
+          message: 'Статус Kaspi Pay возвращен: Ожидает выставления',
+        });
+      }
+      // If status === 'paid', falls through to confirm_kaspi_payment below
+    }
+
+    if (action === 'confirm_kaspi_payment' || action === 'confirm_payment' || (action === 'set_kaspi_status' && status === 'paid')) {
       await client`
         UPDATE orders
         SET 
