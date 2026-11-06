@@ -89,20 +89,25 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
       });
     }
 
-    // Fetch current stock from MoySklad stock report
+    // Fetch current real-time stock from MoySklad assortment API for Car City Podval store
+    const PODVAL_STORE_URL =
+      'https://api.moysklad.ru/api/remap/1.2/entity/store/4240a87a-4ea5-11f1-0a80-1b5c0008497a';
+
     let stockQuantity = 0;
     try {
       const stockRes = await fetch(
-        `https://api.moysklad.ru/api/remap/1.2/report/stock/all/current?filter=product=${encodeURIComponent(
-          productHref
+        `https://api.moysklad.ru/api/remap/1.2/entity/assortment?filter=id=${productId}&stockStore=${encodeURIComponent(
+          PODVAL_STORE_URL
         )}`,
         { headers: getMoySkladHeaders() }
       );
       if (stockRes.ok) {
         const stockData = await stockRes.json();
-        if (Array.isArray(stockData) && stockData.length > 0) {
-          stockQuantity = Math.max(0, Math.floor(stockData[0].stock || 0));
+        if (Array.isArray(stockData.rows) && stockData.rows.length > 0 && typeof stockData.rows[0].stock === 'number') {
+          stockQuantity = Math.max(0, Math.floor(stockData.rows[0].stock));
         }
+      } else {
+        console.warn(`[Sync Webhook] Assortment stock fetch non-ok ${stockRes.status} for ${productId}`);
       }
     } catch (stockErr) {
       console.warn(`[Sync Webhook] Stock fetch error for ${productId}:`, stockErr);

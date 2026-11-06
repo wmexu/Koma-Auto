@@ -1244,61 +1244,90 @@ export default function AdminClient() {
                     </div>
 
                     <div className={styles.orderSubTabs}>
-                      <button
-                        type="button"
-                        className={`${styles.subTabBtn} ${orderSubTab === 'kaspi' ? styles.subTabBtnActive : ''}`}
-                        onClick={() => setOrderSubTab('kaspi')}
-                      >
-                        <CreditCard size={15} />
-                        Kaspi Pay
-                        <span
-                          className={styles.subTabBadge}
-                          style={{
-                            background: kaspiOrdersCount > 0 ? '#ef4444' : '#94a3b8',
-                            color: '#fff',
-                          }}
-                        >
-                          {kaspiOrdersCount}
-                        </span>
-                      </button>
+                      {isCourier ? (
+                        <>
+                          <button
+                            type="button"
+                            className={`${styles.subTabBtn} ${orderSubTab === 'active' ? styles.subTabBtnActive : ''}`}
+                            onClick={() => setOrderSubTab('active')}
+                          >
+                            Активные заказы
+                            <span className={styles.subTabBadge}>{activeOrdersCount}</span>
+                          </button>
 
-                      <button
-                        type="button"
-                        className={`${styles.subTabBtn} ${orderSubTab === 'active' ? styles.subTabBtnActive : ''}`}
-                        onClick={() => setOrderSubTab('active')}
-                      >
-                        Активные заказы
-                        <span className={styles.subTabBadge}>{activeOrdersCount}</span>
-                      </button>
+                          <button
+                            type="button"
+                            className={`${styles.subTabBtn} ${orderSubTab === 'cancelled' ? styles.subTabBtnActive : ''}`}
+                            onClick={() => setOrderSubTab('cancelled')}
+                          >
+                            Отмененные заказы
+                            <span className={styles.subTabBadge}>{cancelledOrdersCount}</span>
+                          </button>
 
-                      {pendingOrdersCount > 0 && (
-                        <button
-                          type="button"
-                          className={`${styles.subTabBtn} ${orderSubTab === 'pending_payment' ? styles.subTabBtnActive : ''}`}
-                          onClick={() => setOrderSubTab('pending_payment')}
-                        >
-                          Ожидает оплаты
-                          <span className={styles.subTabBadge}>{pendingOrdersCount}</span>
-                        </button>
+                          <button
+                            type="button"
+                            className={`${styles.subTabBtn} ${orderSubTab === 'archive' ? styles.subTabBtnActive : ''}`}
+                            onClick={() => setOrderSubTab('archive')}
+                          >
+                            Архив заказов
+                            <span className={styles.subTabBadge}>{archivedOrdersCount}</span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          {kaspiOrdersCount > 0 && (
+                            <button
+                              type="button"
+                              className={`${styles.subTabBtn} ${orderSubTab === 'kaspi' ? styles.subTabBtnActive : ''}`}
+                              onClick={() => setOrderSubTab('kaspi')}
+                            >
+                              <CreditCard size={15} />
+                              Kaspi Pay
+                              <span className={styles.subTabBadge}>
+                                {kaspiOrdersCount}
+                              </span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            className={`${styles.subTabBtn} ${orderSubTab === 'active' ? styles.subTabBtnActive : ''}`}
+                            onClick={() => setOrderSubTab('active')}
+                          >
+                            Активные заказы
+                            <span className={styles.subTabBadge}>{activeOrdersCount}</span>
+                          </button>
+
+                          {pendingOrdersCount > 0 && (
+                            <button
+                              type="button"
+                              className={`${styles.subTabBtn} ${orderSubTab === 'pending_payment' ? styles.subTabBtnActive : ''}`}
+                              onClick={() => setOrderSubTab('pending_payment')}
+                            >
+                              Ожидает оплаты
+                              <span className={styles.subTabBadge}>{pendingOrdersCount}</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            className={`${styles.subTabBtn} ${orderSubTab === 'cancelled' ? styles.subTabBtnActive : ''}`}
+                            onClick={() => setOrderSubTab('cancelled')}
+                          >
+                            Отмененные заказы
+                            <span className={styles.subTabBadge}>{cancelledOrdersCount}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            className={`${styles.subTabBtn} ${orderSubTab === 'archive' ? styles.subTabBtnActive : ''}`}
+                            onClick={() => setOrderSubTab('archive')}
+                          >
+                            Архив заказов
+                            <span className={styles.subTabBadge}>{archivedOrdersCount}</span>
+                          </button>
+                        </>
                       )}
-
-                      <button
-                        type="button"
-                        className={`${styles.subTabBtn} ${orderSubTab === 'cancelled' ? styles.subTabBtnActive : ''}`}
-                        onClick={() => setOrderSubTab('cancelled')}
-                      >
-                        Отмененные заказы
-                        <span className={styles.subTabBadge}>{cancelledOrdersCount}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className={`${styles.subTabBtn} ${orderSubTab === 'archive' ? styles.subTabBtnActive : ''}`}
-                        onClick={() => setOrderSubTab('archive')}
-                      >
-                        Архив заказов
-                        <span className={styles.subTabBadge}>{archivedOrdersCount}</span>
-                      </button>
                     </div>
                   </div>
 
@@ -1447,7 +1476,7 @@ export default function AdminClient() {
                                 </div>
 
                                 <div className={styles.actionButtons} onClick={e => e.stopPropagation()}>
-                                  {order.fulfillment_status !== 'completed' && !isCancelled && !isDeleted && (
+                                  {!isKaspiOrder && order.fulfillment_status !== 'completed' && !isCancelled && !isDeleted && (
                                     <button
                                       type="button"
                                       className={styles.verifyCodeBtn}
@@ -1467,21 +1496,46 @@ export default function AdminClient() {
                                         <button
                                           type="button"
                                           className={styles.verifyCodeBtn}
-                                          style={{ backgroundColor: '#2563eb', color: '#fff', borderColor: '#2563eb' }}
+                                          style={{
+                                            backgroundColor: '#ffffff',
+                                            border: '1px solid var(--color-navy, #060F48)',
+                                            color: 'var(--color-navy, #060F48)',
+                                            boxShadow: 'none',
+                                            fontWeight: 500,
+                                            fontSize: '13px',
+                                            borderRadius: '8px',
+                                            padding: '7px 14px',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                          }}
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             handleSetKaspiStatus(order, 'invoiced');
                                           }}
-                                          title="Пометить, что счет выставлен клиенту в приложении Kaspi"
+                                          title="Подтвердить выставление счёта в приложении Kaspi"
                                         >
-                                          <CreditCard size={15} />
-                                          <span>Выставить счет</span>
+                                          <span>Подтвердить выставление счёта</span>
                                         </button>
                                       ) : (
                                         <button
                                           type="button"
                                           className={styles.verifyCodeBtn}
-                                          style={{ backgroundColor: '#f1f5f9', color: '#475569', borderColor: '#cbd5e1' }}
+                                          style={{
+                                            backgroundColor: '#ffffff',
+                                            border: '1px solid #cbd5e1',
+                                            color: '#475569',
+                                            boxShadow: 'none',
+                                            fontWeight: 500,
+                                            fontSize: '13px',
+                                            borderRadius: '8px',
+                                            padding: '7px 14px',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                          }}
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             handleSetKaspiStatus(order, 'pending');
@@ -1493,20 +1547,34 @@ export default function AdminClient() {
                                       )}
                                       <button
                                         type="button"
-                                        className={styles.confirmKaspiBtn}
+                                        className={styles.verifyCodeBtn}
+                                        style={{
+                                          background: 'var(--color-navy-gradient)',
+                                          color: '#ffffff',
+                                          border: 'none',
+                                          boxShadow: 'none',
+                                          fontWeight: 500,
+                                          fontSize: '13px',
+                                          borderRadius: '8px',
+                                          padding: '7px 14px',
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '6px',
+                                        }}
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           handleSetKaspiStatus(order, 'paid');
                                         }}
-                                        title="Подтвердить получение оплаты через Kaspi Pay"
+                                        title="Подтвердить оплату счёта клиентом"
                                       >
-                                        <CheckCircle size={15} />
-                                        <span>Оплачен (Kaspi Pay)</span>
+                                        <Check size={15} />
+                                        <span>Подтвердить оплату счёта клиентом</span>
                                       </button>
                                     </>
                                   )}
 
-                                  {isManager && order.delivery_method === 'courier' && order.fulfillment_status !== 'completed' && !isCancelled && !isDeleted && (
+                                  {!isKaspiOrder && isManager && order.delivery_method === 'courier' && order.fulfillment_status !== 'completed' && !isCancelled && !isDeleted && (
                                     <button
                                       type="button"
                                       className={styles.assignBtn}

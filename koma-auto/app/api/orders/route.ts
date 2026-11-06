@@ -116,9 +116,9 @@ export async function POST(request: Request) {
           ? ((order as any).paymentStatus || 'pending')
           : ((order.status as any) === 'paid' || (order as any).paymentStatus === 'paid' ? 'paid' : 'pending');
 
-        const validCreatedAt = order.createdAt && !isNaN(new Date(order.createdAt).getTime())
-          ? new Date(order.createdAt)
-          : new Date();
+        const validCreatedAtIso = order.createdAt && !isNaN(new Date(order.createdAt).getTime())
+          ? new Date(order.createdAt).toISOString()
+          : new Date().toISOString();
 
         await client`
           INSERT INTO orders (
@@ -145,7 +145,7 @@ export async function POST(request: Request) {
             ${order.city || 'Алматы'},
             ${JSON.stringify(order.items || [])}::jsonb,
             'car_city_podval',
-            ${validCreatedAt},
+            ${validCreatedAtIso}::timestamptz,
             NOW()
           )
           ON CONFLICT (id) DO UPDATE SET
@@ -298,11 +298,17 @@ export async function GET(request: Request) {
             try { items = JSON.parse(row.items); } catch {}
           }
 
+          const isDeleted = row.fulfillment_status === 'deleted';
+          const resolvedStatus: OrderStatus = isDeleted
+            ? 'declined'
+            : (row.payment_status === 'paid' ? 'paid' : (row.payment_status === 'declined' ? 'declined' : 'pending'));
+
           const orderObj: Order = {
             id: String(row.id),
             invoiceId: row.invoice_id || String(row.id),
             createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
-            status: row.payment_status || 'pending',
+            status: resolvedStatus,
+            paymentStatus: row.payment_status || 'pending',
             amount: Number(row.amount) || 0,
             itemsPrice: Number(row.items_price) || Number(row.amount) || 0,
             deliveryCost: Number(row.delivery_cost) || 0,
@@ -316,10 +322,16 @@ export async function GET(request: Request) {
             },
             items,
             pickupCode: getOrderPickupCode(String(row.id)),
-            fulfillmentStatus: row.fulfillment_status || 'assembling',
+            fulfillmentStatus: isDeleted ? 'cancelled' : (row.fulfillment_status || 'assembling'),
+            customStatusText: isDeleted ? 'Отменен менеджером' : undefined,
+            cancelledBy: isDeleted ? 'admin' : undefined,
+            cancelledAt: isDeleted ? (row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()) : undefined,
             userId: row.user_id || String(userId),
-            expiresAt: new Date(new Date(row.created_at || Date.now()).getTime() + 20 * 60 * 1000).toISOString(),
+            expiresAt: row.payment_method === 'kaspi_pay'
+              ? new Date(new Date(row.created_at || Date.now()).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+              : new Date(new Date(row.created_at || Date.now()).getTime() + 20 * 60 * 1000).toISOString(),
             paymentMethod: (row.payment_method as any) || 'epay',
+            kaspiPhone: row.kaspi_phone || undefined,
           };
           ordersMap.set(String(row.id), orderObj);
         }

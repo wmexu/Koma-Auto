@@ -687,7 +687,7 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
                 )}
 
                 {/* Action Buttons */}
-                {!isCompleted && !isCancelled && !isDeleted && (
+                {!isCompleted && !isCancelled && !isDeleted && !(order.payment_method === 'kaspi_pay' && order.payment_status !== 'paid') && (
                   <button
                     type="button"
                     className={`${styles.actionBtn} ${styles.primaryActionBtn}`}
@@ -703,18 +703,44 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
                     {order.payment_status !== 'invoiced' ? (
                       <button
                         type="button"
-                        className={`${styles.actionBtn} ${styles.secondaryActionBtn}`}
-                        style={{ backgroundColor: '#2563eb', color: '#fff', borderColor: '#2563eb' }}
+                        className={styles.actionBtn}
+                        style={{
+                          backgroundColor: '#ffffff',
+                          border: '1px solid var(--color-navy, #060F48)',
+                          color: 'var(--color-navy, #060F48)',
+                          boxShadow: 'none',
+                          fontWeight: 500,
+                          fontSize: '13px',
+                          borderRadius: '8px',
+                          padding: '8px 14px',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
                         onClick={() => handleSetKaspiStatus('invoiced')}
-                        title="Пометить, что счет выставлен клиенту в приложении Kaspi"
+                        title="Подтвердить выставление счёта в приложении Kaspi"
                       >
-                        <CreditCard size={16} />
-                        <span>Выставить счет</span>
+                        <span>Подтвердить выставление счёта</span>
                       </button>
                     ) : (
                       <button
                         type="button"
-                        className={`${styles.actionBtn} ${styles.secondaryActionBtn}`}
+                        className={styles.actionBtn}
+                        style={{
+                          backgroundColor: '#ffffff',
+                          border: '1px solid #cbd5e1',
+                          color: '#475569',
+                          boxShadow: 'none',
+                          fontWeight: 500,
+                          fontSize: '13px',
+                          borderRadius: '8px',
+                          padding: '8px 14px',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
                         onClick={() => handleSetKaspiStatus('pending')}
                         title="Вернуть статус в «Ожидает выставления»"
                       >
@@ -724,17 +750,31 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
 
                     <button
                       type="button"
-                      className={`${styles.actionBtn} ${styles.confirmKaspiBtn}`}
+                      className={styles.actionBtn}
+                      style={{
+                        background: 'var(--color-navy-gradient)',
+                        color: '#ffffff',
+                        border: 'none',
+                        boxShadow: 'none',
+                        fontWeight: 500,
+                        fontSize: '13px',
+                        borderRadius: '8px',
+                        padding: '8px 14px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
                       onClick={() => handleSetKaspiStatus('paid')}
-                      title="Подтвердить получение оплаты через Kaspi Pay"
+                      title="Подтвердить оплату счёта клиентом"
                     >
-                      <CheckCircle size={16} />
-                      <span>Подтвердить оплату (Kaspi Pay)</span>
+                      <Check size={16} />
+                      <span>Подтвердить оплату счёта клиентом</span>
                     </button>
                   </>
                 )}
 
-                {order.delivery_method === 'courier' && !isCompleted && !isCancelled && !isDeleted && (
+                {order.delivery_method === 'courier' && !isCompleted && !isCancelled && !isDeleted && !(order.payment_method === 'kaspi_pay' && order.payment_status !== 'paid') && (
                   <button
                     type="button"
                     className={`${styles.actionBtn} ${styles.secondaryActionBtn}`}

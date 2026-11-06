@@ -89,7 +89,12 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
   // Split into Active, Closed, and Cancelled orders according to user specification
   const isOrderCancelled = (o: Order) => {
     const eff = getEffectiveOrderStatus(o);
-    return o.fulfillmentStatus === 'cancelled' || eff === 'declined';
+    return (
+      o.fulfillmentStatus === 'cancelled' ||
+      (o.fulfillmentStatus as any) === 'deleted' ||
+      eff === 'declined' ||
+      (o as any).customStatusText === 'Отменен менеджером'
+    );
   };
 
   const isOrderClosed = (o: Order) => {
@@ -235,16 +240,17 @@ export default function OrdersHistory({ userId, sectionOrder = 'active_first', o
       );
     }
 
-    if (order.paymentMethod === 'kaspi_pay' && effectiveStatus === 'pending') {
+    if (order.paymentMethod === 'kaspi_pay' && effectiveStatus !== 'paid' && !isCancelled && !isCompleted) {
       const isKaspiInvoiced =
         (order as any).paymentStatus === 'invoiced' ||
-        (order as any).kaspiStatus === 'invoiced';
+        (order as any).kaspiStatus === 'invoiced' ||
+        (order.status as any) === 'invoiced';
 
       if (isKaspiInvoiced) {
         return (
           <span className={styles.statusBadge} style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', borderColor: '#bfdbfe' }}>
             <CreditCard size={15} />
-            <span>Счет выставлен в приложении Kaspi</span>
+            <span>Счёт выставлен в приложении Kaspi. Заказ ожидает оплаты</span>
           </span>
         );
       }

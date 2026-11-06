@@ -283,7 +283,7 @@ export async function PATCH(request: Request) {
           await updateDoc(orderRef, {
             paymentStatus: 'invoiced',
             kaspiStatus: 'invoiced',
-            customStatusText: 'Счет выставлен в приложении Kaspi',
+            customStatusText: 'Счёт выставлен в приложении Kaspi. Заказ ожидает оплаты',
             updatedAt: new Date().toISOString(),
           });
         } catch (fsErr) {
@@ -555,6 +555,10 @@ export async function PATCH(request: Request) {
         UPDATE orders
         SET 
           fulfillment_status = 'deleted',
+          payment_status = CASE 
+            WHEN payment_status = 'paid' THEN 'paid'
+            ELSE 'declined'
+          END,
           updated_at = NOW()
         WHERE id = ${String(orderId)};
       `;
@@ -562,7 +566,12 @@ export async function PATCH(request: Request) {
       try {
         const orderRef = doc(db, 'orders', String(orderId));
         await updateDoc(orderRef, {
-          fulfillmentStatus: 'deleted',
+          status: 'declined',
+          fulfillmentStatus: 'cancelled',
+          cancelledBy: 'staff',
+          cancelledAt: new Date().toISOString(),
+          cancellationReason: 'Отменен и удален менеджером',
+          customStatusText: 'Отменен менеджером',
         });
       } catch (fsErr) {
         console.warn('[AdminOrders] Firestore delete sync warning:', fsErr);
@@ -578,7 +587,7 @@ export async function PATCH(request: Request) {
 
       return NextResponse.json({
         success: true,
-        message: 'Заказ перемещен в удаленные',
+        message: 'Заказ перемещен в удаленные и отменен у пользователя',
       });
     }
 
