@@ -360,6 +360,7 @@ export default function CheckoutClient() {
   let courierMessage = '';
 
   const normalizedCity = formData.city.trim().toLowerCase();
+  const isNonAlmatyCity = normalizedCity !== '' && (!normalizedCity.includes('алматы') || normalizedCity.includes('область'));
 
   if (normalizedCity === '') {
     deliveryCost = 0;
@@ -894,45 +895,106 @@ export default function CheckoutClient() {
           <div className={styles.section}>
             <h2>2. Способ доставки</h2>
             <div className={styles.radioGroup}>
-              <label className={`${styles.radioCard} ${!courierAvailable ? styles.disabledCard : ''}`}>
-                <input
-                  type="radio"
-                  name="deliveryMethod"
-                  value="courier"
-                  checked={formData.deliveryMethod === 'courier'}
-                  onChange={handleChange}
-                  disabled={!courierAvailable}
-                />
-                <div className={styles.radioContent}>
-                  <span className={styles.radioTitle}>
-                    {normalizedCity === ''
-                      ? 'Курьером до дома'
-                      : normalizedCity.includes('алматы') && !normalizedCity.includes('область')
-                        ? 'Курьером до дома по г. Алматы'
-                        : 'Курьером по Республике Казахстан'}
-                  </span>
-                  <span className={styles.radioDesc}>
-                    {normalizedCity === '' 
-                      ? 'Выберите город для расчета'
-                      : normalizedCity.includes('алматы') && !normalizedCity.includes('область')
-                        ? '6500 тенге, при сумме корзины 75000 тенге доставка по г. Алматы бесплатно' 
-                        : (courierAvailable ? 'Доставка от суммы корзины 150.000 тенге осуществляется бесплатно' : courierMessage)}
-                  </span>
-                </div>
-              </label>
-              <label className={styles.radioCard}>
-                <input
-                  type="radio"
-                  name="deliveryMethod"
-                  value="pickup"
-                  checked={formData.deliveryMethod === 'pickup'}
-                  onChange={handleChange}
-                />
-                <div className={styles.radioContent}>
-                  <span className={styles.radioTitle}>Самовывоз</span>
-                  <span className={styles.radioDesc}>Из нашего магазина в городе Алматы, торговом центре Car City. Бесплатно.</span>
-                </div>
-              </label>
+              {isNonAlmatyCity ? (
+                <>
+                  <label className={`${styles.radioCard} ${!courierAvailable ? styles.disabledCard : ''}`}>
+                    <input
+                      type="radio"
+                      name="deliveryMethod"
+                      value="courier"
+                      checked={formData.deliveryMethod === 'courier'}
+                      onChange={() => {
+                        if (courierAvailable) {
+                          setFormData(prev => ({ ...prev, deliveryMethod: 'courier' }));
+                        }
+                      }}
+                      disabled={!courierAvailable}
+                    />
+                    <div className={styles.radioContent}>
+                      <span className={styles.radioTitle}>Курьером по Республике Казахстан</span>
+                      <span className={styles.radioDesc}>
+                        {courierAvailable
+                          ? 'Доставка от суммы корзины 150.000 тенге осуществляется бесплатно'
+                          : courierMessage}
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={styles.radioCard}>
+                    <input
+                      type="radio"
+                      name="deliveryMethod"
+                      value="courier_almaty"
+                      checked={false}
+                      onChange={() => {
+                        setFormData(prev => ({
+                          ...prev,
+                          city: 'Алматы',
+                          deliveryMethod: 'courier',
+                        }));
+                      }}
+                    />
+                    <div className={styles.radioContent}>
+                      <span className={styles.radioTitle}>Курьером по городу Алматы</span>
+                      <span className={styles.radioDesc}>
+                        6500 тенге, при сумме корзины 75000 тенге доставка по г. Алматы бесплатно
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={styles.radioCard}>
+                    <input
+                      type="radio"
+                      name="deliveryMethod"
+                      value="pickup"
+                      checked={formData.deliveryMethod === 'pickup'}
+                      onChange={() => setFormData(prev => ({ ...prev, deliveryMethod: 'pickup' }))}
+                    />
+                    <div className={styles.radioContent}>
+                      <span className={styles.radioTitle}>Самовывоз</span>
+                      <span className={styles.radioDesc}>Из нашего магазина в городе Алматы, торговом центре Car City. Бесплатно.</span>
+                    </div>
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label className={styles.radioCard}>
+                    <input
+                      type="radio"
+                      name="deliveryMethod"
+                      value="courier"
+                      checked={formData.deliveryMethod === 'courier'}
+                      onChange={() => setFormData(prev => ({ ...prev, deliveryMethod: 'courier' }))}
+                    />
+                    <div className={styles.radioContent}>
+                      <span className={styles.radioTitle}>
+                        {normalizedCity === ''
+                          ? 'Курьером до дома'
+                          : 'Курьером до дома по г. Алматы'}
+                      </span>
+                      <span className={styles.radioDesc}>
+                        {normalizedCity === '' 
+                          ? 'Выберите город для расчета'
+                          : '6500 тенге, при сумме корзины 75000 тенге доставка по г. Алматы бесплатно'}
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={styles.radioCard}>
+                    <input
+                      type="radio"
+                      name="deliveryMethod"
+                      value="pickup"
+                      checked={formData.deliveryMethod === 'pickup'}
+                      onChange={() => setFormData(prev => ({ ...prev, deliveryMethod: 'pickup' }))}
+                    />
+                    <div className={styles.radioContent}>
+                      <span className={styles.radioTitle}>Самовывоз</span>
+                      <span className={styles.radioDesc}>Из нашего магазина в городе Алматы, торговом центре Car City. Бесплатно.</span>
+                    </div>
+                  </label>
+                </>
+              )}
             </div>
 
             {formData.deliveryMethod === 'pickup' && (

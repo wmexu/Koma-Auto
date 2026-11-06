@@ -593,6 +593,32 @@ export default function AdminClient() {
     }
   };
 
+  // Handle Unassign courier
+  const handleUnassignCourier = async () => {
+    if (!assigningOrder) return;
+    try {
+      const res = await adminFetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'unassign_courier',
+          orderId: assigningOrder.id,
+          staffUserId: user?.uid,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Ошибка снятия курьера');
+
+      addToast(data.message || 'Курьер успешно снят с заказа', 'success');
+      setAssigningOrder(null);
+      setSelectedCourierId('');
+      loadOrders();
+    } catch (err: any) {
+      addToast(err.message || 'Ошибка снятия курьера', 'error');
+    }
+  };
+
   // Handle Cancel Order (three-dots menu)
   const handleCancelOrder = async (order: any) => {
     setActiveMenuOrderId(null);
@@ -2576,7 +2602,7 @@ export default function AdminClient() {
                       <div
                         key={c.id}
                         className={`${styles.courierOptionCard} ${isSelected ? styles.courierOptionCardSelected : ''}`}
-                        onClick={() => setSelectedCourierId(c.id)}
+                        onClick={() => setSelectedCourierId(prev => prev === c.id ? '' : c.id)}
                       >
                         <div className={styles.courierAvatar}>
                           {initials}
@@ -2639,15 +2665,38 @@ export default function AdminClient() {
                 >
                   Отмена
                 </button>
-                <button
-                  type="button"
-                  className={styles.submitBtn}
-                  disabled={!selectedCourierId}
-                  onClick={handleAssignCourier}
-                  style={{ flex: 1 }}
-                >
-                  Передать курьеру
-                </button>
+                {assigningOrder.assigned_courier_id && !selectedCourierId ? (
+                  <button
+                    type="button"
+                    onClick={handleUnassignCourier}
+                    style={{
+                      flex: 1,
+                      backgroundColor: '#fee2e2',
+                      color: '#b91c1c',
+                      border: '1px solid #fca5a5',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      padding: '10px 16px',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    Снять курьера
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.submitBtn}
+                    disabled={!selectedCourierId}
+                    onClick={handleAssignCourier}
+                    style={{ flex: 1 }}
+                  >
+                    {assigningOrder.assigned_courier_id && selectedCourierId !== assigningOrder.assigned_courier_id
+                      ? 'Сменить курьера'
+                      : 'Передать курьеру'}
+                  </button>
+                )}
               </div>
             </div>
           </div>

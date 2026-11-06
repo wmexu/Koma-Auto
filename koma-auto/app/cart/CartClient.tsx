@@ -46,6 +46,7 @@ export default function CartClient() {
   const [isCheckingStock, setIsCheckingStock] = useState(false);
   const [killSwitchActive, setKillSwitchActive] = useState(false);
   const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null);
+  const [qtyInputs, setQtyInputs] = useState<Record<string, string>>({});
 
   const validItems = items.filter(item => item && item.price >= 500);
   const validFavoriteItems = favoriteItems.filter(item => item && item.price >= 500);
@@ -411,15 +412,77 @@ export default function CartClient() {
                 <div className={styles.itemActions}>
                   <div className={styles.quantity}>
                     <button 
-                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                      onClick={() => {
+                        setQtyInputs(prev => {
+                          const copy = { ...prev };
+                          delete copy[item.id];
+                          return copy;
+                        });
+                        updateQuantity(item.id, item.quantity - 1);
+                      }}
                       disabled={item.quantity <= 1}
+                      aria-label="Уменьшить количество"
                     >-</button>
-                    <input type="number" value={item.quantity} readOnly />
+                    <input 
+                      type="number" 
+                      min={1}
+                      max={item.stock !== undefined ? item.stock : 999}
+                      value={qtyInputs[item.id] !== undefined ? qtyInputs[item.id] : item.quantity}
+                      aria-label="Количество"
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === '') {
+                          setQtyInputs(prev => ({ ...prev, [item.id]: '' }));
+                          return;
+                        }
+                        const num = parseInt(raw, 10);
+                        if (!isNaN(num)) {
+                          const maxStock = item.stock !== undefined ? item.stock : 999;
+                          if (num > maxStock) {
+                            setQtyInputs(prev => ({ ...prev, [item.id]: String(maxStock) }));
+                            updateQuantity(item.id, maxStock);
+                            if (item.stock !== undefined) {
+                              addToast(`Максимум в наличии: ${maxStock} шт.`, 'info');
+                            }
+                          } else if (num < 1) {
+                            setQtyInputs(prev => ({ ...prev, [item.id]: '1' }));
+                            updateQuantity(item.id, 1);
+                          } else {
+                            setQtyInputs(prev => ({ ...prev, [item.id]: String(num) }));
+                            updateQuantity(item.id, num);
+                          }
+                        }
+                      }}
+                      onBlur={() => {
+                        const current = qtyInputs[item.id];
+                        if (current === '' || current === undefined || parseInt(current, 10) < 1) {
+                          updateQuantity(item.id, 1);
+                        }
+                        setQtyInputs(prev => {
+                          const copy = { ...prev };
+                          delete copy[item.id];
+                          return copy;
+                        });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.currentTarget.blur();
+                        }
+                      }}
+                    />
                     <span className={styles.quantityText}>{item.quantity} шт.</span>
                     <button 
-                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                      onClick={() => {
+                        setQtyInputs(prev => {
+                          const copy = { ...prev };
+                          delete copy[item.id];
+                          return copy;
+                        });
+                        updateQuantity(item.id, item.quantity + 1);
+                      }}
                       disabled={item.stock !== undefined && item.quantity >= item.stock}
                       title={item.stock !== undefined && item.quantity >= item.stock ? `Достигнут максимум на складе (${item.stock} шт.)` : undefined}
+                      aria-label="Увеличить количество"
                     >+</button>
                   </div>
                   

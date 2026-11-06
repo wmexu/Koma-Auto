@@ -500,6 +500,36 @@
 }
 
 @media (max-width: 768px) {
+  .orderSubTabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+  .orderSubTabs::-webkit-scrollbar {
+    display: none;
+  }
+  .subTabBtn {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .orderIdBlock {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+  .cardStatusSelectWrapper {
+    max-width: 100%;
+    width: auto;
+  }
+  .cardStatusSelect {
+    max-width: 100%;
+    box-sizing: border-box;
+    text-overflow: ellipsis;
+    font-size: 12px;
+    padding: 4px 8px;
+  }
   .orderCardRight {
     align-items: stretch;
     min-width: 100%;

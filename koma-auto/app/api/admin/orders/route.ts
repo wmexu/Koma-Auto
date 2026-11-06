@@ -412,6 +412,42 @@ export async function PATCH(request: Request) {
       });
     }
 
+    if (action === 'unassign_courier' || (action === 'assign_courier' && !courierId)) {
+      await client`
+        UPDATE orders
+        SET 
+          assigned_courier_id = NULL,
+          fulfillment_status = CASE 
+            WHEN fulfillment_status = 'out_for_delivery' THEN 'assembling'
+            ELSE fulfillment_status
+          END,
+          updated_at = NOW()
+        WHERE id = ${String(orderId)};
+      `;
+
+      try {
+        const orderRef = doc(db, 'orders', String(orderId));
+        await updateDoc(orderRef, {
+          assignedCourierId: null,
+          assignedCourierName: null,
+          fulfillmentStatus: 'assembling',
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (fsErr) {
+        console.warn('[AdminOrders] Firestore unassign courier sync warning:', fsErr);
+      }
+
+      logAuditEvent({
+        userId: auth.user.id,
+        action: 'ORDER_UNASSIGNED',
+        entityType: 'order',
+        entityId: String(orderId),
+        details: { previousCourierId: courierId || null },
+      });
+
+      return NextResponse.json({ success: true, message: 'Курьер успешно снят с заказа' });
+    }
+
     if (action === 'assign_courier') {
       if (!courierId) {
         return NextResponse.json({ error: 'Выберите курьера' }, { status: 400 });
@@ -428,6 +464,18 @@ export async function PATCH(request: Request) {
           updated_at = NOW()
         WHERE id = ${String(orderId)};
       `;
+
+      try {
+        const orderRef = doc(db, 'orders', String(orderId));
+        await updateDoc(orderRef, {
+          assignedCourierId: courierId,
+          assignedCourierName: courierName || null,
+          fulfillmentStatus: 'out_for_delivery',
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (fsErr) {
+        console.warn('[AdminOrders] Firestore assign courier sync warning:', fsErr);
+      }
 
       logAuditEvent({
         userId: auth.user.id,
