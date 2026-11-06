@@ -18,8 +18,12 @@ export const mySkladProducts = pgTable("my_sklad_products", {
   title: text("title").notNull(),
   price: numeric("price").notNull(),
   oldPrice: numeric("old_price"),
-  stockQuantity: integer("stock_quantity").notNull().default(0), // Остаток на складе Car City
+  stockQuantity: integer("stock_quantity").notNull().default(0), // Активный остаток (согласно выбранному складу)
   inStock: boolean("in_stock").notNull().default(false),
+  stockPodval: integer("stock_podval").notNull().default(0), // Остаток на складе Car City 1 ярус Подвал
+  inStockPodval: boolean("in_stock_podval").notNull().default(false),
+  stockTotal: integer("stock_total").notNull().default(0), // Суммарный остаток со всех складов
+  inStockTotal: boolean("in_stock_total").notNull().default(false),
   brand: varchar("brand", { length: 100 }), // Нормализованный канонический бренд
   category: varchar("category", { length: 100 }), // Категория (двигатель, подвеска и т.д.)
   originalOem: varchar("original_oem", { length: 255 }), // Исходный код/артикул из МС
@@ -42,6 +46,8 @@ export const mySkladProducts = pgTable("my_sklad_products", {
   brandIdx: index("idx_ms_brand").on(table.brand),
   categoryIdx: index("idx_ms_category").on(table.category),
   inStockIdx: index("idx_ms_in_stock").on(table.inStock),
+  inStockPodvalIdx: index("idx_ms_in_stock_podval").on(table.inStockPodval),
+  inStockTotalIdx: index("idx_ms_in_stock_total").on(table.inStockTotal),
 }));
 
 // 2. Модификации автомобилей (K-Type / Vehicle_ID)

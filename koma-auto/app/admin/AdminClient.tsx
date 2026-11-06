@@ -827,12 +827,13 @@ export default function AdminClient() {
   const handleUpdateWarehouse = async (warehouseName: string) => {
     setActiveWarehouse(warehouseName);
     try {
+      const warehouseId = warehouseName === 'Все склады' ? 'all_warehouses' : 'car_city_podval';
       await adminFetch('/api/admin/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           key: 'active_warehouse',
-          value: { id: warehouseName === 'Car City 1 ярус Подвал' ? 'car_city_podval' : 'severnoye_koltso', name: warehouseName },
+          value: { id: warehouseId, name: warehouseName },
           staffUserId: user?.uid,
         }),
       });
@@ -2372,7 +2373,7 @@ export default function AdminClient() {
                       style={{ width: '280px', margin: 0, fontFamily: 'var(--font-geist-sans), sans-serif' }}
                     >
                       <option value="Car City 1 ярус Подвал">Car City 1 ярус Подвал</option>
-                      <option value="Склад Северное Кольцо">Склад Северное Кольцо</option>
+                      <option value="Все склады">Все склады</option>
                     </select>
                   </div>
                 </div>

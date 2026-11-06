@@ -89,37 +89,68 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
       });
     }
 
-    // Fetch current real-time stock from MoySklad assortment API for Car City Podval store
+    // Fetch current real-time stock from MoySklad for Podval & Total
     const PODVAL_STORE_URL =
       'https://api.moysklad.ru/api/remap/1.2/entity/store/4240a87a-4ea5-11f1-0a80-1b5c0008497a';
 
-    let stockQuantity = 0;
+    let stockPodval = 0;
+    let stockTotal = 0;
     try {
-      const stockRes = await fetch(
-        `https://api.moysklad.ru/api/remap/1.2/entity/assortment?filter=id=${productId}&stockStore=${encodeURIComponent(
+      // 1. Podval stock
+      const podvalStockRes = await fetch(
+        `https://api.moysklad.ru/api/remap/1.2/report/stock/all?filter=store=${encodeURIComponent(
           PODVAL_STORE_URL
-        )}`,
+        )};product=https://api.moysklad.ru/api/remap/1.2/entity/product/${productId}`,
         { headers: getMoySkladHeaders() }
       );
-      if (stockRes.ok) {
-        const stockData = await stockRes.json();
-        if (Array.isArray(stockData.rows) && stockData.rows.length > 0 && typeof stockData.rows[0].stock === 'number') {
-          stockQuantity = Math.max(0, Math.floor(stockData.rows[0].stock));
+      if (podvalStockRes.ok) {
+        const d = await podvalStockRes.json();
+        if (Array.isArray(d.rows) && d.rows.length > 0 && typeof d.rows[0].stock === 'number') {
+          stockPodval = Math.max(0, Math.floor(d.rows[0].stock));
         }
-      } else {
-        console.warn(`[Sync Webhook] Assortment stock fetch non-ok ${stockRes.status} for ${productId}`);
+      }
+
+      // 2. Total stock across all warehouses
+      const totalStockRes = await fetch(
+        `https://api.moysklad.ru/api/remap/1.2/report/stock/all?filter=product=https://api.moysklad.ru/api/remap/1.2/entity/product/${productId}`,
+        { headers: getMoySkladHeaders() }
+      );
+      if (totalStockRes.ok) {
+        const d = await totalStockRes.json();
+        if (Array.isArray(d.rows) && d.rows.length > 0 && typeof d.rows[0].stock === 'number') {
+          stockTotal = Math.max(0, Math.floor(d.rows[0].stock));
+        }
       }
     } catch (stockErr) {
       console.warn(`[Sync Webhook] Stock fetch error for ${productId}:`, stockErr);
     }
 
-    const inStock = stockQuantity > 0;
+    const inStockPodval = stockPodval > 0;
+    const inStockTotal = stockTotal > 0;
+
+    // Check active warehouse setting from DB (defaults to Podval)
+    let stockQuantity = stockPodval;
+    let inStock = inStockPodval;
+    try {
+      const settingRow = await sql`
+        SELECT value FROM system_settings WHERE key = 'active_warehouse' LIMIT 1;
+      `;
+      if (settingRow && settingRow.length > 0) {
+        const raw = settingRow[0].value;
+        const val = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (val?.id === 'all_warehouses' || val?.name === 'Все склады') {
+          stockQuantity = stockTotal;
+          inStock = inStockTotal;
+        }
+      }
+    } catch {}
 
     // UPSERT directly into Neon Postgres
     await sql`
       INSERT INTO my_sklad_products (
-        id, title, price, old_price, stock_quantity, in_stock, brand, category,
-        original_oem, clean_oem_number, image, images, specs, description, updated_at
+        id, title, price, old_price, stock_quantity, in_stock,
+        stock_podval, in_stock_podval, stock_total, in_stock_total,
+        brand, category, original_oem, clean_oem_number, image, images, specs, description, updated_at
       ) VALUES (
         ${productId},
         ${p.name},
@@ -127,6 +158,10 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
         ${oldPrice},
         ${stockQuantity},
         ${inStock},
+        ${stockPodval},
+        ${inStockPodval},
+        ${stockTotal},
+        ${inStockTotal},
         ${brandInfo.brand},
         ${category},
         ${rawOem},
@@ -143,6 +178,10 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
         old_price = EXCLUDED.old_price,
         stock_quantity = EXCLUDED.stock_quantity,
         in_stock = EXCLUDED.in_stock,
+        stock_podval = EXCLUDED.stock_podval,
+        in_stock_podval = EXCLUDED.in_stock_podval,
+        stock_total = EXCLUDED.stock_total,
+        in_stock_total = EXCLUDED.in_stock_total,
         brand = EXCLUDED.brand,
         category = EXCLUDED.category,
         original_oem = EXCLUDED.original_oem,
@@ -155,7 +194,7 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
     `;
 
     console.log(
-      `[MoySklad Webhook SUCCESS] Synced product ${productId} ("${p.name}"): Price: ${price} ₸, Stock: ${stockQuantity}, Images: ${images.length}`
+      `[MoySklad Webhook SUCCESS] Synced product ${productId} ("${p.name}"): Price: ${price} KZT, Stock: ${stockQuantity}, Images: ${images.length}`
     );
   } catch (err) {
     console.error(`[MoySklad Webhook] Error syncing product from ${productHref}:`, err);
@@ -163,7 +202,8 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
 }
 
 /**
- * Syncs stock changes triggered by warehouse documents (sales, arrivals, write-offs)
+ * Syncs stock changes triggered by warehouse documents
+ * (sales, arrivals, write-offs, transfers, returns, audits)
  */
 async function syncDocumentPositionsStock(docPositionsHref: string, sql: any) {
   try {
@@ -171,16 +211,26 @@ async function syncDocumentPositionsStock(docPositionsHref: string, sql: any) {
       headers: getMoySkladHeaders(),
     });
 
-    if (!res.ok) return;
+    if (!res.ok) {
+      console.warn(`[Sync Webhook] Failed to fetch document positions ${docPositionsHref}: ${res.status}`);
+      return;
+    }
 
     const data = await res.json();
     const rows = data.rows || [];
 
-    for (const pos of rows) {
-      const productHref = pos.assortment?.meta?.href;
-      if (productHref && pos.assortment?.meta?.type === 'product') {
-        await syncProductFromMoySklad(productHref, sql);
-      }
+    // Process positions in controlled batches of 5 to maintain high speed without hitting rate limits
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+      const batch = rows.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(
+        batch.map(async (pos: any) => {
+          const productHref = pos.assortment?.meta?.href;
+          if (productHref && (pos.assortment?.meta?.type === 'product' || pos.assortment?.meta?.type === 'variant')) {
+            await syncProductFromMoySklad(productHref, sql);
+          }
+        })
+      );
     }
   } catch (err) {
     console.error(`[MoySklad Webhook] Error processing document positions:`, err);
@@ -291,21 +341,26 @@ export async function POST(request: Request) {
         }
       }
 
-      // 3. Real-time Stock Changes from Warehouse Documents (Dispatches, Sales, Arrivals, Intake)
+      // 3. Real-time Stock Changes from Warehouse Documents
+      // (Dispatches, Counter Sales, Supplier Arrivals, Adjustments, Write-offs, Transfers, Returns, Audits)
       else if (
         (entityType === 'demand' ||
           entityType === 'retaildemand' ||
           entityType === 'enter' ||
           entityType === 'supply' ||
-          entityType === 'loss') &&
+          entityType === 'loss' ||
+          entityType === 'move' ||
+          entityType === 'retailsalesreturn' ||
+          entityType === 'salesreturn' ||
+          entityType === 'inventory') &&
         href &&
-        action === 'CREATE' &&
+        (action === 'CREATE' || action === 'UPDATE') &&
         isDbReady &&
         sql
       ) {
-        console.log(`[MoySklad Webhook] Processing stock document ${entityType}...`);
+        console.log(`[MoySklad Webhook] Processing stock document ${entityType} (${action})...`);
         await syncDocumentPositionsStock(`${href}/positions`, sql);
-        results.push({ action: 'stock_synced', document: entityType });
+        results.push({ action: 'stock_synced', document: entityType, method: action });
       }
     }
 

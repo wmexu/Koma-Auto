@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSystemSetting, setSystemSetting } from '@/lib/system-settings';
 import { logAuditEvent } from '@/lib/audit';
 import { verifyStaffSession } from '@/lib/admin-auth';
+import { client } from '@/db';
 
 export async function GET() {
   try {
@@ -55,6 +56,33 @@ export async function POST(request: Request) {
         entityType: 'system',
         details: { activeWarehouse: value },
       });
+
+      try {
+        const warehouseId = typeof value === 'object' ? value.id : value;
+        const isAll = warehouseId === 'all_warehouses' || value?.name === 'Все склады';
+        const sql = client;
+        if (sql) {
+          if (isAll) {
+            await sql`
+              UPDATE my_sklad_products
+              SET 
+                stock_quantity = stock_total,
+                in_stock = in_stock_total,
+                updated_at = NOW();
+            `;
+          } else {
+            await sql`
+              UPDATE my_sklad_products
+              SET 
+                stock_quantity = stock_podval,
+                in_stock = in_stock_podval,
+                updated_at = NOW();
+            `;
+          }
+        }
+      } catch (sqlErr) {
+        console.warn('[AdminSettings] Failed to update my_sklad_products active stock on warehouse switch:', sqlErr);
+      }
     }
 
     if (!success) {
