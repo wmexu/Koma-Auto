@@ -35,19 +35,31 @@ export function formatOrderReport(order: Order): string {
     ? `${order.deliveryCost.toLocaleString('ru-RU')} ₸`
     : 'Бесплатно';
   const receiptUrl = order.receiptUrl || `https://epay.homebank.kz/receipt/${order.id}`;
-  const statusLabel = order.status === 'paid' ? 'Оплачено' : 'Ожидает оплаты';
+  const isKaspi = order.paymentMethod === 'kaspi_pay';
+  const statusLabel = order.status === 'paid' 
+    ? (isKaspi ? 'Оплачено (Kaspi Pay)' : 'Оплачено онлайн (Halyk ePay)') 
+    : (isKaspi ? 'Ожидает выставления счёта и оплаты (Kaspi Pay)' : 'Ожидает оплаты');
   const commentStr = order.isTestOrder ? 'ТЕСТОВЫЙ ЗАКАЗ. ИГНОРИРУЙТЕ' : (order.customer.comment || 'Нет');
   const totalLabel = order.status === 'paid' ? 'ИТОГО ОПЛАЧЕНО' : 'ИТОГО К ОПЛАТЕ';
 
-  const paymentMethodLabel = order.paymentMethod === 'kaspi_pay'
-    ? 'Kaspi Pay (Дистанционная оплата по номеру телефона)'
+  const paymentMethodLabel = isKaspi
+    ? `Kaspi Pay (Счёт на номер: ${order.kaspiPhone || order.customer.phone})`
     : order.paymentMethod === 'online'
     ? 'Онлайн-оплата (Halyk ePay)'
     : order.paymentMethod === 'cash'
     ? 'Наличными при получении'
     : 'Банковской картой при получении';
 
-  const kaspiPhonePrefix = order.paymentMethod === 'kaspi_pay' ? `Номер телефона для отправки платежа Kaspi: ${order.kaspiPhone || order.customer.phone}\n\n` : '';
+  const kaspiPhonePrefix = isKaspi 
+    ? (order.status === 'paid' 
+        ? `[ОПЛАЧЕН KASPI PAY]\nСчёт успешно оплачен клиентом по номеру: ${order.kaspiPhone || order.customer.phone}\n\n`
+        : `[ОЖИДАЕТ ОПЛАТЫ KASPI PAY]\nНомер телефона для отправки счёта Kaspi: ${order.kaspiPhone || order.customer.phone}\n\n`)
+    : '';
+
+  const paymentGatewayLines = isKaspi
+    ? `• Платежная система: Kaspi Pay\n• Номер Kaspi: ${order.kaspiPhone || order.customer.phone}\n• Статус платежа: ${order.status === 'paid' ? 'ОПЛАЧЕН' : 'ОЖИДАЕТ ОПЛАТЫ'}`
+    : `• Платежный шлюз: Halyk ePay\n• Чек ePay: ${receiptUrl}`;
+
   return `${kaspiPhonePrefix}ЗАКАЗ №${order.id}: ${statusLabel}
 
 Оплата:
@@ -72,8 +84,7 @@ ${itemsList}
 • Сумма товаров: ${order.itemsPrice.toLocaleString('ru-RU')} ₸
 • Доставка: ${deliveryCostStr}
 ${order.promoCode ? `• Промокод: ${order.promoCode}\n` : ''}• ${totalLabel}: ${order.amount.toLocaleString('ru-RU')} ₸
-• Платежный шлюз: Halyk ePay
-• Чек ePay: ${receiptUrl}
+${paymentGatewayLines}
 Дата и время: ${new Date(order.createdAt).toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' })}`;
 }
 

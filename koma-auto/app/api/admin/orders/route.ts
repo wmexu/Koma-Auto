@@ -5,6 +5,7 @@ import { verifyStaffSession } from '@/lib/admin-auth';
 import { getOrderPickupCode } from '@/lib/pickup-code';
 import { db } from '@/lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
+import { notifyMoySkladOrderPaid } from '@/lib/moysklad-order';
 
 export async function GET(request: Request) {
   try {
@@ -265,6 +266,77 @@ export async function PATCH(request: Request) {
 
     if (!isDbConfigured() || !client) {
       return NextResponse.json({ error: 'База данных недоступна' }, { status: 503 });
+    }
+
+    if (action === 'confirm_kaspi_payment' || action === 'confirm_payment') {
+      await client`
+        UPDATE orders
+        SET 
+          payment_status = 'paid',
+          fulfillment_status = CASE 
+            WHEN fulfillment_status = 'deleted' THEN 'deleted'
+            WHEN fulfillment_status = 'cancelled' THEN 'assembling'
+            ELSE fulfillment_status
+          END,
+          updated_at = NOW()
+        WHERE id = ${String(orderId)};
+      `;
+
+      // Sync Firestore so client immediately sees "Оплачен" / "На складе"
+      try {
+        const orderRef = doc(db, 'orders', String(orderId));
+        await updateDoc(orderRef, {
+          status: 'paid',
+          paymentStatus: 'paid',
+          customStatusText: 'На складе',
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (fsErr) {
+        console.warn('[AdminOrders] Firestore confirm payment sync warning:', fsErr);
+      }
+
+      // Sync MoySklad: change state to "Подтвержден" and update description
+      try {
+        const targetOrderRows = await client`SELECT * FROM orders WHERE id = ${String(orderId)} LIMIT 1;`;
+        if (targetOrderRows && targetOrderRows.length > 0) {
+          const ord = targetOrderRows[0];
+          await notifyMoySkladOrderPaid({
+            id: ord.id,
+            invoiceId: ord.invoice_id || ord.id,
+            amount: Number(ord.amount),
+            itemsPrice: Number(ord.items_price),
+            deliveryCost: Number(ord.delivery_cost),
+            deliveryMethod: ord.delivery_method,
+            paymentMethod: ord.payment_method,
+            status: 'paid',
+            customer: {
+              name: ord.customer_name,
+              phone: ord.customer_phone,
+              email: ord.customer_email,
+            },
+            address: ord.delivery_address,
+            city: ord.city,
+            kaspiPhone: ord.kaspi_phone,
+            items: ord.items,
+            createdAt: ord.created_at,
+          } as any);
+        }
+      } catch (msErr) {
+        console.warn('[AdminOrders] MoySklad paid sync warning:', msErr);
+      }
+
+      logAuditEvent({
+        userId: auth.user.id,
+        action: 'ORDER_STATUS_CHANGED',
+        entityType: 'order',
+        entityId: String(orderId),
+        details: { action: 'KASPI_PAYMENT_CONFIRMED', paymentStatus: 'paid' },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: 'Оплата Kaspi Pay успешно подтверждена. Статус в МойСклад обновлен на «Подтвержден»!',
+      });
     }
 
     if (action === 'assign_courier') {

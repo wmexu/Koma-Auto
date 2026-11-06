@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     const couriers = await client`
       SELECT id, email, full_name, phone, role
       FROM users
-      WHERE role = 'courier' AND is_blocked = false
+      WHERE role = 'courier' AND (is_blocked IS NULL OR is_blocked = false)
       ORDER BY full_name ASC, email ASC;
     `;
 

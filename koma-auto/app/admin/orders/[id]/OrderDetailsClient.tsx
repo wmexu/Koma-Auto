@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -24,6 +24,7 @@ import {
   Check,
   ChevronRight,
   ExternalLink,
+  Search,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useToastStore } from '@/store/useToastStore';
@@ -65,6 +66,8 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
   const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [selectedCourierId, setSelectedCourierId] = useState('');
+  const [courierSearchQuery, setCourierSearchQuery] = useState('');
+  const [isLoadingCouriers, setIsLoadingCouriers] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [phoneBottomSheet, setPhoneBottomSheet] = useState<{ isOpen: boolean; phone: string; name: string } | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
@@ -153,16 +156,27 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
   }, [orderId, user?.uid]);
 
   // 3. Fetch couriers list for assignment
+  const loadCouriers = useCallback(async () => {
+    if (!user?.uid) return;
+    try {
+      setIsLoadingCouriers(true);
+      const res = await adminFetch('/api/admin/couriers');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.couriers)) {
+        setCouriersList(data.couriers);
+      }
+    } catch (err) {
+      console.error('[OrderDetailsClient] Failed to load couriers:', err);
+    } finally {
+      setIsLoadingCouriers(false);
+    }
+  }, [user?.uid]);
+
   useEffect(() => {
     if (isManager && user?.uid) {
-      adminFetch('/api/admin/couriers')
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) setCouriersList(data.couriers || []);
-        })
-        .catch(() => {});
+      loadCouriers();
     }
-  }, [isManager, user?.uid]);
+  }, [isManager, user?.uid, loadCouriers]);
 
   // Actions
   const handleUpdateStatus = async (newStatus: string) => {
@@ -215,6 +229,35 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
       addToast(err.message || 'Ошибка верификации', 'error');
     } finally {
       setIsVerifying(false);
+    }
+  };
+
+  const handleConfirmKaspiPayment = async () => {
+    const confirmed = window.confirm(
+      `Подтвердить поступление оплаты через Kaspi Pay для заказа #${order.id} на сумму ${Number(order.amount).toLocaleString('ru-RU')} ₸?\n\nСтатус заказа изменится на «Оплачен» / «Комплектуется», а статус и описание в МойСклад обновятся автоматически.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await adminFetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'confirm_kaspi_payment',
+          orderId: order.id,
+          staffUserId: user?.uid,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Ошибка подтверждения оплаты');
+      }
+
+      addToast(data.message || 'Оплата Kaspi Pay успешно подтверждена!', 'success');
+      loadOrder();
+    } catch (err: any) {
+      addToast(err.message || 'Не удалось подтвердить оплату', 'error');
     }
   };
 
@@ -624,11 +667,28 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
                   </button>
                 )}
 
+                {order.payment_method === 'kaspi_pay' && order.payment_status === 'pending' && !isCancelled && !isDeleted && (
+                  <button
+                    type="button"
+                    className={`${styles.actionBtn} ${styles.confirmKaspiBtn}`}
+                    onClick={handleConfirmKaspiPayment}
+                    title="Подтвердить получение оплаты через Kaspi Pay"
+                  >
+                    <CheckCircle size={16} />
+                    <span>Подтвердить оплату (Kaspi Pay)</span>
+                  </button>
+                )}
+
                 {order.delivery_method === 'courier' && !isCompleted && !isCancelled && !isDeleted && (
                   <button
                     type="button"
                     className={`${styles.actionBtn} ${styles.secondaryActionBtn}`}
-                    onClick={() => setIsAssignModalOpen(true)}
+                    onClick={() => {
+                      setIsAssignModalOpen(true);
+                      setSelectedCourierId(order.assigned_courier_id || '');
+                      setCourierSearchQuery('');
+                      loadCouriers();
+                    }}
                   >
                     <Truck size={16} />
                     <span>{order.assigned_courier_id ? 'Сменить курьера' : 'Назначить курьера'}</span>
@@ -878,76 +938,134 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
 
         {/* ASSIGN COURIER MODAL */}
         {isAssignModalOpen && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.65)',
-              backdropFilter: 'blur(4px)',
-              zIndex: 9999,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '16px',
-            }}
-            onClick={() => setIsAssignModalOpen(false)}
-          >
-            <div
-              style={{
-                backgroundColor: 'white',
-                borderRadius: '16px',
-                padding: '28px',
-                width: '100%',
-                maxWidth: '440px',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 16px', color: 'var(--color-navy)' }}>
+          <div className={styles.courierModalOverlay} onClick={() => setIsAssignModalOpen(false)}>
+            <div className={styles.courierModalCard} onClick={e => e.stopPropagation()}>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--color-navy)' }}>
                 Назначить курьера
               </h3>
-              <select
-                className={styles.statusSelectField}
-                value={selectedCourierId}
-                onChange={(e) => setSelectedCourierId(e.target.value)}
-              >
-                <option value="">Выберите курьера из списка...</option>
-                {couriersList.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.full_name || c.email} ({c.phone || c.email})
-                  </option>
-                ))}
-              </select>
-              <div style={{ display: 'flex', gap: '10px' }}>
+              <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#64748b' }}>
+                Заказ #{order.id} ({order.customer_name}, {Number(order.amount).toLocaleString('ru-RU')} ₸).
+                Выберите курьера для назначения:
+              </p>
+
+              {/* Courier Search Input */}
+              <div className={styles.courierSearchWrapper}>
+                <span className={styles.courierSearchIcon}>
+                  <Search size={16} />
+                </span>
+                <input
+                  type="text"
+                  className={styles.courierSearchInput}
+                  placeholder="Поиск курьера по имени, email или телефону..."
+                  value={courierSearchQuery}
+                  onChange={e => setCourierSearchQuery(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              {/* Courier List Scroll */}
+              <div className={styles.courierListScroll}>
+                {couriersList
+                  .filter(c => {
+                    if (!courierSearchQuery.trim()) return true;
+                    const q = courierSearchQuery.toLowerCase();
+                    const name = (c.full_name || '').toLowerCase();
+                    const email = (c.email || '').toLowerCase();
+                    const phone = (c.phone || '').toLowerCase();
+                    return name.includes(q) || email.includes(q) || phone.includes(q);
+                  })
+                  .map(c => {
+                    const isSelected = selectedCourierId === c.id;
+                    const initials = (c.full_name || c.email || 'К')
+                      .split(' ')
+                      .filter(Boolean)
+                      .map((p: string) => p[0])
+                      .slice(0, 2)
+                      .join('')
+                      .toUpperCase();
+
+                    return (
+                      <div
+                        key={c.id}
+                        className={`${styles.courierOptionCard} ${isSelected ? styles.courierOptionCardSelected : ''}`}
+                        onClick={() => setSelectedCourierId(c.id)}
+                      >
+                        <div className={styles.courierAvatar}>
+                          {initials}
+                        </div>
+                        <div className={styles.courierInfo}>
+                          <span className={styles.courierName}>
+                            {c.full_name || 'Курьер без имени'}
+                          </span>
+                          <div className={styles.courierMeta}>
+                            <span>{c.email}</span>
+                            {c.phone && (
+                              <>
+                                <span>•</span>
+                                <span className={styles.courierPhone}>{c.phone}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className={styles.courierCheckmark}>
+                          {isSelected ? '✓' : ''}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                {couriersList.length === 0 && !isLoadingCouriers && (
+                  <div className={styles.courierEmptyState}>
+                    <p>Нет доступных сотрудников с ролью «Курьер».</p>
+                    <button
+                      type="button"
+                      className={styles.courierRefreshBtn}
+                      onClick={loadCouriers}
+                    >
+                      Обновить список курьеров
+                    </button>
+                  </div>
+                )}
+
+                {couriersList.length > 0 &&
+                  couriersList.filter(c => {
+                    const q = courierSearchQuery.toLowerCase();
+                    return (
+                      (c.full_name || '').toLowerCase().includes(q) ||
+                      (c.email || '').toLowerCase().includes(q) ||
+                      (c.phone || '').toLowerCase().includes(q)
+                    );
+                  }).length === 0 && (
+                    <div className={styles.courierEmptyState}>
+                      <p>Курьер по запросу «{courierSearchQuery}» не найден</p>
+                    </div>
+                  )}
+              </div>
+
+              <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px', display: 'flex', gap: '10px' }}>
                 <button
                   type="button"
+                  className={styles.sheetCancelBtn}
                   onClick={() => setIsAssignModalOpen(false)}
-                  style={{
-                    flex: 1,
-                    padding: '12px',
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    background: '#f1f5f9',
-                    fontSize: '14px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
+                  style={{ flex: 1, margin: 0, padding: '10px', fontSize: '14px' }}
                 >
                   Отмена
                 </button>
                 <button
                   type="button"
-                  onClick={handleAssignCourier}
                   disabled={!selectedCourierId}
+                  onClick={handleAssignCourier}
                   style={{
                     flex: 1,
-                    padding: '12px',
-                    borderRadius: '8px',
+                    padding: '10px',
+                    borderRadius: '12px',
                     border: 'none',
                     background: 'var(--color-navy)',
                     color: 'white',
                     fontSize: '14px',
                     fontWeight: 800,
-                    cursor: 'pointer',
+                    cursor: selectedCourierId ? 'pointer' : 'not-allowed',
+                    opacity: selectedCourierId ? 1 : 0.6,
                   }}
                 >
                   Назначить

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -36,6 +36,8 @@ export default function AdminClient() {
   const [period, setPeriod] = useState<'30' | '60' | '360' | 'all' | 'custom'>('30');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [couriersList, setCouriersList] = useState<any[]>([]);
+  const [courierSearchQuery, setCourierSearchQuery] = useState('');
+  const [isLoadingCouriers, setIsLoadingCouriers] = useState(false);
 
   // Orders search & sub-tab state (Default is 'active', 2nd tab as requested)
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -233,16 +235,27 @@ export default function AdminClient() {
   }, [user?.uid]);
 
   // Fetch couriers list for assignment
+  const loadCouriers = useCallback(async () => {
+    if (!user?.uid) return;
+    try {
+      setIsLoadingCouriers(true);
+      const res = await adminFetch('/api/admin/couriers');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.couriers)) {
+        setCouriersList(data.couriers);
+      }
+    } catch (err) {
+      console.error('[AdminClient] Failed to load couriers:', err);
+    } finally {
+      setIsLoadingCouriers(false);
+    }
+  }, [user?.uid]);
+
   useEffect(() => {
     if (isManager && user?.uid) {
-      adminFetch('/api/admin/couriers')
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) setCouriersList(data.couriers || []);
-        })
-        .catch(console.error);
+      loadCouriers();
     }
-  }, [isManager, user?.uid]);
+  }, [isManager, user?.uid, loadCouriers]);
 
   // Load orders (supports silent background reload without UI flicker)
   const loadOrders = async (silent = false) => {
@@ -485,6 +498,37 @@ export default function AdminClient() {
       addToast(err.message || 'Ошибка верификации заказа', 'error');
     } finally {
       setIsVerifying(false);
+    }
+  };
+
+  // Handle Confirm Kaspi Pay Payment
+  const handleConfirmKaspiPayment = async (order: any) => {
+    setActiveMenuOrderId(null);
+    const confirmed = window.confirm(
+      `Подтвердить поступление оплаты через Kaspi Pay для заказа #${order.id} на сумму ${Number(order.amount).toLocaleString('ru-RU')} ₸?\n\nСтатус заказа изменится на «Оплачен» / «Комплектуется», а статус и описание в МойСклад обновятся автоматически.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await adminFetch('/api/admin/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'confirm_kaspi_payment',
+          orderId: order.id,
+          staffUserId: user?.uid,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Ошибка подтверждения оплаты');
+      }
+
+      addToast(data.message || 'Оплата Kaspi Pay успешно подтверждена!', 'success');
+      loadOrders(true);
+    } catch (err: any) {
+      addToast(err.message || 'Не удалось подтвердить оплату', 'error');
     }
   };
 
@@ -824,6 +868,7 @@ export default function AdminClient() {
           setUserProfile({ ...userProfile, role: newRole });
         }
         await loadUsers();
+        loadCouriers();
       } else {
         // Rollback optimistic update on server error
         setUsersList(prevUsers);
@@ -1380,6 +1425,21 @@ export default function AdminClient() {
                                     </button>
                                   )}
 
+                                  {isManager && order.payment_method === 'kaspi_pay' && order.payment_status === 'pending' && !isCancelled && !isDeleted && (
+                                    <button
+                                      type="button"
+                                      className={styles.confirmKaspiBtn}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleConfirmKaspiPayment(order);
+                                      }}
+                                      title="Подтвердить получение оплаты через Kaspi Pay"
+                                    >
+                                      <CheckCircle size={15} />
+                                      <span>Подтвердить оплату (Kaspi Pay)</span>
+                                    </button>
+                                  )}
+
                                   {isManager && order.delivery_method === 'courier' && order.fulfillment_status !== 'completed' && !isCancelled && !isDeleted && (
                                     <button
                                       type="button"
@@ -1388,6 +1448,8 @@ export default function AdminClient() {
                                         e.stopPropagation();
                                         setAssigningOrder(order);
                                         setSelectedCourierId(order.assigned_courier_id || '');
+                                        setCourierSearchQuery('');
+                                        loadCouriers();
                                       }}
                                     >
                                       <Truck size={15} />
@@ -1488,6 +1550,20 @@ export default function AdminClient() {
                                             </>
                                           ) : (
                                             <>
+                                              {order.payment_method === 'kaspi_pay' && order.payment_status === 'pending' && (
+                                                <button
+                                                  type="button"
+                                                  className={styles.dropdownItem}
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleConfirmKaspiPayment(order);
+                                                  }}
+                                                  style={{ color: '#15803d', fontWeight: 600 }}
+                                                >
+                                                  <CheckCircle size={15} color="#15803d" />
+                                                  <span>Подтвердить оплату (Kaspi Pay)</span>
+                                                </button>
+                                              )}
                                               <button
                                                 type="button"
                                                 className={styles.dropdownItem}
@@ -2289,31 +2365,115 @@ export default function AdminClient() {
         {/* MODAL 2: ASSIGN COURIER */}
         {assigningOrder && (
           <div className={styles.modalOverlay} onClick={() => setAssigningOrder(null)}>
-            <div className={styles.modalCard} onClick={e => e.stopPropagation()}>
-              <h3 className={styles.modalTitle}>Передать заказ курьеру</h3>
-              <p className={styles.modalDesc}>
-                Заказ №{assigningOrder.id} ({assigningOrder.customer_name}, {Number(assigningOrder.amount).toLocaleString()} ₸).
+            <div className={styles.courierModalCard} onClick={e => e.stopPropagation()}>
+              <h3 className={styles.modalTitle} style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--color-navy)' }}>
+                Передать курьеру
+              </h3>
+              <p className={styles.modalDesc} style={{ margin: '6px 0 0', fontSize: '13px', color: '#64748b' }}>
+                Заказ №{assigningOrder.id} ({assigningOrder.customer_name}, {Number(assigningOrder.amount).toLocaleString('ru-RU')} ₸).
                 Выберите курьера для назначения:
               </p>
 
-              <select
-                className={styles.inputField}
-                value={selectedCourierId}
-                onChange={e => setSelectedCourierId(e.target.value)}
-              >
-                <option value="">-- Выберите курьера --</option>
-                {couriersList.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.full_name || 'Курьер'} ({c.email}) {c.phone ? `• ${c.phone}` : ''}
-                  </option>
-                ))}
-              </select>
+              {/* Courier Search Input */}
+              <div className={styles.courierSearchWrapper}>
+                <span className={styles.courierSearchIcon}>
+                  <Search size={16} />
+                </span>
+                <input
+                  type="text"
+                  className={styles.courierSearchInput}
+                  placeholder="Поиск курьера по имени, email или телефону..."
+                  value={courierSearchQuery}
+                  onChange={e => setCourierSearchQuery(e.target.value)}
+                  autoFocus
+                />
+              </div>
 
-              <div className={styles.modalFooter}>
+              {/* Courier List Scroll */}
+              <div className={styles.courierListScroll}>
+                {couriersList
+                  .filter(c => {
+                    if (!courierSearchQuery.trim()) return true;
+                    const q = courierSearchQuery.toLowerCase();
+                    const name = (c.full_name || '').toLowerCase();
+                    const email = (c.email || '').toLowerCase();
+                    const phone = (c.phone || '').toLowerCase();
+                    return name.includes(q) || email.includes(q) || phone.includes(q);
+                  })
+                  .map(c => {
+                    const isSelected = selectedCourierId === c.id;
+                    const initials = (c.full_name || c.email || 'К')
+                      .split(' ')
+                      .filter(Boolean)
+                      .map((p: string) => p[0])
+                      .slice(0, 2)
+                      .join('')
+                      .toUpperCase();
+
+                    return (
+                      <div
+                        key={c.id}
+                        className={`${styles.courierOptionCard} ${isSelected ? styles.courierOptionCardSelected : ''}`}
+                        onClick={() => setSelectedCourierId(c.id)}
+                      >
+                        <div className={styles.courierAvatar}>
+                          {initials}
+                        </div>
+                        <div className={styles.courierInfo}>
+                          <span className={styles.courierName}>
+                            {c.full_name || 'Курьер без имени'}
+                          </span>
+                          <div className={styles.courierMeta}>
+                            <span>{c.email}</span>
+                            {c.phone && (
+                              <>
+                                <span>•</span>
+                                <span className={styles.courierPhone}>{c.phone}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className={styles.courierCheckmark}>
+                          {isSelected ? '✓' : ''}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                {couriersList.length === 0 && !isLoadingCouriers && (
+                  <div className={styles.courierEmptyState}>
+                    <p>Нет доступных сотрудников с ролью «Курьер».</p>
+                    <button
+                      type="button"
+                      className={styles.courierRefreshBtn}
+                      onClick={loadCouriers}
+                    >
+                      Обновить список курьеров
+                    </button>
+                  </div>
+                )}
+
+                {couriersList.length > 0 &&
+                  couriersList.filter(c => {
+                    const q = courierSearchQuery.toLowerCase();
+                    return (
+                      (c.full_name || '').toLowerCase().includes(q) ||
+                      (c.email || '').toLowerCase().includes(q) ||
+                      (c.phone || '').toLowerCase().includes(q)
+                    );
+                  }).length === 0 && (
+                    <div className={styles.courierEmptyState}>
+                      <p>Курьер по запросу «{courierSearchQuery}» не найден</p>
+                    </div>
+                  )}
+              </div>
+
+              <div className={styles.modalFooter} style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px', display: 'flex', gap: '10px' }}>
                 <button
                   type="button"
                   className={styles.cancelBtn}
                   onClick={() => setAssigningOrder(null)}
+                  style={{ flex: 1 }}
                 >
                   Отмена
                 </button>
@@ -2322,8 +2482,9 @@ export default function AdminClient() {
                   className={styles.submitBtn}
                   disabled={!selectedCourierId}
                   onClick={handleAssignCourier}
+                  style={{ flex: 1 }}
                 >
-                  Закрепить за курьером
+                  Передать курьеру
                 </button>
               </div>
             </div>
@@ -2518,7 +2679,7 @@ export default function AdminClient() {
               <div className={styles.datePickerBody}>
                 <div
                   ref={scrollContainerRef}
-                  className={styles.kaspiCalendarScroll}
+                  className={styles.calendarScrollContainer}
                   onScroll={handleContainerScroll}
                 >
                   {monthsList.map(({ year, month, name }) => {
@@ -2528,14 +2689,14 @@ export default function AdminClient() {
                     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
                     return (
-                      <div key={`${year}-${month}`} className={styles.kaspiMonthBlock}>
-                        <div className={styles.kaspiMonthTitle}>{name}</div>
-                        <div className={styles.kaspiWeekdays}>
+                      <div key={`${year}-${month}`} className={styles.monthBlock}>
+                        <div className={styles.monthTitle}>{name}</div>
+                        <div className={styles.weekdaysGrid}>
                           {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(wd => (
                             <span key={wd}>{wd}</span>
                           ))}
                         </div>
-                        <div className={styles.kaspiDaysGrid}>
+                        <div className={styles.daysGrid}>
                           {blanks.map((_, bIdx) => (
                             <div key={`blank-${bIdx}`} style={{ width: 36, height: 36 }} />
                           ))}

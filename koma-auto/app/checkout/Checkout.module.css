@@ -377,14 +377,28 @@
 .calcRow {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   color: #666;
+  gap: 12px;
+}
+
+.calcRow span:last-child {
+  white-space: nowrap;
+  text-align: right;
 }
 
 .discountRow {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   color: #16a34a;
   font-weight: 600;
+  gap: 12px;
+}
+
+.discountRow span:last-child {
+  white-space: nowrap;
+  text-align: right;
 }
 
 .promoCode {
@@ -484,22 +498,41 @@
 .totalRow {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
   margin-bottom: 32px;
+  gap: 16px;
 }
 
 .totalRow span:first-child {
   font-size: 18px;
-  font-weight: 500;
+  font-weight: 600;
+  color: var(--color-navy);
 }
 
 .totalValue {
-  font-size: 28px;
-  font-weight: 700;
-  background: var(--color-navy-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  gap: 2px;
+}
+
+.oldPriceCrossed {
+  font-size: 15px;
+  font-weight: 500;
+  color: #94a3b8;
+  text-decoration: line-through;
+  white-space: nowrap;
+  -webkit-text-fill-color: #94a3b8;
+  line-height: 1.2;
+}
+
+.finalPayAmount {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--color-navy);
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .submitBtn {
@@ -596,6 +629,23 @@
   }
   .section {
     padding: 20px;
+  }
+  .totalRow {
+    align-items: flex-end;
+    margin-bottom: 24px;
+  }
+  .totalRow span:first-child {
+    font-size: 16px;
+  }
+  .finalPayAmount {
+    font-size: 22px;
+  }
+  .oldPriceCrossed {
+    font-size: 13px;
+  }
+  .activePromoTag {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }
 
@@ -829,14 +879,7 @@
   -webkit-text-fill-color: #94a3b8;
 }
 
-.finalPayAmount {
-  font-size: 28px;
-  font-weight: 700;
-  background: var(--color-navy-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
+
 
 .activePromoTag {
   display: flex;
@@ -862,6 +905,7 @@
 .activePromoDiscount {
   color: #16a34a;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .activePromoRemoveBtn {

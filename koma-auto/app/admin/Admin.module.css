@@ -1249,7 +1249,7 @@
   white-space: nowrap;
 }
 
-/* Kaspi-style Date Range Picker Modal */
+/* Minimal Scrollable Date Range Picker Modal */
 .datePickerModalCard {
   background: #ffffff;
   border-radius: 16px;
@@ -1307,7 +1307,7 @@
   position: relative;
 }
 
-.kaspiCalendarScroll {
+.calendarScrollContainer {
   flex: 1;
   max-height: 360px;
   overflow-y: auto;
@@ -1319,7 +1319,7 @@
   -ms-overflow-style: none;
 }
 
-.kaspiCalendarScroll::-webkit-scrollbar {
+.calendarScrollContainer::-webkit-scrollbar {
   display: none;
 }
 
@@ -1359,20 +1359,20 @@
   cursor: grabbing;
 }
 
-.kaspiMonthBlock {
+.monthBlock {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.kaspiMonthTitle {
+.monthTitle {
   font-size: 15px;
   font-weight: 700;
   color: #0f172a;
   padding-left: 4px;
 }
 
-.kaspiWeekdays {
+.weekdaysGrid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   text-align: center;
@@ -1382,7 +1382,7 @@
   margin-bottom: 4px;
 }
 
-.kaspiDaysGrid {
+.daysGrid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
@@ -1461,3 +1461,216 @@
 
 
 
+
+/* Confirm Kaspi Pay Button */
+.confirmKaspiBtn {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.confirmKaspiBtn:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #166534;
+}
+
+/* Modular Courier Selection System */
+.courierModalCard {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 24px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+}
+
+.courierSearchWrapper {
+  position: relative;
+  margin-top: 14px;
+  margin-bottom: 12px;
+}
+
+.courierSearchInput {
+  width: 100%;
+  padding: 10px 14px 10px 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 13px;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.courierSearchInput:focus {
+  border-color: var(--color-navy);
+  box-shadow: 0 0 0 3px rgba(10, 25, 47, 0.08);
+}
+
+.courierSearchIcon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+.courierListScroll {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+  margin-bottom: 16px;
+}
+
+.courierListScroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.courierListScroll::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 3px;
+}
+
+.courierOptionCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.courierOptionCard:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.courierOptionCardSelected {
+  background: #f0fdf4 !important;
+  border-color: #22c55e !important;
+}
+
+.courierAvatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.courierOptionCardSelected .courierAvatar {
+  background: #22c55e;
+  color: #ffffff;
+}
+
+.courierInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.courierName {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.courierMeta {
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.courierPhone {
+  color: #0369a1;
+  font-weight: 500;
+}
+
+.courierCheckmark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 800;
+  transition: all 0.15s ease;
+}
+
+.courierOptionCardSelected .courierCheckmark {
+  background: #22c55e;
+  border-color: #22c55e;
+  color: #ffffff;
+}
+
+.courierEmptyState {
+  padding: 28px 16px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.courierRefreshBtn {
+  background: none;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.courierRefreshBtn:hover {
+  background: #f1f5f9;
+}
