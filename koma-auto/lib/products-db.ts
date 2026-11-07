@@ -174,17 +174,35 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
     if (search) {
       const searchPattern = `%${search}%`;
       const oemPattern = cleanSearch ? `%${cleanSearch}%` : searchPattern;
-      whereConditions.push(
-        sql`(
-          title ILIKE ${searchPattern}
-          OR clean_oem_number ILIKE ${oemPattern}
-          OR original_oem ILIKE ${searchPattern}
-          OR regexp_replace(original_oem, '[\\s\\-_\\./]', '', 'g') ILIKE ${oemPattern}
-          OR regexp_replace(title, '[\\s\\-_\\./]', '', 'g') ILIKE ${oemPattern}
-          OR brand ILIKE ${searchPattern}
-          OR compatibility::text ILIKE ${searchPattern}
-        )`
-      );
+      const words = search.split(/\s+/).map((w) => w.trim()).filter((w) => w.length >= 2);
+
+      if (words.length > 1) {
+        const wordClauses = words.map((w) => {
+          const wp = `%${w}%`;
+          const cleanW = w.replace(/[\s\-_\./\\,]/g, '').toUpperCase();
+          const cleanWp = cleanW ? `%${cleanW}%` : wp;
+          return sql`(
+            title ILIKE ${wp}
+            OR clean_oem_number ILIKE ${cleanWp}
+            OR original_oem ILIKE ${wp}
+            OR brand ILIKE ${wp}
+            OR compatibility::text ILIKE ${wp}
+          )`;
+        });
+        whereConditions.push(sql`(${wordClauses.reduce((acc, curr) => sql`${acc} AND ${curr}`)})`);
+      } else {
+        whereConditions.push(
+          sql`(
+            title ILIKE ${searchPattern}
+            OR clean_oem_number ILIKE ${oemPattern}
+            OR original_oem ILIKE ${searchPattern}
+            OR regexp_replace(original_oem, '[\s\-_\./]', '', 'g') ILIKE ${oemPattern}
+            OR regexp_replace(title, '[\s\-_\./]', '', 'g') ILIKE ${oemPattern}
+            OR brand ILIKE ${searchPattern}
+            OR compatibility::text ILIKE ${searchPattern}
+          )`
+        );
+      }
     }
 
     // Combine WHERE clauses

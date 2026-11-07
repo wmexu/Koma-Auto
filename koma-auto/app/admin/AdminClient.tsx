@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useToastStore } from '@/store/useToastStore';
 import { 
-  Shield, Package, Truck, Users, Tag, Settings, KeyRound, Percent, 
+  Shield, Package, Truck, Users, Tag, Settings, KeyRound, Ticket, ExternalLink, 
   ArrowLeft, CheckCircle, AlertTriangle, Search, Copy, Check, Clock, Eye,
   MoreVertical, Archive, XCircle, X, RotateCcw, Trash2, Lock, RefreshCw,
   Calendar, ChevronLeft, ChevronRight, CreditCard
@@ -24,7 +24,7 @@ export default function AdminClient() {
   const userRole = (userProfile?.role || 'customer') as 'customer' | 'wholesale' | 'courier' | 'cashier' | 'manager' | 'director';
   const isStaff = ['courier', 'cashier', 'manager', 'director'].includes(userRole);
   const isDirector = userRole === 'director';
-  const isManager = userRole === 'manager';
+  const isManager = userRole === 'manager' || isDirector;
   const isCashier = userRole === 'cashier';
   const isCourier = userRole === 'courier';
   const canManageOrders = isDirector || isManager || isCashier;
@@ -181,6 +181,7 @@ export default function AdminClient() {
   ];
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>(['4240a87a-4ea5-11f1-0a80-1b5c0008497a']);
   const [isSavingWarehouses, setIsSavingWarehouses] = useState(false);
+  const [discountSubTab, setDiscountSubTab] = useState<'all' | 'marketing' | 'real'>('all');
 
   // Discounts state
   const [discountsList, setDiscountsList] = useState<any[]>([]);
@@ -917,7 +918,7 @@ export default function AdminClient() {
       setIsSearchingDiscountProducts(true);
       try {
         const query = discountProductSearch.trim();
-        const url = query ? `/api/products?search=${encodeURIComponent(query)}&limit=30` : '/api/products?limit=30';
+        const url = query ? `/api/products?search=${encodeURIComponent(query)}&limit=60&inStockOnly=false` : '/api/products?limit=60&inStockOnly=false';
         const res = await fetch(url);
         const data = await res.json();
         if (data.products && Array.isArray(data.products)) {
@@ -1234,7 +1235,7 @@ export default function AdminClient() {
                 className={`${styles.tabBtn} ${activeTab === 'discounts' ? styles.activeTabBtn : ''}`}
                 onClick={() => setActiveTab('discounts')}
               >
-                <Percent size={16} />
+                <Tag size={16} />
                 Скидочные товары
               </button>
             </>
@@ -2303,7 +2304,7 @@ export default function AdminClient() {
             <div className={styles.sectionFilters} style={{ display: 'block' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
-                  <h2 style={{ fontSize: '16px', fontWeight: 500, color: 'var(--color-navy)', margin: '0 0 4px 0' }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--color-navy)', margin: '0 0 4px 0' }}>
                     Скидочные товары
                   </h2>
                   <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
@@ -2326,17 +2327,50 @@ export default function AdminClient() {
                     padding: '8px 16px',
                     fontSize: '13px',
                     fontWeight: 500,
+                    background: 'var(--color-navy-gradient)',
                   }}
                 >
-                  <Percent size={16} />
+                  <Tag size={16} />
                   Добавить скидочный товар
+                </button>
+              </div>
+
+              {/* Sub-tabs: Все / Маркетинговые скидки / Реальные скидки */}
+              <div className={styles.orderSubTabs} style={{ marginTop: '16px', marginBottom: 0 }}>
+                <button
+                  type="button"
+                  className={`${styles.subTabBtn} ${discountSubTab === 'all' ? styles.subTabBtnActive : ''}`}
+                  onClick={() => setDiscountSubTab('all')}
+                >
+                  Все
+                  <span className={styles.subTabBadge}>{discountsList.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.subTabBtn} ${discountSubTab === 'marketing' ? styles.subTabBtnActive : ''}`}
+                  onClick={() => setDiscountSubTab('marketing')}
+                >
+                  Маркетинговые скидки
+                  <span className={styles.subTabBadge}>
+                    {discountsList.filter(d => d.discount_type === 'marketing').length}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.subTabBtn} ${discountSubTab === 'real' ? styles.subTabBtnActive : ''}`}
+                  onClick={() => setDiscountSubTab('real')}
+                >
+                  Реальные скидки
+                  <span className={styles.subTabBadge}>
+                    {discountsList.filter(d => d.discount_type === 'real').length}
+                  </span>
                 </button>
               </div>
             </div>
 
-            {/* Discounts List Table */}
-            <div className={styles.tableCard} style={{ marginTop: '16px' }}>
-              <table className={styles.table}>
+            {/* Discounts List Table (Styled cleanly like Users table) */}
+            <div className={styles.tableResponsiveWrapper}>
+              <table className={styles.dataTable}>
                 <thead>
                   <tr>
                     <th>Товар</th>
@@ -2350,110 +2384,118 @@ export default function AdminClient() {
                 <tbody>
                   {isLoadingDiscounts ? (
                     <tr>
-                      <td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
                         Загрузка скидочных товаров...
                       </td>
                     </tr>
                   ) : discountsList.length === 0 ? (
                     <tr>
-                      <td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
                         Скидочных товаров пока нет. Нажмите «Добавить скидочный товар», чтобы назначить скидку.
                       </td>
                     </tr>
                   ) : (
-                    discountsList.map((d: any) => {
-                      const isReal = d.discount_type === 'real';
-                      return (
-                        <tr key={d.id}>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                              {d.image ? (
-                                <img
-                                  src={d.image}
-                                  alt=""
-                                  style={{ width: '38px', height: '38px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #e2e8f0' }}
-                                />
-                              ) : (
-                                <div style={{ width: '38px', height: '38px', borderRadius: '6px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                  <Package size={18} color="#94a3b8" />
-                                </div>
-                              )}
-                              <div>
-                                <div style={{ fontSize: '13px', fontWeight: 500, color: '#0f172a' }}>{d.title}</div>
-                                <div style={{ fontSize: '11px', color: '#64748b' }}>
-                                  {d.brand || '—'} {d.original_oem ? `• OEM: ${d.original_oem}` : ''}
+                    discountsList
+                      .filter(d => discountSubTab === 'all' || d.discount_type === discountSubTab)
+                      .map((d: any) => {
+                        const isReal = d.discount_type === 'real';
+                        return (
+                          <tr key={d.id}>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                {d.image ? (
+                                  <img
+                                    src={d.image}
+                                    alt=""
+                                    style={{ width: '42px', height: '42px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                                  />
+                                ) : (
+                                  <div style={{ width: '42px', height: '42px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Package size={18} color="#94a3b8" />
+                                  </div>
+                                )}
+                                <div>
+                                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{d.title}</div>
+                                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                                    {d.brand || '—'} {d.original_oem ? `• OEM: ${d.original_oem}` : ''}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </td>
-                          <td>
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                padding: '3px 8px',
-                                borderRadius: '4px',
-                                fontSize: '11px',
-                                fontWeight: 500,
-                                background: isReal ? '#fef3c7' : '#e0f2fe',
-                                color: isReal ? '#92400e' : '#0369a1',
-                              }}
-                            >
-                              {isReal ? 'Настоящая скидка' : 'Маркетинговая'}
-                            </span>
-                          </td>
-                          <td style={{ fontSize: '13px', fontWeight: 500 }}>
-                            {d.value_type === 'percent' ? `${d.discount_value}%` : `${Number(d.discount_value).toLocaleString()} ₸`}
-                          </td>
-                          <td style={{ fontSize: '13px' }}>
-                            {isReal ? (
-                              <span>
-                                <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>
+                            </td>
+                            <td>
+                              <span
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '4px 10px',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  background: isReal ? '#fef3c7' : '#e0f2fe',
+                                  color: isReal ? '#92400e' : '#0369a1',
+                                }}
+                              >
+                                {isReal ? 'Настоящая скидка' : 'Маркетинговая'}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '13px', fontWeight: 600 }}>
+                              {d.value_type === 'percent' ? `${d.discount_value}%` : `${Number(d.discount_value).toLocaleString()} ₸`}
+                            </td>
+                            <td style={{ fontSize: '13px' }}>
+                              {isReal ? (
+                                <span>
+                                  <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>
+                                    {Number(d.original_price).toLocaleString()} ₸
+                                  </span>
+                                  <strong style={{ fontWeight: 600, color: '#0f172a' }}>
+                                    {Number(d.discounted_price).toLocaleString()} ₸
+                                  </strong>
+                                </span>
+                              ) : (
+                                <span style={{ fontWeight: 600, color: '#0f172a' }}>
                                   {Number(d.original_price).toLocaleString()} ₸
                                 </span>
-                                <strong style={{ fontWeight: 500, color: '#0f172a' }}>
-                                  {Number(d.discounted_price).toLocaleString()} ₸
-                                </strong>
-                              </span>
-                            ) : (
-                              <span style={{ fontWeight: 500, color: '#0f172a' }}>
-                                {Number(d.original_price).toLocaleString()} ₸
-                              </span>
-                            )}
-                          </td>
-                          <td style={{ fontSize: '13px' }}>
-                            {d.display_old_price ? (
-                              <span>
-                                <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>
-                                  {Number(d.display_old_price).toLocaleString()} ₸
+                              )}
+                            </td>
+                            <td style={{ fontSize: '13px' }}>
+                              {d.display_old_price ? (
+                                <span>
+                                  <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>
+                                    {Number(d.display_old_price).toLocaleString()} ₸
+                                  </span>
+                                  <strong style={{ fontWeight: 700, color: '#16a34a' }}>
+                                    {Number(d.discounted_price).toLocaleString()} ₸
+                                  </strong>
                                 </span>
-                                <strong style={{ fontWeight: 500, color: '#16a34a' }}>
-                                  {Number(d.discounted_price).toLocaleString()} ₸
-                                </strong>
-                              </span>
-                            ) : (
-                              <span style={{ fontWeight: 500 }}>{Number(d.discounted_price).toLocaleString()} ₸</span>
-                            )}
-                          </td>
-                          <td>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteDiscount(d.id)}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                color: '#dc2626',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                                fontWeight: 500,
-                                padding: '4px 8px',
-                              }}
-                            >
-                              Удалить
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
+                              ) : (
+                                <span style={{ fontWeight: 700 }}>{Number(d.discounted_price).toLocaleString()} ₸</span>
+                              )}
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteDiscount(d.id)}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '5px',
+                                  background: '#fee2e2',
+                                  border: '1px solid #fca5a5',
+                                  color: '#b91c1c',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  fontSize: '12px',
+                                  fontWeight: 500,
+                                  padding: '5px 10px',
+                                }}
+                                title="Удалить скидку и вернуть стандартную цену"
+                              >
+                                <Trash2 size={13} />
+                                <span>Удалить</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
                   )}
                 </tbody>
               </table>
@@ -2727,44 +2769,7 @@ export default function AdminClient() {
                           Выберите один или несколько складов, остатки которых суммируются и выводятся покупателям в каталоге
                         </div>
                       </div>
-                      {isDirector && (
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveWarehouses(AVAILABLE_STORES.map(s => s.id))}
-                            disabled={isSavingWarehouses}
-                            style={{
-                              padding: '6px 12px',
-                              borderRadius: '6px',
-                              border: '1px solid #cbd5e1',
-                              background: '#ffffff',
-                              fontSize: '12px',
-                              fontWeight: 500,
-                              color: '#0f172a',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Выбрать все склады
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveWarehouses(['4240a87a-4ea5-11f1-0a80-1b5c0008497a'])}
-                            disabled={isSavingWarehouses}
-                            style={{
-                              padding: '6px 12px',
-                              borderRadius: '6px',
-                              border: '1px solid #1e3a8a',
-                              background: '#f8fafc',
-                              fontSize: '12px',
-                              fontWeight: 500,
-                              color: '#1e3a8a',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Только Подвал
-                          </button>
-                        </div>
-                      )}
+                      
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px' }}>
                       {AVAILABLE_STORES.map(s => {
@@ -3468,32 +3473,22 @@ export default function AdminClient() {
         )}
       </div>
     
-        {/* MODAL: ADD DISCOUNTED PRODUCTS (Step 1: Product Selection 3-in-a-row; Step 2: Configure Discount) */}
+        {/* MODAL: CREATE DISCOUNT (2 STEPS) */}
         {isDiscountModalOpen && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              backgroundColor: 'rgba(15, 23, 42, 0.65)',
-              zIndex: 1000,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '20px',
-            }}
-          >
+          <div className={styles.modalOverlay} onClick={() => !isSubmittingDiscount && setIsDiscountModalOpen(false)}>
             <div
+              className={styles.modalCard}
+              onClick={e => e.stopPropagation()}
               style={{
-                background: '#ffffff',
-                borderRadius: '12px',
-                width: '100%',
+                width: '92%',
                 maxWidth: '920px',
-                maxHeight: '88vh',
+                height: 'min(740px, 86vh)',
+                padding: 0,
+                overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
-                overflow: 'hidden',
-                fontFamily: 'var(--font-geist-sans), sans-serif',
+                background: '#ffffff',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
               }}
             >
               {/* Header */}
@@ -3504,51 +3499,37 @@ export default function AdminClient() {
                   alignItems: 'center',
                   padding: '16px 20px',
                   borderBottom: '1px solid #e2e8f0',
+                  background: '#f8fafc',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {discountStep === 2 && (
-                    <button
-                      type="button"
-                      onClick={() => setDiscountStep(1)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: '#0ea5e9',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        fontSize: '13px',
-                        fontWeight: 500,
-                        marginRight: '8px',
-                      }}
-                    >
-                      <ArrowLeft size={16} /> Назад
-                    </button>
-                  )}
-                  <h3 style={{ fontSize: '16px', fontWeight: 500, margin: 0, color: '#0f172a' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--color-navy)' }}>
                     {discountStep === 1 ? 'Выбор товаров для скидки' : 'Настройка параметров скидки'}
                   </h3>
+                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b' }}>
+                    {discountStep === 1
+                      ? 'Выберите один или несколько товаров для назначения скидки (доступны все склады)'
+                      : `Выбрано товаров: ${selectedDiscountProducts.length}. Настройте тип и величину скидки.`}
+                  </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsDiscountModalOpen(false)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: '4px' }}
                 >
                   <X size={20} />
                 </button>
               </div>
 
-              {/* STEP 1: SELECT PRODUCTS (3 in a row) */}
+              {/* STEP 1: SEARCH & PRODUCT SELECTION */}
               {discountStep === 1 && (
                 <>
-                  <div style={{ padding: '16px 20px 8px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ padding: '14px 20px 10px 20px', borderBottom: '1px solid #f1f5f9', background: '#ffffff' }}>
                     <div style={{ position: 'relative' }}>
                       <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '12px' }} />
                       <input
                         type="text"
-                        placeholder="Поиск товаров по названию, артикулу или OEM..."
+                        placeholder="Поиск товаров по названию, бренду, артикулу или OEM..."
                         value={discountProductSearch}
                         onChange={(e) => setDiscountProductSearch(e.target.value)}
                         className={styles.inputField}
@@ -3564,19 +3545,22 @@ export default function AdminClient() {
                     </div>
                   </div>
 
-                  <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', background: '#f8fafc' }}>
                     {isSearchingDiscountProducts ? (
-                      <div style={{ textAlign: 'center', padding: '40px', color: '#64748b', fontSize: '13px' }}>
+                      <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b', fontSize: '13px' }}>
                         Поиск товаров...
                       </div>
                     ) : discountSearchedProducts.length === 0 ? (
-                      <div style={{ textAlign: 'center', padding: '40px', color: '#64748b', fontSize: '13px' }}>
-                        Товары не найдены
+                      <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b', fontSize: '13px' }}>
+                        Товары не найдены. Попробуйте изменить поисковый запрос.
                       </div>
                     ) : (
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
                         {discountSearchedProducts.map((p: any) => {
                           const isSelected = selectedDiscountProducts.some(sel => sel.id === p.id);
+                          const stockCount = Math.max(0, p.stockQuantity ?? p.stock ?? 0);
+                          const isInStock = stockCount > 0;
+
                           return (
                             <div
                               key={p.id}
@@ -3588,59 +3572,149 @@ export default function AdminClient() {
                                 }
                               }}
                               style={{
-                                border: isSelected ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                                border: isSelected ? '2px solid #060F48' : '1px solid #e2e8f0',
                                 borderRadius: '10px',
                                 padding: '12px',
-                                background: isSelected ? '#eff6ff' : '#ffffff',
+                                background: isSelected ? '#f8fafc' : '#ffffff',
                                 cursor: 'pointer',
                                 display: 'flex',
                                 flexDirection: 'column',
                                 justifyContent: 'space-between',
+                                minHeight: '120px',
                                 transition: 'all 0.15s ease',
+                                boxShadow: isSelected ? '0 2px 8px rgba(6, 15, 72, 0.12)' : 'none',
                               }}
                             >
                               <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                                  <div style={{ fontSize: '11px', color: '#64748b' }}>
-                                    {p.brand || '—'} {p.originalOem || p.oem ? `• ${p.originalOem || p.oem}` : ''}
-                                  </div>
+                                <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginBottom: '8px' }}>
+                                  {/* Rounded Square Thumbnail */}
                                   <div
                                     style={{
-                                      width: '18px',
-                                      height: '18px',
-                                      borderRadius: '4px',
-                                      border: isSelected ? '1px solid #2563eb' : '1px solid #cbd5e1',
-                                      background: isSelected ? '#2563eb' : '#ffffff',
+                                      width: '52px',
+                                      height: '52px',
+                                      minWidth: '52px',
+                                      borderRadius: '8px',
+                                      overflow: 'hidden',
+                                      background: '#f1f5f9',
+                                      border: '1px solid #e2e8f0',
                                       display: 'flex',
                                       alignItems: 'center',
                                       justifyContent: 'center',
                                     }}
                                   >
-                                    {isSelected && <Check size={12} color="#ffffff" />}
+                                    {p.image ? (
+                                      <img
+                                        src={p.image}
+                                        alt=""
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                      />
+                                    ) : (
+                                      <div style={{ textAlign: 'center', padding: '4px', fontSize: '9px', fontWeight: 600, color: '#94a3b8' }}>
+                                        KOMA
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                      <div style={{ fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {p.brand || '—'} {p.originalOem || p.oem ? `• ${p.originalOem || p.oem}` : ''}
+                                      </div>
+                                      <div
+                                        style={{
+                                          width: '18px',
+                                          height: '18px',
+                                          minWidth: '18px',
+                                          borderRadius: '4px',
+                                          border: isSelected ? '2px solid #060F48' : '1px solid #cbd5e1',
+                                          background: isSelected ? 'var(--color-navy-gradient)' : '#ffffff',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          marginLeft: '6px',
+                                        }}
+                                      >
+                                        {isSelected && <Check size={11} color="#ffffff" />}
+                                      </div>
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: '12px',
+                                        fontWeight: 500,
+                                        color: '#0f172a',
+                                        lineHeight: '1.3',
+                                        marginTop: '3px',
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden',
+                                      }}
+                                    >
+                                      {p.title || p.name}
+                                    </div>
                                   </div>
                                 </div>
-                                <div
-                                  style={{
-                                    fontSize: '13px',
-                                    fontWeight: 500,
-                                    color: '#0f172a',
-                                    lineHeight: '1.3',
-                                    marginBottom: '8px',
-                                    display: '-webkit-box',
-                                    WebkitLineClamp: 2,
-                                    WebkitBoxOrient: 'vertical',
-                                    overflow: 'hidden',
-                                  }}
-                                >
-                                  {p.title || p.name}
-                                </div>
                               </div>
+
+                              {/* Bottom row: Price, Stock badge, and ExternalLink icon */}
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
-                                <div style={{ fontSize: '13px', fontWeight: 500, color: '#1e3a8a' }}>
+                                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-navy, #060F48)' }}>
                                   {Number(p.price).toLocaleString()} ₸
                                 </div>
-                                <div style={{ fontSize: '11px', color: '#64748b' }}>
-                                  {p.stockQuantity ?? p.stock ?? 0} шт.
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  {isInStock ? (
+                                    <span
+                                      style={{
+                                        display: 'inline-block',
+                                        padding: '2px 6px',
+                                        borderRadius: '4px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        background: '#f0fdf4',
+                                        color: '#15803d',
+                                        border: '1px solid #bbf7d0',
+                                      }}
+                                    >
+                                      {stockCount} шт.
+                                    </span>
+                                  ) : (
+                                    <span
+                                      style={{
+                                        display: 'inline-block',
+                                        padding: '2px 6px',
+                                        borderRadius: '4px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+                                        color: '#b91c1c',
+                                        border: '1px solid #fecaca',
+                                      }}
+                                    >
+                                      0 шт.
+                                    </span>
+                                  )}
+
+                                  {/* Link to product page */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.open(`/product/${p.id}`, '_blank');
+                                    }}
+                                    style={{
+                                      background: 'none',
+                                      border: 'none',
+                                      padding: '2px',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      color: isInStock ? '#15803d' : '#b91c1c',
+                                    }}
+                                    title="Открыть страницу товара в новой вкладке"
+                                  >
+                                    <ExternalLink size={14} />
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -3650,7 +3724,7 @@ export default function AdminClient() {
                     )}
                   </div>
 
-                  {/* Footer with Blue Continue button */}
+                  {/* Footer with Continue button */}
                   <div
                     style={{
                       display: 'flex',
@@ -3658,7 +3732,7 @@ export default function AdminClient() {
                       alignItems: 'center',
                       padding: '14px 20px',
                       borderTop: '1px solid #e2e8f0',
-                      background: '#f8fafc',
+                      background: '#ffffff',
                     }}
                   >
                     <div style={{ fontSize: '13px', color: '#0f172a', fontWeight: 500 }}>
@@ -3681,17 +3755,18 @@ export default function AdminClient() {
                           type="button"
                           onClick={() => setDiscountStep(2)}
                           style={{
-                            background: '#2563eb',
+                            background: 'var(--color-navy-gradient)',
                             color: '#ffffff',
                             border: 'none',
                             borderRadius: '8px',
-                            padding: '8px 20px',
+                            padding: '9px 22px',
                             fontSize: '13px',
                             fontWeight: 500,
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
                             gap: '6px',
+                            boxShadow: '0 2px 4px rgba(6, 15, 72, 0.2)',
                           }}
                         >
                           Продолжить →
@@ -3705,11 +3780,11 @@ export default function AdminClient() {
               {/* STEP 2: CONFIGURE DISCOUNT & LIVE PREVIEW */}
               {discountStep === 2 && (
                 <>
-                  <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '20px', background: '#f8fafc' }}>
                     {/* Parameters grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '16px', background: '#ffffff', padding: '16px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                       <div>
-                        <label style={{ fontSize: '12px', fontWeight: 500, color: '#475569', display: 'block', marginBottom: '6px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '6px' }}>
                           Тип скидки
                         </label>
                         <select
@@ -3718,13 +3793,13 @@ export default function AdminClient() {
                           onChange={(e) => setDiscountType(e.target.value as any)}
                           style={{ margin: 0, fontWeight: 500, fontSize: '13px' }}
                         >
-                          <option value="marketing">Сделать маркетинговую скидку (макс. 50%)</option>
+                          <option value="marketing">Сделать маркетинговую скидку (макс. 100%)</option>
                           <option value="real">Сделать настоящую скидку (макс. 20%)</option>
                         </select>
                       </div>
 
                       <div>
-                        <label style={{ fontSize: '12px', fontWeight: 500, color: '#475569', display: 'block', marginBottom: '6px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '6px' }}>
                           Формат скидки
                         </label>
                         <select
@@ -3733,13 +3808,13 @@ export default function AdminClient() {
                           onChange={(e) => setDiscountValueType(e.target.value as any)}
                           style={{ margin: 0, fontWeight: 500, fontSize: '13px' }}
                         >
-                          <option value="fixed">Фиксированная цена (₸)</option>
+                          <option value="fixed">Фиксированная сумма (₸)</option>
                           <option value="percent">В процентах (%)</option>
                         </select>
                       </div>
 
                       <div>
-                        <label style={{ fontSize: '12px', fontWeight: 500, color: '#475569', display: 'block', marginBottom: '6px' }}>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '6px' }}>
                           Размер скидки {discountValueType === 'percent' ? '(%)' : '(₸)'}
                         </label>
                         <input
@@ -3753,11 +3828,13 @@ export default function AdminClient() {
                       </div>
                     </div>
 
-                    {/* Strict Limit Warning */}
+                    {/* Limit Verification & Soft Warnings */}
                     {(() => {
                       const numVal = Number(discountAmount) || 0;
                       let hasExceeded = false;
+                      let isWarning = false;
                       let errorMsg = '';
+                      let warnMsg = '';
 
                       if (discountType === 'real') {
                         if (discountValueType === 'percent' && numVal > 20) {
@@ -3767,21 +3844,31 @@ export default function AdminClient() {
                           for (const p of selectedDiscountProducts) {
                             if (numVal > Number(p.price) * 0.20) {
                               hasExceeded = true;
-                              errorMsg = `Фиксированная скидка ${numVal} ₸ превышает 20% для товара "${p.title || p.name}"`;
+                              errorMsg = `Фиксированная настоящая скидка ${numVal} ₸ превышает 20% для товара "${p.title || p.name}"`;
                               break;
                             }
                           }
                         }
                       } else {
-                        if (discountValueType === 'percent' && numVal > 50) {
-                          hasExceeded = true;
-                          errorMsg = 'Маркетинговая скидка не может превышать 50%';
+                        // Marketing discounts: allow up to 100%. If > 50%, show yellow warning (not blocking)
+                        if (discountValueType === 'percent') {
+                          if (numVal > 100) {
+                            hasExceeded = true;
+                            errorMsg = 'Маркетинговая скидка не может превышать 100%';
+                          } else if (numVal > 50) {
+                            isWarning = true;
+                            warnMsg = `Маркетинговая скидка ${numVal}% превышает 50% для всех выбранных товаров. Убедитесь, что зачеркнутая цена выглядит реалистично для покупателей.`;
+                          }
                         } else if (discountValueType === 'fixed') {
                           for (const p of selectedDiscountProducts) {
-                            if (numVal > Number(p.price) * 0.50) {
+                            const pPrice = Number(p.price) || 0;
+                            if (numVal > pPrice * 1.0) {
                               hasExceeded = true;
-                              errorMsg = `Маркетинговая скидка ${numVal} ₸ превышает 50% для товара "${p.title || p.name}"`;
+                              errorMsg = `Маркетинговая скидка ${numVal} ₸ превышает 100% для товара "${p.title || p.name}"`;
                               break;
+                            } else if (numVal > pPrice * 0.50) {
+                              isWarning = true;
+                              warnMsg = `Фиксированная наценка ${numVal} ₸ превышает 50% стоимости для части товаров.`;
                             }
                           }
                         }
@@ -3789,20 +3876,31 @@ export default function AdminClient() {
 
                       if (hasExceeded) {
                         return (
-                          <div style={{ padding: '10px 14px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', fontSize: '13px', fontWeight: 500, marginBottom: '16px' }}>
-                            ⚠️ {errorMsg}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: '8px', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', fontSize: '13px', fontWeight: 500, marginBottom: '16px' }}>
+                            <AlertTriangle size={16} color="#dc2626" />
+                            <span>{errorMsg}</span>
                           </div>
                         );
                       }
+
+                      if (isWarning) {
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: '8px', background: '#fefce8', border: '1px solid #fde047', color: '#854d0e', fontSize: '13px', fontWeight: 500, marginBottom: '16px' }}>
+                            <AlertTriangle size={16} color="#d97706" />
+                            <span>{warnMsg}</span>
+                          </div>
+                        );
+                      }
+
                       return null;
                     })()}
 
-                    {/* Live Preview List */}
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                      <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: '12px', fontWeight: 500, color: '#475569' }}>
+                    {/* Live Preview List with Gray Bin icon */}
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', background: '#ffffff' }}>
+                      <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: '12px', fontWeight: 600, color: '#475569' }}>
                         Предпросмотр цен для {selectedDiscountProducts.length} выбранных товаров:
                       </div>
-                      <div style={{ maxHeight: '260px', overflowY: 'auto' }}>
+                      <div style={{ maxHeight: '340px', overflowY: 'auto' }}>
                         {selectedDiscountProducts.map((p) => {
                           const origPrice = Number(p.price) || 0;
                           const numVal = Number(discountAmount) || 0;
@@ -3817,14 +3915,13 @@ export default function AdminClient() {
                             const clientOld = origPrice + diff;
                             stockPriceElem = (
                               <span>
-                                <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>{origPrice.toLocaleString()} ₸</span>
                                 стало {origPrice.toLocaleString()} ₸
                               </span>
                             );
                             clientPriceElem = (
                               <span>
                                 <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>{clientOld.toLocaleString()} ₸</span>
-                                стало <strong style={{ color: '#16a34a', fontWeight: 500 }}>{origPrice.toLocaleString()} ₸</strong>
+                                стало <strong style={{ color: '#16a34a', fontWeight: 700 }}>{origPrice.toLocaleString()} ₸</strong>
                               </span>
                             );
                           } else {
@@ -3832,30 +3929,58 @@ export default function AdminClient() {
                             stockPriceElem = (
                               <span>
                                 <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>{origPrice.toLocaleString()} ₸</span>
-                                стало <strong style={{ fontWeight: 500 }}>{newPrice.toLocaleString()} ₸</strong>
+                                стало <strong style={{ fontWeight: 600 }}>{newPrice.toLocaleString()} ₸</strong>
                               </span>
                             );
                             clientPriceElem = (
                               <span>
                                 <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>{origPrice.toLocaleString()} ₸</span>
-                                стало <strong style={{ color: '#16a34a', fontWeight: 500 }}>{newPrice.toLocaleString()} ₸</strong>
+                                стало <strong style={{ color: '#16a34a', fontWeight: 700 }}>{newPrice.toLocaleString()} ₸</strong>
                               </span>
                             );
                           }
 
                           return (
-                            <div key={p.id} style={{ padding: '12px 14px', borderBottom: '1px solid #f1f5f9' }}>
-                              <div style={{ fontSize: '13px', fontWeight: 500, color: '#0f172a', marginBottom: '6px' }}>
-                                {p.title || p.name}
-                              </div>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '12px' }}>
-                                <div style={{ color: '#475569' }}>
-                                  Реальная цена на складе: {stockPriceElem}
+                            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid #f1f5f9' }}>
+                              <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
+                                <div style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                                  {p.title || p.name}
                                 </div>
-                                <div style={{ color: '#0f172a' }}>
-                                  Клиент видит: {clientPriceElem}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '12px' }}>
+                                  <div style={{ color: '#475569' }}>
+                                    Реальная цена на складе: {stockPriceElem}
+                                  </div>
+                                  <div style={{ color: '#0f172a' }}>
+                                    Клиент видит: {clientPriceElem}
+                                  </div>
                                 </div>
                               </div>
+
+                              {/* Gray Bin icon to remove item from selection */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDiscountProducts(prev => {
+                                    const next = prev.filter(sel => sel.id !== p.id);
+                                    if (next.length === 0) setDiscountStep(1);
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  padding: '6px',
+                                  color: '#94a3b8',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderRadius: '4px',
+                                }}
+                                title="Убрать товар из скидочной группы"
+                              >
+                                <Trash2 size={16} />
+                              </button>
                             </div>
                           );
                         })}
@@ -3871,13 +3996,18 @@ export default function AdminClient() {
                       alignItems: 'center',
                       padding: '14px 20px',
                       borderTop: '1px solid #e2e8f0',
-                      background: '#f8fafc',
+                      background: '#ffffff',
                     }}
                   >
                     <button
                       type="button"
                       onClick={() => setDiscountStep(1)}
                       className={styles.cancelBtn}
+                      style={{
+                        padding: '8px 16px',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '8px',
+                      }}
                     >
                       ← Назад к товарам
                     </button>
@@ -3894,14 +4024,15 @@ export default function AdminClient() {
                         onClick={handleCreateDiscounts}
                         disabled={isSubmittingDiscount}
                         style={{
-                          background: '#15803d',
+                          background: 'var(--color-navy-gradient)',
                           color: '#ffffff',
                           border: 'none',
                           borderRadius: '8px',
-                          padding: '8px 20px',
+                          padding: '9px 24px',
                           fontSize: '13px',
                           fontWeight: 500,
                           cursor: 'pointer',
+                          boxShadow: '0 2px 4px rgba(6, 15, 72, 0.2)',
                         }}
                       >
                         {isSubmittingDiscount ? 'Применение...' : 'Применить скидку'}

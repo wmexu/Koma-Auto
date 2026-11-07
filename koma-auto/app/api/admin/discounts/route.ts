@@ -36,7 +36,30 @@ export async function GET(request: Request) {
         p.in_stock
       FROM discounted_products d
       JOIN my_sklad_products p ON d.product_id = p.id
-      ORDER BY d.created_at DESC;
+
+      UNION ALL
+
+      SELECT
+        ('legacy_' || p.id) as id,
+        p.id as product_id,
+        'marketing' as discount_type,
+        'fixed' as value_type,
+        (p.old_price - p.price) as discount_value,
+        p.price as original_price,
+        p.price as discounted_price,
+        p.old_price as display_old_price,
+        COALESCE(p.updated_at, NOW()) as created_at,
+        p.title,
+        p.brand,
+        p.original_oem,
+        p.image,
+        p.stock_quantity,
+        p.in_stock
+      FROM my_sklad_products p
+      WHERE p.old_price IS NOT NULL 
+        AND p.old_price > p.price
+        AND NOT EXISTS (SELECT 1 FROM discounted_products dp WHERE dp.product_id = p.id)
+      ORDER BY created_at DESC;
     `;
 
     return NextResponse.json({ success: true, discounts: rows });
@@ -78,8 +101,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Настоящая скидка не может превышать 20%' }, { status: 400 });
     }
 
-    if (discountType === 'marketing' && valueType === 'percent' && numValue > 50) {
-      return NextResponse.json({ error: 'Маркетинговая скидка не может превышать 50%' }, { status: 400 });
+    if (discountType === 'marketing' && valueType === 'percent' && numValue > 100) {
+      return NextResponse.json({ error: 'Маркетинговая скидка не может превышать 100%' }, { status: 400 });
     }
 
     if (!isDbConfigured() || !client) {
@@ -117,9 +140,9 @@ export async function POST(request: Request) {
           }, { status: 400 });
         }
       } else {
-        if (diff > origPrice * 0.50) {
+        if (diff > origPrice * 1.0) {
           return NextResponse.json({
-            error: `Маркетинговая скидка для товара "${p.title}" превышает лимит 50% (максимум: ${Math.round(origPrice * 0.50)} ₸)`,
+            error: `Маркетинговая скидка для товара "${p.title}" превышает лимит 100% (максимум: ${Math.round(origPrice * 1.0)} ₸)`,
           }, { status: 400 });
         }
       }
@@ -219,6 +242,30 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'База данных недоступна' }, { status: 503 });
     }
 
+    const isLegacy = typeof id === 'string' && id.startsWith('legacy_');
+    const targetProductId = isLegacy ? id.replace('legacy_', '') : productId;
+
+    if (isLegacy || (!id && targetProductId)) {
+      await client`
+        UPDATE my_sklad_products
+        SET old_price = NULL, updated_at = NOW()
+        WHERE id = ${targetProductId};
+      `;
+      await client`
+        DELETE FROM discounted_products WHERE product_id = ${targetProductId};
+      `;
+
+      logAuditEvent({
+        userId: auth.user?.id || staffUserId || null,
+        action: 'DISCOUNT_DELETED',
+        entityType: 'discount',
+        entityId: id || targetProductId || '',
+        details: { productId: targetProductId, legacy: true },
+      });
+
+      return NextResponse.json({ success: true, message: 'Скидка успешно отменена' });
+    }
+
     // Find the discount row
     let rows: any[] = [];
     if (id) {
@@ -232,7 +279,13 @@ export async function DELETE(request: Request) {
     }
 
     if (!rows || rows.length === 0) {
-      return NextResponse.json({ error: 'Скидка не найдена' }, { status: 404 });
+      // Revert if product has old_price in my_sklad_products
+      if (id) {
+        await client`
+          UPDATE my_sklad_products SET old_price = NULL, updated_at = NOW() WHERE id = ${id};
+        `;
+      }
+      return NextResponse.json({ success: true, message: 'Скидка успешно отменена' });
     }
 
     const row = rows[0];

@@ -579,18 +579,19 @@ ${productUrl}
 
           <h1 className={styles.title}>{product.name}</h1>
 
+          <div className={styles.status}>
+            {isItemInStock ? (
+              <span className={styles.inStock}>В наличии</span>
+            ) : (
+              <span className={styles.outOfStock}>Нет в наличии</span>
+            )}
+          </div>
+
           <div className={styles.priceBlock}>
             <div className={styles.prices}>
               <span className={styles.price}>{displayPrice.toLocaleString()} ₸</span>
               {displayOldPrice && (
                 <span className={styles.oldPrice}>{displayOldPrice.toLocaleString()} ₸</span>
-              )}
-            </div>
-            <div className={styles.status} style={{ marginTop: '10px', marginBottom: 0 }}>
-              {isItemInStock ? (
-                <span className={styles.inStock}>В наличии {visualStock} шт.</span>
-              ) : (
-                <span className={styles.outOfStock}>Нет в наличии</span>
               )}
             </div>
           </div>
