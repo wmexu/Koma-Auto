@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { cancelAndRefundOrder } from '@/lib/order-cancellation';
 import { client, isDbConfigured } from '@/db';
-import { normalizeBrand } from '@/lib/brand-utils';
+import { normalizeBrand, extractOemCode } from '@/lib/brand-utils';
 
 const TOKEN = process.env.MOYSKLAD_TOKEN;
 
@@ -56,9 +57,9 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
       else oldPrice = Math.ceil(rawTarget / 1000) * 1000;
     }
 
-    // Extract OEM
+    // Extract OEM (strip brand/supplier suffixes so sibling variants group together)
     const rawOem = p.code || p.article || '';
-    const cleanOem = rawOem.replace(/[\s\-\.]/g, '').toUpperCase();
+    const cleanOem = extractOemCode(p.code, p.article, p.name) || rawOem.replace(/[\s\-\.]/g, '').toUpperCase();
 
     // Extract Brand
     const brandInfo = normalizeBrand(p.supplier?.name, rawOem);
@@ -195,6 +196,12 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
     console.log(
       `[MoySklad Webhook SUCCESS] Synced product ${productId} ("${p.name}"): Price: ${price} KZT, Stock: ${stockQuantity}, Images: ${images.length}`
     );
+
+    try {
+      revalidatePath('/');
+      revalidatePath('/catalog');
+      revalidatePath(`/product/${productId}`);
+    } catch {}
   } catch (err) {
     console.error(`[MoySklad Webhook] Error syncing product from ${productHref}:`, err);
   }

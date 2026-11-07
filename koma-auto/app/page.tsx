@@ -9,7 +9,7 @@ import SideSlider from '../components/SideSlider/SideSlider';
 import HomeConsultationForm from '../components/HomeConsultationForm/HomeConsultationForm';
 import LocationMap from '../components/LocationMap/LocationMap';
 
-export const revalidate = 3600; // Revalidate every hour to shuffle featured products
+export const revalidate = 60; // Revalidate every minute to sync featured products and photos promptly
 
 const FEATURED_PRODUCT_IDS = [
   '02bd811c-4e95-11f1-0a80-17ce000b265a', // 1. Стартер 361002G200 mobis Hyundai/Kia
