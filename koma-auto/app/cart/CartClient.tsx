@@ -240,7 +240,11 @@ export default function CartClient() {
           data.errors.forEach((err: any) => {
             addToast(err.message, 'error');
             if (err.availableStock !== undefined && err.id) {
-              updateQuantity(err.id, Math.max(0, err.availableStock));
+              if (err.availableStock <= 0) {
+                removeItem(err.id);
+              } else {
+                updateQuantity(err.id, err.availableStock);
+              }
             }
           });
         } else {
@@ -484,7 +488,7 @@ export default function CartClient() {
                         updateQuantity(item.id, item.quantity + 1);
                       }}
                       disabled={item.stock !== undefined && item.quantity >= (item.stock > 0 ? item.stock + 5 : 0)}
-                      title={item.stock !== undefined && item.quantity >= item.stock ? `Достигнут максимум на складе (${item.stock} шт.)` : undefined}
+                      title={item.stock !== undefined && item.quantity >= (item.stock > 0 ? item.stock + 5 : 0) ? `Достигнут максимум на складе (${item.stock > 0 ? item.stock + 5 : 0} шт.)` : undefined}
                       aria-label="Увеличить количество"
                     >+</button>
                   </div>

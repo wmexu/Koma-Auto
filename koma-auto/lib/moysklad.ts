@@ -209,7 +209,10 @@ export async function getProductsByIds(ids: string[]): Promise<Product[]> {
     }
   }
 
-  return allProducts;
+  // Preserve the caller-specified order of ids
+  const productMap = new Map<string, Product>();
+  allProducts.forEach((p) => productMap.set(p.id, p));
+  return ids.map((id) => productMap.get(id)).filter((p): p is Product => Boolean(p));
 }
 
 export async function getProductFolders(): Promise<MoySkladListResponse<MoySkladProductFolder>> {

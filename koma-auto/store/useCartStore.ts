@@ -6,6 +6,11 @@ export interface CartItem extends Product {
   quantity: number;
 }
 
+const getVisualMaxStock = (stock?: number): number => {
+  if (stock === undefined || stock === null) return 999;
+  return stock > 0 ? stock + 5 : 0;
+};
+
 interface CartState {
   items: CartItem[];
   addItem: (product: Product, quantity?: number) => void;
@@ -25,7 +30,9 @@ export const useCartStore = create<CartState>()(
         if (!product || product.price < 500) return;
         set((state) => {
           const existingItem = state.items.find((item) => item.id === product.id);
-          const maxStock = product.stock ?? existingItem?.stock ?? 999;
+          const stockVal = product.stock ?? existingItem?.stock;
+          const maxStock = getVisualMaxStock(stockVal);
+          if (maxStock <= 0) return state;
           if (existingItem) {
             const newQty = Math.min(maxStock, existingItem.quantity + Math.max(1, qty));
             return {
@@ -47,7 +54,7 @@ export const useCartStore = create<CartState>()(
         set((state) => ({
           items: state.items.map((item) => {
             if (item.id !== productId) return item;
-            const maxStock = item.stock ?? 999;
+            const maxStock = getVisualMaxStock(item.stock);
             return { ...item, quantity: Math.min(maxStock, Math.max(1, quantity)) };
           }),
         }));

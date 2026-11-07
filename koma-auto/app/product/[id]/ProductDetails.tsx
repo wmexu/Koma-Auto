@@ -428,7 +428,7 @@ ${productUrl}
       brand: target.brand || product.brand,
       price: target.price,
       oldPrice: target.oldPrice,
-      stock: target.stock ?? product.stock ?? 1,
+      stock: availableStock,
       inStock: target.inStock ?? product.inStock,
       article: ('oem' in target && target.oem) ? target.oem : (product.oem || product.article),
       oem: ('oem' in target && target.oem) ? target.oem : (product.oem || product.article),
