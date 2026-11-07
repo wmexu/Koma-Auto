@@ -1,17 +1,11 @@
 import crypto from 'node:crypto';
 
 /**
- * Generates a cryptographically strong 12-digit pickup code
- * e.g. "482910573912"
+ * Generates a cryptographically strong 6-digit pickup code
+ * e.g. "482910"
  */
 export function generatePickupCode(): string {
-  // Generate 12 digits using secure random bytes
-  let code = '';
-  while (code.length < 12) {
-    const num = crypto.randomInt(0, 1000000).toString().padStart(6, '0');
-    code += num;
-  }
-  return code.slice(0, 12);
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 export { formatPickupCode, getOrderPickupCode } from './pickup-code';

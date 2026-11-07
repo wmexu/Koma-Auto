@@ -9,8 +9,8 @@ import { notifyMoySkladOrderPaid } from '@/lib/moysklad-order';
 
 export async function GET(request: Request) {
   try {
-    // 1. Strict Server-Side Authorization: Courier, Manager, or Director
-    const auth = await verifyStaffSession(request, ['courier', 'manager', 'director']);
+    // 1. Strict Server-Side Authorization: Courier, Cashier, Manager, or Director
+    const auth = await verifyStaffSession(request, ['courier', 'cashier', 'manager', 'director']);
     if (!auth.authorized || !auth.user) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
@@ -26,6 +26,25 @@ export async function GET(request: Request) {
 
     if (!isDbConfigured() || !client) {
       return NextResponse.json({ error: 'База данных недоступна' }, { status: 503 });
+    }
+
+    // Auto-cancel expired pending orders (>20 minutes without payment) so they never hang in "Ожидает оплаты"
+    try {
+      await client`
+        UPDATE orders
+        SET 
+          payment_status = 'declined',
+          fulfillment_status = 'cancelled',
+          cancel_reason = 'Истекло время ожидания оплаты (20 минут)',
+          updated_at = NOW()
+        WHERE 
+          payment_status = 'pending'
+          AND (payment_method != 'kaspi_pay' OR payment_method IS NULL)
+          AND fulfillment_status NOT IN ('cancelled', 'completed', 'deleted')
+          AND created_at < NOW() - INTERVAL '20 minutes';
+      `;
+    } catch (expErr) {
+      console.warn('[AdminOrders] Error expiring pending orders:', expErr);
     }
 
     // Direct single order lookup for CRM Order Details page
@@ -254,8 +273,8 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const { action, orderId, courierId, courierName, status, staffUserId } = body;
 
-    // Strict Server-Side Authorization: Only Managers and Directors can reassign or modify orders
-    const auth = await verifyStaffSession(request, ['manager', 'director'], staffUserId);
+    // Strict Server-Side Authorization: Cashiers, Managers, and Directors can reassign or modify orders
+    const auth = await verifyStaffSession(request, ['cashier', 'manager', 'director'], staffUserId);
     if (!auth.authorized || !auth.user) {
       return NextResponse.json({ error: auth.error || 'Unauthorized' }, { status: auth.status || 401 });
     }

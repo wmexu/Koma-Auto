@@ -1,6 +1,8 @@
 import { client, isDbConfigured } from '@/db';
 import { logAuditEvent } from '@/lib/audit';
 
+export type StaffRole = 'courier' | 'cashier' | 'manager' | 'director';
+
 export interface StaffAuthResult {
   authorized: boolean;
   status: number;
@@ -93,7 +95,7 @@ export async function getVerifiedCallerUid(request: Request): Promise<string | n
  */
 export async function verifyStaffSession(
   request: Request,
-  allowedRoles: ('courier' | 'manager' | 'director')[] = ['courier', 'manager', 'director'],
+  allowedRoles: StaffRole[] = ['courier', 'cashier', 'manager', 'director'],
   explicitUserId?: string | null
 ): Promise<StaffAuthResult> {
   try {

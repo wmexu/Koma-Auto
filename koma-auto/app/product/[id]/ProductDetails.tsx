@@ -207,6 +207,13 @@ export default function ProductDetails({
     activeVariant?.stock ?? product?.stock ?? (activeVariant?.inStock || product?.inStock ? 1 : 0)
   );
 
+  const getDisplayStock = (stk: number): number => {
+    if (stk <= 0) return 0;
+    if (stk === 1) return 6; // +5 для товаров с 1 шт. в наличии
+    return stk;
+  };
+  const visualStock = getDisplayStock(availableStock);
+
   // Hook 1: Saved grid preference from local storage
   useEffect(() => {
     const saved = localStorage.getItem('catalog_grid_pref');
@@ -572,19 +579,18 @@ ${productUrl}
 
           <h1 className={styles.title}>{product.name}</h1>
 
-          <div className={styles.status}>
-            {isItemInStock ? (
-              <span className={styles.inStock}>В наличии</span>
-            ) : (
-              <span className={styles.outOfStock}>Нет в наличии</span>
-            )}
-          </div>
-
           <div className={styles.priceBlock}>
             <div className={styles.prices}>
               <span className={styles.price}>{displayPrice.toLocaleString()} ₸</span>
               {displayOldPrice && (
                 <span className={styles.oldPrice}>{displayOldPrice.toLocaleString()} ₸</span>
+              )}
+            </div>
+            <div className={styles.status} style={{ marginTop: '10px', marginBottom: 0 }}>
+              {isItemInStock ? (
+                <span className={styles.inStock}>В наличии {visualStock} шт.</span>
+              ) : (
+                <span className={styles.outOfStock}>Нет в наличии</span>
               )}
             </div>
           </div>
@@ -614,8 +620,8 @@ ${productUrl}
                         <span className={styles.brandOptionPrice}>{v.price.toLocaleString('ru-RU')} ₸</span>
                       </div>
                       <div className={styles.brandOptionStatus}>
-                        {v.inStock ? (
-                          <span className={styles.variantBadgeInStock}>В наличии</span>
+                        {v.inStock && (v.stock === undefined || v.stock > 0) ? (
+                          <span className={styles.variantBadgeInStock}>В наличии {getDisplayStock(v.stock ?? 1)} шт.</span>
                         ) : (
                           <span className={styles.variantBadgeOutOfStock}>Нет в наличии</span>
                         )}
@@ -637,8 +643,8 @@ ${productUrl}
               <input type="number" value={quantity} readOnly />
               <button 
                 type="button"
-                onClick={() => setQuantity(Math.min(99, quantity + 1))}
-                disabled={!isItemInStock || quantity >= 99}
+                onClick={() => setQuantity(Math.min(visualStock, quantity + 1))}
+                disabled={!isItemInStock || quantity >= visualStock}
               >+</button>
             </div>
             
@@ -683,7 +689,7 @@ ${productUrl}
               <Truck size={24} />
               <div>
                 <h4>Доставка</h4>
-                <p>От 1 дня по РК</p>
+                <p>Обработка заказа до 1 дня. От 1 до 14 дней по РК</p>
               </div>
             </div>
             <div className={styles.benefit}>

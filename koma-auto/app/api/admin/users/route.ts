@@ -88,8 +88,8 @@ export async function PATCH(request: Request) {
     const body = await request.json();
     const { targetUserId, newRole, staffUserId } = body;
 
-    // Strict Server-Side Authorization: Only Director can elevate or change user roles
-    const auth = await verifyStaffSession(request, ['director'], staffUserId);
+    // Strict Server-Side Authorization: Director and Manager can change user roles (with permission boundaries)
+    const auth = await verifyStaffSession(request, ['director', 'manager'], staffUserId);
     if (!auth.authorized) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
@@ -98,8 +98,17 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Не указан пользователь или новая роль' }, { status: 400 });
     }
 
-    if (!['customer', 'wholesale', 'courier', 'manager', 'director'].includes(newRole)) {
+    if (!['customer', 'wholesale', 'courier', 'cashier', 'manager', 'director'].includes(newRole)) {
       return NextResponse.json({ error: 'Недопустимая роль' }, { status: 400 });
+    }
+
+    // Role boundaries: Manager can only assign customer, wholesale, courier, cashier
+    if (auth.user?.role === 'manager') {
+      if (!['customer', 'wholesale', 'courier', 'cashier'].includes(newRole)) {
+        return NextResponse.json({ 
+          error: 'Запрещено: менеджер может назначать только роли: Розничный, Оптовый, Курьер, Кассир' 
+        }, { status: 403 });
+      }
     }
 
     if (!isDbConfigured() || !client) {
@@ -129,6 +138,12 @@ export async function PATCH(request: Request) {
       }, { status: 403 });
     }
 
+    if (auth.user?.role === 'manager' && (target.role === 'manager' || target.role === 'director')) {
+      return NextResponse.json({ 
+        error: 'Запрещено: менеджер не может изменять роль управляющего персонала' 
+      }, { status: 403 });
+    }
+
     // Update user role in Neon PostgreSQL Single Source of Truth
     await client`
       UPDATE users
@@ -154,6 +169,7 @@ export async function PATCH(request: Request) {
       customer: 'Клиент',
       wholesale: 'Оптовик',
       courier: 'Курьер',
+      cashier: 'Кассир',
       manager: 'Менеджер',
       director: 'Директор',
     };

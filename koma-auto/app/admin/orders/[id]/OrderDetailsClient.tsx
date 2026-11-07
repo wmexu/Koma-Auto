@@ -1007,7 +1007,7 @@ export default function OrderDetailsClient({ orderId }: OrderDetailsClientProps)
 
               <div className={styles.modalPickupCodeBox}>
                 <div className={styles.modalPickupCodeLabel}>
-                  12-значный код клиента
+                  6-значный код клиента
                 </div>
                 <div className={styles.modalPickupCodeValue}>
                   {formatPickupCode(pickupCode)}

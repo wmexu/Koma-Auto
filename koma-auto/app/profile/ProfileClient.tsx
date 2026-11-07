@@ -1199,9 +1199,9 @@ export default function ProfileClient() {
                         className={styles.select}
                       >
                         <option value="retail">Розничный клиент</option>
-                        <option value="wholesale">Оптовый клиент</option>
                         {userProfile?.role === 'director' && <option value="director">Директор (Текущий статус)</option>}
                         {userProfile?.role === 'manager' && <option value="manager">Менеджер (Текущий статус)</option>}
+                        {userProfile?.role === 'cashier' && <option value="cashier">Кассир (Текущий статус)</option>}
                         {userProfile?.role === 'courier' && <option value="courier">Курьер (Текущий статус)</option>}
                       </select>
 
@@ -1225,8 +1225,7 @@ export default function ProfileClient() {
                         className={styles.select}
                       >
                         <option value="retail">Розничный клиент</option>
-                        <option value="wholesale">Оптовый клиент</option>
-                        <option value="staff_code">Ввести код сотрудника</option>
+                        <option value="staff_code">Ввести шифр сотрудника</option>
                       </select>
 
                       {editClientType === 'staff_code' && (
@@ -1515,7 +1514,6 @@ export default function ProfileClient() {
                   className={styles.select}
                 >
                   <option value="retail">Розничный клиент</option>
-                  <option value="wholesale">Оптовый клиент</option>
                 </select>
               </div>
             </>

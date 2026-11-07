@@ -161,3 +161,55 @@ export async function sendOrderPushNotification(order: Order): Promise<{ success
 
   return { success: channels.length > 0, channels };
 }
+
+/**
+ * Sends online consultation request directly to Telegram store channel
+ */
+export async function sendConsultationTelegramNotification(data: {
+  name?: string;
+  phone: string;
+  vin?: string;
+  clientInfo?: string;
+}): Promise<boolean> {
+  const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+  const tgChatId = process.env.TELEGRAM_CHAT_ID;
+
+  if (!tgToken || !tgChatId) {
+    console.warn('[Consultation TG] TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured');
+    return false;
+  }
+
+  const message = `🔔 ЗАПРОС ОНЛАЙН-КОНСУЛЬТАЦИИ С САЙТА
+
+👤 Имя клиента: ${data.name || 'Не указано'}
+📞 Телефон: ${data.phone}
+🚗 VIN / Номер кузова: ${data.vin || 'Не указан'}
+ℹ️ ${data.clientInfo || 'Клиент: Гость'}
+⏰ Время: ${new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' })}
+
+Пожалуйста, свяжитесь с клиентом для консультации и подбора автозапчастей.`;
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: tgChatId,
+        text: message,
+        disable_web_page_preview: true,
+      }),
+    });
+
+    if (res.ok) {
+      console.log('[Consultation TG] Telegram notification sent successfully');
+      return true;
+    } else {
+      const err = await res.text();
+      console.error(`[Consultation TG] Telegram failed: ${res.status} ${err}`);
+      return false;
+    }
+  } catch (e) {
+    console.error('[Consultation TG] Exception sending Telegram notification:', e);
+    return false;
+  }
+}

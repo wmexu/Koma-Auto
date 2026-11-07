@@ -89,42 +89,36 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
       });
     }
 
-    // Fetch current real-time stock from MoySklad for Podval & Total
-    const PODVAL_STORE_URL =
-      'https://api.moysklad.ru/api/remap/1.2/entity/store/4240a87a-4ea5-11f1-0a80-1b5c0008497a';
-
+    // Fetch current real-time stock across all 7 warehouses via bystore
+    const podvalId = '4240a87a-4ea5-11f1-0a80-1b5c0008497a';
+    const stocksByStore: Record<string, number> = {};
     let stockPodval = 0;
     let stockTotal = 0;
-    try {
-      // 1. Podval stock
-      const podvalStockRes = await fetch(
-        `https://api.moysklad.ru/api/remap/1.2/report/stock/all?filter=store=${encodeURIComponent(
-          PODVAL_STORE_URL
-        )};product=https://api.moysklad.ru/api/remap/1.2/entity/product/${productId}`,
-        { headers: getMoySkladHeaders() }
-      );
-      if (podvalStockRes.ok) {
-        const d = await podvalStockRes.json();
-        if (Array.isArray(d.rows) && d.rows.length > 0 && typeof d.rows[0].stock === 'number') {
-          stockPodval = Math.max(0, Math.floor(d.rows[0].stock));
-        }
-      }
 
-      // 2. Total stock across all warehouses
-      const totalStockRes = await fetch(
-        `https://api.moysklad.ru/api/remap/1.2/report/stock/all?filter=product=https://api.moysklad.ru/api/remap/1.2/entity/product/${productId}`,
+    try {
+      const byStoreRes = await fetch(
+        `https://api.moysklad.ru/api/remap/1.2/report/stock/bystore?filter=product=https://api.moysklad.ru/api/remap/1.2/entity/product/${productId}`,
         { headers: getMoySkladHeaders() }
       );
-      if (totalStockRes.ok) {
-        const d = await totalStockRes.json();
-        if (Array.isArray(d.rows) && d.rows.length > 0 && typeof d.rows[0].stock === 'number') {
-          stockTotal = Math.max(0, Math.floor(d.rows[0].stock));
+      if (byStoreRes.ok) {
+        const d = await byStoreRes.json();
+        const row = d.rows?.[0];
+        if (row && Array.isArray(row.stockByStore)) {
+          for (const s of row.stockByStore) {
+            const sid = s.meta?.href?.split('/').pop();
+            const qty = Math.max(0, Math.floor(Number(s.stock) || 0));
+            if (sid && qty > 0) {
+              stocksByStore[sid] = qty;
+            }
+          }
         }
       }
     } catch (stockErr) {
       console.warn(`[Sync Webhook] Stock fetch error for ${productId}:`, stockErr);
     }
 
+    stockPodval = stocksByStore[podvalId] || 0;
+    stockTotal = Object.values(stocksByStore).reduce((a, b) => a + b, 0);
     const inStockPodval = stockPodval > 0;
     const inStockTotal = stockTotal > 0;
 
@@ -138,7 +132,10 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
       if (settingRow && settingRow.length > 0) {
         const raw = settingRow[0].value;
         const val = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        if (val?.id === 'all_warehouses' || val?.name === 'Все склады') {
+        if (Array.isArray(val?.store_ids) && val.store_ids.length > 0) {
+          stockQuantity = val.store_ids.reduce((acc: number, sid: string) => acc + (stocksByStore[sid] || 0), 0);
+          inStock = stockQuantity > 0;
+        } else if (val?.id === 'all_warehouses' || val?.name === 'Все склады') {
           stockQuantity = stockTotal;
           inStock = inStockTotal;
         }
@@ -149,7 +146,7 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
     await sql`
       INSERT INTO my_sklad_products (
         id, title, price, old_price, stock_quantity, in_stock,
-        stock_podval, in_stock_podval, stock_total, in_stock_total,
+        stock_podval, in_stock_podval, stock_total, in_stock_total, stocks_by_store,
         brand, category, original_oem, clean_oem_number, image, images, specs, description, updated_at
       ) VALUES (
         ${productId},
@@ -162,6 +159,7 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
         ${inStockPodval},
         ${stockTotal},
         ${inStockTotal},
+        ${JSON.stringify(stocksByStore)}::jsonb,
         ${brandInfo.brand},
         ${category},
         ${rawOem},
@@ -182,6 +180,7 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
         in_stock_podval = EXCLUDED.in_stock_podval,
         stock_total = EXCLUDED.stock_total,
         in_stock_total = EXCLUDED.in_stock_total,
+        stocks_by_store = EXCLUDED.stocks_by_store,
         brand = EXCLUDED.brand,
         category = EXCLUDED.category,
         original_oem = EXCLUDED.original_oem,

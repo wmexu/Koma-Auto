@@ -5,7 +5,7 @@
 
 export function computeDeterministicPickupCode(orderId: string): string {
   const cleanId = String(orderId || '').trim();
-  if (!cleanId) return '482910573912';
+  if (!cleanId) return '482910';
 
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
@@ -20,20 +20,21 @@ export function computeDeterministicPickupCode(orderId: string): string {
   h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
 
-  const part1 = Math.abs(h1).toString().padStart(6, '0').slice(-6);
-  const part2 = Math.abs(h2).toString().padStart(6, '0').slice(-6);
-  return `${part1}${part2}`;
+  const part = Math.abs(h1).toString().padStart(6, '0').slice(-6);
+  return part;
 }
 
 export function formatPickupCode(code?: string | null): string {
-  if (!code) return '4829 - 1057 - 3912';
+  if (!code) return '000000';
   const clean = String(code).replace(/\D/g, '');
-  if (clean.length !== 12) return String(code);
-  return `${clean.slice(0, 4)} - ${clean.slice(4, 8)} - ${clean.slice(8, 12)}`;
+  if (clean.length === 6) return clean;
+  if (clean.length >= 6) return clean.slice(0, 6);
+  return clean.padStart(6, '0');
 }
 
 export function getOrderPickupCode(orderId: string, existingCode?: string | null): string {
   const clean = String(existingCode || '').replace(/\D/g, '');
-  if (clean.length === 12) return clean;
+  if (clean.length === 6) return clean;
+  if (clean.length === 12) return clean.slice(0, 6);
   return computeDeterministicPickupCode(orderId);
 }

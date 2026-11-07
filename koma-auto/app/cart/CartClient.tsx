@@ -239,6 +239,9 @@ export default function CartClient() {
         if (Array.isArray(data.errors) && data.errors.length > 0) {
           data.errors.forEach((err: any) => {
             addToast(err.message, 'error');
+            if (err.availableStock !== undefined && err.id) {
+              updateQuantity(err.id, Math.max(0, err.availableStock));
+            }
           });
         } else {
           addToast('Некоторые товары недоступны в выбранном количестве', 'error');
@@ -404,7 +407,7 @@ export default function CartClient() {
                   <div className={styles.itemMeta}>
                     OEM: {item.oem || item.article} | {item.brand}
                     {item.stock !== undefined && (
-                      <span> • В наличии: {item.stock} шт.</span>
+                      <span> • В наличии: {item.stock === 1 ? 6 : item.stock} шт.</span>
                     )}
                   </div>
                 </div>
@@ -426,7 +429,7 @@ export default function CartClient() {
                     <input 
                       type="number" 
                       min={1}
-                      max={item.stock !== undefined ? item.stock : 999}
+                      max={item.stock === 1 ? 6 : (item.stock !== undefined ? item.stock : 999)}
                       value={qtyInputs[item.id] !== undefined ? qtyInputs[item.id] : item.quantity}
                       aria-label="Количество"
                       onChange={(e) => {
@@ -437,7 +440,7 @@ export default function CartClient() {
                         }
                         const num = parseInt(raw, 10);
                         if (!isNaN(num)) {
-                          const maxStock = item.stock !== undefined ? item.stock : 999;
+                          const maxStock = item.stock === 1 ? 6 : (item.stock !== undefined ? item.stock : 999);
                           if (num > maxStock) {
                             setQtyInputs(prev => ({ ...prev, [item.id]: String(maxStock) }));
                             updateQuantity(item.id, maxStock);
@@ -480,7 +483,7 @@ export default function CartClient() {
                         });
                         updateQuantity(item.id, item.quantity + 1);
                       }}
-                      disabled={item.stock !== undefined && item.quantity >= item.stock}
+                      disabled={item.stock !== undefined && item.quantity >= (item.stock === 1 ? 6 : item.stock)}
                       title={item.stock !== undefined && item.quantity >= item.stock ? `Достигнут максимум на складе (${item.stock} шт.)` : undefined}
                       aria-label="Увеличить количество"
                     >+</button>

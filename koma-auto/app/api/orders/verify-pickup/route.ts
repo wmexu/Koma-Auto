@@ -23,10 +23,10 @@ export async function POST(request: Request) {
     const { orderId, code, staffUserId, confirmMatch } = body;
 
     // Strict Server-Side Authorization: Only verified Staff members can complete orders
-    const auth = await verifyStaffSession(request, ['courier', 'manager', 'director'], staffUserId);
+    const auth = await verifyStaffSession(request, ['courier', 'cashier', 'manager', 'director'], staffUserId);
     if (!auth.authorized || !auth.user) {
       return NextResponse.json(
-        { error: 'Отказано: верификация заказов доступна только действующим сотрудникам (курьер, менеджер, директор)' },
+        { error: 'Отказано: верификация заказов доступна только действующим сотрудникам (курьер, кассир, менеджер, директор)' },
         { status: 403 }
       );
     }

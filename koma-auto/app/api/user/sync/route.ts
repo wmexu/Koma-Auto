@@ -32,7 +32,8 @@ export async function POST(request: Request) {
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanName = fullName ? String(fullName).trim() : null;
     const cleanPhone = phone ? String(phone).trim() : null;
-    const desiredRole = clientType === 'wholesale' ? 'wholesale' : 'customer';
+    // Zero-Trust: Wholesale can NEVER be self-assigned. All self-registered users are strictly 'customer'.
+    const desiredRole = 'customer';
     const isExplicitUpdate = Boolean(body.isExplicitUpdate);
 
     const isPlaceholderOrTestName = (name: string | null | undefined): boolean => {
@@ -59,10 +60,10 @@ export async function POST(request: Request) {
     `;
 
     if (byId && byId.length > 0) {
-      // User exists with same ID: safely update metadata without overwriting elevated staff roles
+      // User exists with same ID: safely update metadata without overwriting elevated staff roles or staff-assigned wholesale
       const currentRole = byId[0].role;
-      const isElevated = ['courier', 'manager', 'director'].includes(currentRole);
-      const finalRole = isElevated ? currentRole : (clientType === 'wholesale' ? 'wholesale' : currentRole);
+      const isProtectedRole = ['wholesale', 'courier', 'cashier', 'manager', 'director'].includes(currentRole);
+      const finalRole = isProtectedRole ? currentRole : 'customer';
 
       const existingName = byId[0].full_name;
       const isExistingReal = Boolean(existingName && !isPlaceholderOrTestName(existingName));
@@ -114,8 +115,8 @@ export async function POST(request: Request) {
     if (byEmail && byEmail.length > 0) {
       const oldId = byEmail[0].id;
       const currentRole = byEmail[0].role;
-      const isElevated = ['courier', 'manager', 'director'].includes(currentRole);
-      const finalRole = isElevated ? currentRole : (clientType === 'wholesale' ? 'wholesale' : currentRole);
+      const isProtectedRole = ['wholesale', 'courier', 'cashier', 'manager', 'director'].includes(currentRole);
+      const finalRole = isProtectedRole ? currentRole : 'customer';
 
       const existingName = byEmail[0].full_name;
       const isExistingReal = Boolean(existingName && !isPlaceholderOrTestName(existingName));

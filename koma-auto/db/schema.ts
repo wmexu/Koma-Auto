@@ -24,6 +24,7 @@ export const mySkladProducts = pgTable("my_sklad_products", {
   inStockPodval: boolean("in_stock_podval").notNull().default(false),
   stockTotal: integer("stock_total").notNull().default(0), // Суммарный остаток со всех складов
   inStockTotal: boolean("in_stock_total").notNull().default(false),
+  stocksByStore: jsonb("stocks_by_store").$type<Record<string, number>>().default({}), // Остатки в разрезе всех складов
   brand: varchar("brand", { length: 100 }), // Нормализованный канонический бренд
   category: varchar("category", { length: 100 }), // Категория (двигатель, подвеска и т.д.)
   originalOem: varchar("original_oem", { length: 255 }), // Исходный код/артикул из МС
@@ -210,4 +211,20 @@ export const auditLogs = pgTable("audit_logs", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   createdIdx: index("idx_audit_created_at").on(table.createdAt),
+}));
+
+// 12. Скидочные товары (Настоящие и маркетинговые скидки)
+export const discountedProducts = pgTable("discounted_products", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  productId: varchar("product_id", { length: 255 }).notNull().references(() => mySkladProducts.id, { onDelete: 'cascade' }),
+  discountType: varchar("discount_type", { length: 50 }).notNull(), // 'real' | 'marketing'
+  valueType: varchar("value_type", { length: 20 }).notNull(), // 'percent' | 'fixed'
+  discountValue: numeric("discount_value").notNull(),
+  originalPrice: numeric("original_price").notNull(),
+  discountedPrice: numeric("discounted_price").notNull(),
+  displayOldPrice: numeric("display_old_price"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  productIdx: index("idx_discounted_prod_id").on(table.productId),
 }));

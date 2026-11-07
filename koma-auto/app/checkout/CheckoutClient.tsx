@@ -39,7 +39,7 @@ function WhatsAppIcon({ size = 20, className = '' }: { size?: number; className?
   );
 }
 
-const CITIES_LIST = [
+const KAZAKHSTAN_CITIES = [
   "Алматы", "Актау", "Актобе", "Актюбинск", "Аркалык", "Астана", "Атбасар", "Атырау",
   "Балхаш", "Боровое",
   "Джамбул",
@@ -55,21 +55,37 @@ const CITIES_LIST = [
   "Экибастуз"
 ];
 
-const groupedCities = CITIES_LIST.reduce((acc, city) => {
-  const letter = city[0].toUpperCase();
-  if (!acc[letter]) acc[letter] = [];
-  acc[letter].push(city);
-  return acc;
-}, {} as Record<string, string[]>);
+const KYRGYZSTAN_CITIES = [
+  "Бишкек",
+  "Баткен",
+  "Джалал-Абад",
+  "Кант",
+  "Кара-Балта",
+  "Каракол",
+  "Нарын",
+  "Ош",
+  "Талас",
+  "Токмок"
+];
 
-if (groupedCities['А']) {
-  groupedCities['А'] = [
-    'Алматы',
-    ...groupedCities['А'].filter(c => c !== 'Алматы')
-  ];
-}
+const groupCitiesList = (list: string[]) => {
+  const grouped = list.reduce((acc, city) => {
+    const letter = city[0].toUpperCase();
+    if (!acc[letter]) acc[letter] = [];
+    acc[letter].push(city);
+    return acc;
+  }, {} as Record<string, string[]>);
+  if (grouped['А'] && grouped['А'].includes('Алматы')) {
+    grouped['А'] = ['Алматы', ...grouped['А'].filter(c => c !== 'Алматы')];
+  }
+  return grouped;
+};
 
-const sortedLetters = Object.keys(groupedCities).sort();
+const groupedKazakhstan = groupCitiesList(KAZAKHSTAN_CITIES);
+const sortedLettersKazakhstan = Object.keys(groupedKazakhstan).sort();
+
+const groupedKyrgyzstan = groupCitiesList(KYRGYZSTAN_CITIES);
+const sortedLettersKyrgyzstan = Object.keys(groupedKyrgyzstan).sort();
 
 const formatKazakhPhone = (val: string) => {
   let digits = val.replace(/\D/g, '');
@@ -96,6 +112,7 @@ export default function CheckoutClient() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<{ lastName?: string; firstName?: string; phone?: string }>({});
   const [isCityModalOpen, setIsCityModalOpen] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState<'KZ' | 'KG' | null>(null);
   const [killSwitchActive, setKillSwitchActive] = useState(false);
 
   const [promoCodeInput, setPromoCodeInput] = useState('');
@@ -911,7 +928,7 @@ export default function CheckoutClient() {
                       disabled={!courierAvailable}
                     />
                     <div className={styles.radioContent}>
-                      <span className={styles.radioTitle}>Курьером по Республике Казахстан</span>
+                      <span className={styles.radioTitle}>{KYRGYZSTAN_CITIES.includes(formData.city) ? 'Курьером в Кыргызстан' : 'Курьером по Республике Казахстан'}</span>
                       <span className={styles.radioDesc}>
                         {courierAvailable
                           ? 'Доставка от суммы корзины 150.000 тенге осуществляется бесплатно'
@@ -1000,9 +1017,20 @@ export default function CheckoutClient() {
             {formData.deliveryMethod === 'pickup' && (
               <div className={styles.pickupNotice}>
                 <AlertTriangle size={18} />
-                <span>
-                  Товары хранятся на складе 14 дней. По истечению срока заказ будет отменен, а деньги будут возвращены на карту в течении 1-5 дней.
-                </span>
+                {isNonAlmatyCity && totalPrice < 150000 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <span style={{ fontSize: '15px', fontWeight: 500, color: 'inherit' }}>
+                      Бесплатная доставка в ваш город доступна при заказе от 150 000 ₸.
+                    </span>
+                    <span style={{ fontSize: '13px', fontWeight: 400, opacity: 0.9 }}>
+                      Сумма вашей корзины меньше, поэтому доставка недоступна. Вы можете оформить заказ самовывозом из Car City (г. Алматы).
+                    </span>
+                  </div>
+                ) : (
+                  <span>
+                    Товары хранятся на складе 14 дней. По истечению срока заказ будет отменен, а деньги будут возвращены на карту в течении 1-5 дней.
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -1021,31 +1049,75 @@ export default function CheckoutClient() {
                     readOnly
                     onClick={() => setIsCityModalOpen(true)}
                     onFocus={() => setIsCityModalOpen(true)}
-                    placeholder="Выберите город" 
+                    placeholder="Выбор города" 
                     autoComplete="off"
                     style={{ cursor: 'pointer' }}
                   />
                   {isCityModalOpen && (
                     <>
-                      <div className={styles.cityModalOverlay} onClick={() => setIsCityModalOpen(false)} />
+                      <div 
+                        className={styles.cityModalOverlay} 
+                        onClick={() => {
+                          setIsCityModalOpen(false);
+                          setSelectedCountry(null);
+                        }} 
+                      />
                       <div className={styles.cityDropdown}>
-                        {sortedLetters.map(letter => (
-                          <div key={letter} className={styles.cityGroup}>
-                            <div className={styles.cityLetter}>{letter}</div>
-                            {groupedCities[letter].map(city => (
-                              <div 
-                                key={city} 
-                                className={styles.cityItem}
-                                onClick={() => {
-                                  setFormData(prev => ({ ...prev, city }));
-                                  setIsCityModalOpen(false);
-                                }}
-                              >
-                                {city}
-                              </div>
-                            ))}
+                        {!selectedCountry ? (
+                          <div className={styles.cityGroup}>
+                            <div className={styles.cityLetter}>К</div>
+                            <div 
+                              className={styles.cityItem}
+                              onClick={() => setSelectedCountry('KZ')}
+                            >
+                              Казахстан
+                            </div>
+                            <div 
+                              className={styles.cityItem}
+                              onClick={() => setSelectedCountry('KG')}
+                            >
+                              Кыргызстан
+                            </div>
                           </div>
-                        ))}
+                        ) : (
+                          <>
+                            <div 
+                              className={styles.cityItem}
+                              style={{ 
+                                color: '#0ea5e9', 
+                                fontWeight: 500, 
+                                borderBottom: '1px solid #e2e8f0', 
+                                marginBottom: '6px',
+                                paddingBottom: '8px' 
+                              }}
+                              onClick={() => setSelectedCountry(null)}
+                            >
+                              ← Назад к выбору страны
+                            </div>
+                            {(selectedCountry === 'KZ' ? sortedLettersKazakhstan : sortedLettersKyrgyzstan).map(letter => {
+                              const group = selectedCountry === 'KZ' ? groupedKazakhstan[letter] : groupedKyrgyzstan[letter];
+                              if (!group || group.length === 0) return null;
+                              return (
+                                <div key={letter} className={styles.cityGroup}>
+                                  <div className={styles.cityLetter}>{letter}</div>
+                                  {group.map(city => (
+                                    <div 
+                                      key={city} 
+                                      className={styles.cityItem}
+                                      onClick={() => {
+                                        setFormData(prev => ({ ...prev, city }));
+                                        setIsCityModalOpen(false);
+                                        setSelectedCountry(null);
+                                      }}
+                                    >
+                                      {city}
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
                       </div>
                     </>
                   )}

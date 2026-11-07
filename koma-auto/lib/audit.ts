@@ -14,6 +14,8 @@ export type AuditAction =
   | 'WAREHOUSE_CHANGED'
   | 'PROMOCODE_CREATED'
   | 'PROMOCODE_DELETED'
+  | 'DISCOUNT_CREATED'
+  | 'DISCOUNT_DELETED'
   | 'PICKUP_CODE_VIEWED'
   | 'UNAUTHORIZED_ADMIN_ACCESS_ATTEMPT'
   | 'FORBIDDEN_ADMIN_ACCESS_ATTEMPT'
@@ -23,7 +25,7 @@ export type AuditAction =
 export interface AuditParams {
   userId?: string | null;
   action: AuditAction;
-  entityType: 'order' | 'user' | 'promocode' | 'system' | 'token' | 'admin_api';
+  entityType: 'order' | 'user' | 'promocode' | 'discount' | 'system' | 'token' | 'admin_api';
   entityId?: string | null;
   details?: Record<string, any>;
   ipAddress?: string | null;

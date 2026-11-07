@@ -18,7 +18,7 @@ export async function POST(
     let cancelledBy: 'admin' | 'user' | 'system' = 'admin';
 
     if (!isAuthorized) {
-      const staffAuth = await verifyStaffSession(request, ['director', 'manager']);
+      const staffAuth = await verifyStaffSession(request, ['director', 'manager', 'cashier']);
       if (staffAuth.authorized && staffAuth.user) {
         isAuthorized = true;
         cancelledBy = 'admin';
