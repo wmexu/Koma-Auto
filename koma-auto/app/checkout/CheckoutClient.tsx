@@ -386,7 +386,7 @@ export default function CheckoutClient() {
     if (totalPrice >= 75000) {
       deliveryCost = 0;
     } else {
-      deliveryCost = 6500;
+      deliveryCost = 2000;
     }
   } else {
     if (totalPrice < 150000) {
@@ -954,7 +954,7 @@ export default function CheckoutClient() {
                     <div className={styles.radioContent}>
                       <span className={styles.radioTitle}>Курьером по городу Алматы</span>
                       <span className={styles.radioDesc}>
-                        6500 тенге, при сумме корзины 75000 тенге доставка по г. Алматы бесплатно
+                        2000 тенге, при сумме корзины 75000 тенге доставка по г. Алматы бесплатно
                       </span>
                     </div>
                   </label>
@@ -992,7 +992,7 @@ export default function CheckoutClient() {
                       <span className={styles.radioDesc}>
                         {normalizedCity === '' 
                           ? 'Выберите город для расчета'
-                          : '6500 тенге, при сумме корзины 75000 тенге доставка по г. Алматы бесплатно'}
+                          : '2000 тенге, при сумме корзины 75000 тенге доставка по г. Алматы бесплатно'}
                       </span>
                     </div>
                   </label>

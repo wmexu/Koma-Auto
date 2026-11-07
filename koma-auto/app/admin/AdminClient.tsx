@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useToastStore } from '@/store/useToastStore';
 import { 
-  Shield, Package, Truck, Users, Tag, Settings, KeyRound, Ticket, ExternalLink, 
+  Shield, BadgePercent, Package, Truck, Users, Tag, Settings, KeyRound, Ticket, ExternalLink, 
   ArrowLeft, CheckCircle, AlertTriangle, Search, Copy, Check, Clock, Eye,
   MoreVertical, Archive, XCircle, X, RotateCcw, Trash2, Lock, RefreshCw,
   Calendar, ChevronLeft, ChevronRight, CreditCard
@@ -1227,7 +1227,7 @@ export default function AdminClient() {
                 className={`${styles.tabBtn} ${activeTab === 'promocodes' ? styles.activeTabBtn : ''}`}
                 onClick={() => setActiveTab('promocodes')}
               >
-                <Tag size={16} />
+                <Ticket size={16} />
                 Промокоды
               </button>
               <button
@@ -1235,7 +1235,7 @@ export default function AdminClient() {
                 className={`${styles.tabBtn} ${activeTab === 'discounts' ? styles.activeTabBtn : ''}`}
                 onClick={() => setActiveTab('discounts')}
               >
-                <Tag size={16} />
+                <BadgePercent size={16} />
                 Скидочные товары
               </button>
             </>
@@ -2376,8 +2376,8 @@ export default function AdminClient() {
                     <th>Товар</th>
                     <th>Тип скидки</th>
                     <th>Размер</th>
-                    <th>Реальная цена на складе</th>
-                    <th>Клиент видит</th>
+                    <th style={{ whiteSpace: 'nowrap' }}>На складе</th>
+                    <th style={{ whiteSpace: 'nowrap', minWidth: '170px' }}>Клиент видит</th>
                     <th>Действие</th>
                   </tr>
                 </thead>
@@ -2400,7 +2400,13 @@ export default function AdminClient() {
                       .map((d: any) => {
                         const isReal = d.discount_type === 'real';
                         return (
-                          <tr key={d.id}>
+                          <tr
+                            key={d.id}
+                            className={styles.userTableRowClickable}
+                            onClick={() => window.open(`/product/${d.product_id}`, '_blank')}
+                            style={{ cursor: 'pointer' }}
+                            title="Нажмите на строку, чтобы открыть страницу товара"
+                          >
                             <td>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 {d.image ? (
@@ -2440,9 +2446,9 @@ export default function AdminClient() {
                             <td style={{ fontSize: '13px', fontWeight: 600 }}>
                               {d.value_type === 'percent' ? `${d.discount_value}%` : `${Number(d.discount_value).toLocaleString()} ₸`}
                             </td>
-                            <td style={{ fontSize: '13px' }}>
+                            <td style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>
                               {isReal ? (
-                                <span>
+                                <span style={{ whiteSpace: 'nowrap' }}>
                                   <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>
                                     {Number(d.original_price).toLocaleString()} ₸
                                   </span>
@@ -2451,46 +2457,46 @@ export default function AdminClient() {
                                   </strong>
                                 </span>
                               ) : (
-                                <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                                <span style={{ fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap' }}>
                                   {Number(d.original_price).toLocaleString()} ₸
                                 </span>
                               )}
                             </td>
-                            <td style={{ fontSize: '13px' }}>
+                            <td style={{ fontSize: '13px', whiteSpace: 'nowrap' }}>
                               {d.display_old_price ? (
-                                <span>
+                                <span style={{ whiteSpace: 'nowrap' }}>
                                   <span style={{ textDecoration: 'line-through', color: '#94a3b8', marginRight: '6px' }}>
                                     {Number(d.display_old_price).toLocaleString()} ₸
                                   </span>
-                                  <strong style={{ fontWeight: 700, color: '#16a34a' }}>
+                                  <strong style={{ fontWeight: 700, color: '#0f172a' }}>
                                     {Number(d.discounted_price).toLocaleString()} ₸
                                   </strong>
                                 </span>
                               ) : (
-                                <span style={{ fontWeight: 700 }}>{Number(d.discounted_price).toLocaleString()} ₸</span>
+                                <span style={{ fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>{Number(d.discounted_price).toLocaleString()} ₸</span>
                               )}
                             </td>
-                            <td>
+                            <td onClick={(e) => e.stopPropagation()}>
                               <button
                                 type="button"
-                                onClick={() => handleDeleteDiscount(d.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteDiscount(d.id);
+                                }}
                                 style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '5px',
-                                  background: '#fee2e2',
-                                  border: '1px solid #fca5a5',
-                                  color: '#b91c1c',
-                                  borderRadius: '6px',
+                                  background: 'linear-gradient(135deg, #f87171 0%, #ef4444 100%)',
+                                  WebkitBackgroundClip: 'text',
+                                  WebkitTextFillColor: 'transparent',
+                                  color: '#ef4444',
+                                  border: 'none',
                                   cursor: 'pointer',
-                                  fontSize: '12px',
-                                  fontWeight: 500,
-                                  padding: '5px 10px',
+                                  fontSize: '13px',
+                                  fontWeight: 600,
+                                  padding: '4px 6px',
                                 }}
                                 title="Удалить скидку и вернуть стандартную цену"
                               >
-                                <Trash2 size={13} />
-                                <span>Удалить</span>
+                                Удалить
                               </button>
                             </td>
                           </tr>
@@ -3475,20 +3481,22 @@ export default function AdminClient() {
     
         {/* MODAL: CREATE DISCOUNT (2 STEPS) */}
         {isDiscountModalOpen && (
-          <div className={styles.modalOverlay} onClick={() => !isSubmittingDiscount && setIsDiscountModalOpen(false)}>
+          <div className={styles.modalOverlay}>
             <div
               className={styles.modalCard}
               onClick={e => e.stopPropagation()}
               style={{
-                width: '92%',
-                maxWidth: '920px',
-                height: 'min(740px, 86vh)',
+                width: '94%',
+                maxWidth: '1100px',
+                height: 'min(820px, 88vh)',
+                maxHeight: '90vh',
+                margin: 'auto',
                 padding: 0,
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
                 background: '#ffffff',
-                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                boxShadow: '0 25px 35px -5px rgba(0, 0, 0, 0.15), 0 10px 15px -5px rgba(0, 0, 0, 0.06)',
               }}
             >
               {/* Header */}
@@ -3503,10 +3511,10 @@ export default function AdminClient() {
                 }}
               >
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: 'var(--color-navy)' }}>
+                  <h3 style={{ margin: 0, fontSize: '19px', fontWeight: 800, color: 'var(--color-navy)' }}>
                     {discountStep === 1 ? 'Выбор товаров для скидки' : 'Настройка параметров скидки'}
                   </h3>
-                  <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b' }}>
+                  <p style={{ margin: '4px 0 0', fontSize: '13.5px', color: '#64748b' }}>
                     {discountStep === 1
                       ? 'Выберите один или несколько товаров для назначения скидки (доступны все склады)'
                       : `Выбрано товаров: ${selectedDiscountProducts.length}. Настройте тип и величину скидки.`}
@@ -3537,7 +3545,8 @@ export default function AdminClient() {
                           paddingLeft: '38px',
                           width: '100%',
                           margin: 0,
-                          fontSize: '13px',
+                          fontSize: '14px',
+                          padding: '12px 14px 12px 42px',
                           fontWeight: 400,
                         }}
                         autoFocus
@@ -3587,32 +3596,31 @@ export default function AdminClient() {
                             >
                               <div>
                                 <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginBottom: '8px' }}>
-                                  {/* Rounded Square Thumbnail */}
+                                  {/* Rounded Square Thumbnail (1:1 identical placeholder to the website) */}
                                   <div
                                     style={{
-                                      width: '52px',
-                                      height: '52px',
-                                      minWidth: '52px',
+                                      width: '56px',
+                                      height: '56px',
+                                      minWidth: '56px',
                                       borderRadius: '8px',
                                       overflow: 'hidden',
-                                      background: '#f1f5f9',
+                                      background: '#F5F5F5',
                                       border: '1px solid #e2e8f0',
                                       display: 'flex',
                                       alignItems: 'center',
                                       justifyContent: 'center',
                                     }}
                                   >
-                                    {p.image ? (
-                                      <img
-                                        src={p.image}
-                                        alt=""
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                      />
-                                    ) : (
-                                      <div style={{ textAlign: 'center', padding: '4px', fontSize: '9px', fontWeight: 600, color: '#94a3b8' }}>
-                                        KOMA
-                                      </div>
-                                    )}
+                                    <img
+                                      src={
+                                        p.image ||
+                                        `https://placehold.co/400x400/F5F5F5/060F48?text=${encodeURIComponent(
+                                          (p.title || p.name || '').split(' ').slice(0, 2).join('\n')
+                                        )}`
+                                      }
+                                      alt=""
+                                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    />
                                   </div>
 
                                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -3656,45 +3664,23 @@ export default function AdminClient() {
                                 </div>
                               </div>
 
-                              {/* Bottom row: Price, Stock badge, and ExternalLink icon */}
+                              {/* Bottom row: Price, Stock count (clean gray, no border), and ExternalLink icon with circular hover */}
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
-                                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-navy, #060F48)' }}>
+                                <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-navy, #060F48)' }}>
                                   {Number(p.price).toLocaleString()} ₸
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  {isInStock ? (
-                                    <span
-                                      style={{
-                                        display: 'inline-block',
-                                        padding: '2px 6px',
-                                        borderRadius: '4px',
-                                        fontSize: '11px',
-                                        fontWeight: 600,
-                                        background: '#f0fdf4',
-                                        color: '#15803d',
-                                        border: '1px solid #bbf7d0',
-                                      }}
-                                    >
-                                      {stockCount} шт.
-                                    </span>
-                                  ) : (
-                                    <span
-                                      style={{
-                                        display: 'inline-block',
-                                        padding: '2px 6px',
-                                        borderRadius: '4px',
-                                        fontSize: '11px',
-                                        fontWeight: 600,
-                                        background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
-                                        color: '#b91c1c',
-                                        border: '1px solid #fecaca',
-                                      }}
-                                    >
-                                      0 шт.
-                                    </span>
-                                  )}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span
+                                    style={{
+                                      fontSize: '12px',
+                                      fontWeight: 500,
+                                      color: isInStock ? '#64748b' : '#94a3b8',
+                                    }}
+                                  >
+                                    {stockCount} шт.
+                                  </span>
 
-                                  {/* Link to product page */}
+                                  {/* Clean gray link with circular darkening hover */}
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -3702,18 +3688,23 @@ export default function AdminClient() {
                                       window.open(`/product/${p.id}`, '_blank');
                                     }}
                                     style={{
-                                      background: 'none',
+                                      background: 'transparent',
                                       border: 'none',
-                                      padding: '2px',
+                                      width: '26px',
+                                      height: '26px',
+                                      borderRadius: '50%',
                                       cursor: 'pointer',
                                       display: 'flex',
                                       alignItems: 'center',
                                       justifyContent: 'center',
-                                      color: isInStock ? '#15803d' : '#b91c1c',
+                                      color: '#64748b',
+                                      transition: 'background-color 0.15s ease',
                                     }}
-                                    title="Открыть страницу товара в новой вкладке"
+                                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.08)')}
+                                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                                    title="Перейти на страницу товара"
                                   >
-                                    <ExternalLink size={14} />
+                                    <ExternalLink size={15} />
                                   </button>
                                 </div>
                               </div>

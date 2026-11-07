@@ -33,7 +33,8 @@ export async function GET(request: Request) {
         p.original_oem,
         p.image,
         p.stock_quantity,
-        p.in_stock
+        p.in_stock,
+        0 as sort_priority
       FROM discounted_products d
       JOIN my_sklad_products p ON d.product_id = p.id
 
@@ -54,12 +55,13 @@ export async function GET(request: Request) {
         p.original_oem,
         p.image,
         p.stock_quantity,
-        p.in_stock
+        p.in_stock,
+        1 as sort_priority
       FROM my_sklad_products p
       WHERE p.old_price IS NOT NULL 
         AND p.old_price > p.price
         AND NOT EXISTS (SELECT 1 FROM discounted_products dp WHERE dp.product_id = p.id)
-      ORDER BY created_at DESC;
+      ORDER BY sort_priority ASC, created_at DESC;
     `;
 
     return NextResponse.json({ success: true, discounts: rows });

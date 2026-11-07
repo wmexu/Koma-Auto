@@ -209,8 +209,7 @@ export default function ProductDetails({
 
   const getDisplayStock = (stk: number): number => {
     if (stk <= 0) return 0;
-    if (stk === 1) return 6; // +5 для товаров с 1 шт. в наличии
-    return stk;
+    return stk + 5; // +5 штук визуально для всех брендов и товаров в наличии
   };
   const visualStock = getDisplayStock(availableStock);
 
@@ -690,7 +689,7 @@ ${productUrl}
               <Truck size={24} />
               <div>
                 <h4>Доставка</h4>
-                <p>Обработка заказа до 1 дня. От 1 до 14 дней по РК</p>
+                <p>Обработка заказа до 1 дня. Доставка 1 до 14 дней по РК</p>
               </div>
             </div>
             <div className={styles.benefit}>
