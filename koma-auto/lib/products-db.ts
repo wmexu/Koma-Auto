@@ -113,21 +113,15 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
   };
 
   const finalVariants = variants.length > 0 ? variants : [defaultVariant];
-  const primaryBrand = finalVariants[0]?.brand || determinedBrand;
-  const prices = finalVariants.map((v) => v.price).filter((p) => p >= 500);
-  const minPrice = prices.length > 0 ? Math.min(...prices) : price;
-  const maxPrice = prices.length > 0 ? Math.max(...prices) : price;
 
   return {
     id: r.id,
     moySkladId: r.id,
     article: r.clean_oem_number || r.original_oem || '',
     oem: r.clean_oem_number || '',
-    brand: primaryBrand,
+    brand: determinedBrand,
     name: r.title,
     price,
-    minPrice,
-    maxPrice,
     oldPrice,
     stock,
     inStock: Boolean(r.in_stock),
