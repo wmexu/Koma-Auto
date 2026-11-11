@@ -9,6 +9,14 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'placehold.co',
       },
+      {
+        protocol: 'https',
+        hostname: '**.neon.tech',
+      },
+      {
+        protocol: 'https',
+        hostname: 'br-square-rice-b4g35y3p.storage.c-6.us-east-2.aws.neon.tech',
+      },
     ],
   },
 };

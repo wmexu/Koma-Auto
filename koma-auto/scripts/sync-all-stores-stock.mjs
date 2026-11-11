@@ -72,7 +72,8 @@ async function fetchStoreStock(storeId) {
     }
     offset += rows.length;
     if (rows.length === 0) break;
-    await new Promise((r) => setTimeout(r, 250));
+    // Pacing delay (<= 3 req/sec) to keep MoySklad API safe from rate limits
+    await new Promise((r) => setTimeout(r, 350));
   }
 
   return map;

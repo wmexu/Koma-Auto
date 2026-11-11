@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getMoySkladAuthHeaders } from '@/lib/moysklad';
+import {
+  isNeonStorageConfigured,
+  getImageFromStorage,
+  uploadImageToStorage,
+  compressToWebp,
+  extractPhotoKey,
+} from '@/lib/neon-storage';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -14,7 +21,7 @@ interface CachedImage {
 const memoryCache = new Map<string, CachedImage>();
 const MAX_MEMORY_ITEMS = 500;
 
-// Negative cache: stores failed image UUIDs to prevent repeated failing requests to MoySklad
+// Negative cache: stores failed image identifiers to prevent repeated failing requests to MoySklad
 const negativeCache = new Map<string, number>();
 const NEGATIVE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -44,9 +51,11 @@ export async function GET(request: Request) {
 
     // Cache key based on SHA256 of download URL (each photo UUID in MoySklad is unique and immutable)
     const cacheKey = crypto.createHash('sha256').update(href).digest('hex');
+    const photoKey = extractPhotoKey(href);
+    const storageKey = `products/${photoKey}.webp`;
 
     // 1. Negative cache check: If this download URL previously failed/404, block immediately without touching MoySklad
-    const negativeUntil = negativeCache.get(cacheKey);
+    const negativeUntil = negativeCache.get(cacheKey) || negativeCache.get(photoKey);
     if (negativeUntil && negativeUntil > Date.now()) {
       return new NextResponse('Image not found', {
         status: 404,
@@ -61,11 +70,33 @@ export async function GET(request: Request) {
         headers: {
           'Content-Type': cached.contentType,
           'Cache-Control': 'public, max-age=31536000, immutable',
+          'X-Cache-Source': 'memory',
         },
       });
     }
 
-    // 3. Check persistent disk cache
+    // 3. Check Neon Object Storage (High-speed serverless persistent storage, completely independent of MoySklad token)
+    if (isNeonStorageConfigured()) {
+      try {
+        const stored = await getImageFromStorage(storageKey);
+        if (stored) {
+          if (memoryCache.size < MAX_MEMORY_ITEMS) {
+            memoryCache.set(cacheKey, { buffer: stored.buffer, contentType: stored.contentType });
+          }
+          return new NextResponse(new Uint8Array(stored.buffer), {
+            headers: {
+              'Content-Type': stored.contentType,
+              'Cache-Control': 'public, max-age=31536000, immutable',
+              'X-Cache-Source': 'neon-storage',
+            },
+          });
+        }
+      } catch (storageErr) {
+        console.warn('[Image Proxy] Neon Object Storage read error, falling back:', storageErr);
+      }
+    }
+
+    // 4. Check persistent local disk cache
     const dataPath = path.join(CACHE_DIR, `${cacheKey}.bin`);
     const metaPath = path.join(CACHE_DIR, `${cacheKey}.json`);
 
@@ -83,6 +114,7 @@ export async function GET(request: Request) {
           headers: {
             'Content-Type': meta.contentType,
             'Cache-Control': 'public, max-age=31536000, immutable',
+            'X-Cache-Source': 'disk',
           },
         });
       }
@@ -90,7 +122,7 @@ export async function GET(request: Request) {
       console.warn('[Image Proxy] Disk cache read error, proceeding to fetch:', diskErr);
     }
 
-    // 4. Fetch directly from MoySklad with strict timeout guard
+    // 5. Fetch from MoySklad with strict timeout guard
     try {
       const headers = getMoySkladAuthHeaders();
       const controller = new AbortController();
@@ -115,17 +147,19 @@ export async function GET(request: Request) {
       if (!response.ok) {
         // Record in negative cache so repeated failed requests don't hit MoySklad again
         negativeCache.set(cacheKey, Date.now() + NEGATIVE_CACHE_TTL_MS);
+        negativeCache.set(photoKey, Date.now() + NEGATIVE_CACHE_TTL_MS);
         return new NextResponse(`Failed to fetch image: ${response.statusText}`, {
           status: response.status === 429 ? 429 : 404,
           headers: { 'Cache-Control': 'public, max-age=3600' },
         });
       }
 
-      const contentType = response.headers.get('content-type') || 'application/octet-stream';
+      const rawContentType = response.headers.get('content-type') || 'application/octet-stream';
 
       // Verify response is actually an image and not serialized JSON data
-      if (!contentType.startsWith('image/')) {
+      if (!rawContentType.startsWith('image/')) {
         negativeCache.set(cacheKey, Date.now() + NEGATIVE_CACHE_TTL_MS);
+        negativeCache.set(photoKey, Date.now() + NEGATIVE_CACHE_TTL_MS);
         return new NextResponse('Access denied: Requested resource is not an image', {
           status: 403,
           headers: { 'Cache-Control': 'no-store' },
@@ -133,33 +167,54 @@ export async function GET(request: Request) {
       }
 
       const arrayBuf = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuf);
+      const rawBuffer = Buffer.from(arrayBuf);
+
+      // Compress to high-quality WebP (max 800x800, quality 78, metadata stripped)
+      let finalBuffer: Buffer = rawBuffer;
+      let finalContentType = rawContentType;
+
+      try {
+        const compressed = await compressToWebp(rawBuffer, 800, 78);
+        finalBuffer = Buffer.from(compressed);
+        finalContentType = 'image/webp';
+      } catch (compressErr) {
+        console.warn('[Image Proxy] WebP compression error, serving raw image:', compressErr);
+      }
+
+      // Asynchronously upload to Neon Object Storage
+      if (isNeonStorageConfigured()) {
+        uploadImageToStorage(storageKey, finalBuffer, finalContentType).catch((uploadErr) => {
+          console.warn('[Image Proxy] Asynchronous Neon Storage upload error:', uploadErr);
+        });
+      }
 
       // Save to disk cache
       try {
         if (!fs.existsSync(CACHE_DIR)) {
           fs.mkdirSync(CACHE_DIR, { recursive: true });
         }
-        fs.writeFileSync(dataPath, buffer);
-        fs.writeFileSync(metaPath, JSON.stringify({ contentType, cachedAt: Date.now() }));
+        fs.writeFileSync(dataPath, finalBuffer);
+        fs.writeFileSync(metaPath, JSON.stringify({ contentType: finalContentType, cachedAt: Date.now() }));
       } catch (cacheWriteErr) {
         console.warn('[Image Proxy] Failed to write disk cache:', cacheWriteErr);
       }
 
       // Save to in-memory cache
       if (memoryCache.size < MAX_MEMORY_ITEMS) {
-        memoryCache.set(cacheKey, { buffer, contentType });
+        memoryCache.set(cacheKey, { buffer: finalBuffer, contentType: finalContentType });
       }
 
-      return new NextResponse(new Uint8Array(buffer), {
+      return new NextResponse(new Uint8Array(finalBuffer), {
         headers: {
-          'Content-Type': contentType,
+          'Content-Type': finalContentType,
           'Cache-Control': 'public, max-age=31536000, immutable',
+          'X-Cache-Source': 'origin-compressed',
         },
       });
     } catch (fetchErr) {
       console.warn('[Image Proxy] Error fetching from MoySklad:', fetchErr);
       negativeCache.set(cacheKey, Date.now() + 60000); // 1 minute negative cache on network error
+      negativeCache.set(photoKey, Date.now() + 60000);
       return new NextResponse('Image unavailable', {
         status: 404,
         headers: { 'Cache-Control': 'public, max-age=60' },

@@ -125,6 +125,9 @@ async function run() {
     totalUpdated += rows.length;
     offset += batchSize;
     console.log(`Processed ${totalUpdated}/${total} products...`);
+
+    // Pacing delay (<= 3 req/sec) to avoid triggering MoySklad rate limit
+    await new Promise(r => setTimeout(r, 350));
   }
 
   console.log('\n=== SYNC COMPLETED ===');

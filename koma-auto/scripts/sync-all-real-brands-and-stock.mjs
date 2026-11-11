@@ -105,8 +105,8 @@ async function main() {
       console.log(`Progress: ${processed}/${total} (${pct}%) in ${elapsed}s...`);
     }
 
-    // Small delay between requests to keep MoySklad happy
-    await new Promise(r => setTimeout(r, 120));
+    // Pacing delay (<= 3 req/sec) to keep MoySklad API safe from rate limits
+    await new Promise(r => setTimeout(r, 350));
   }
 
   const elapsedTotal = ((Date.now() - t0) / 1000).toFixed(1);

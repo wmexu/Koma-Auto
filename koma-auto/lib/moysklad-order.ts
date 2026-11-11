@@ -4,6 +4,7 @@ if (typeof dns.setDefaultResultOrder === 'function') {
 }
 import { Order } from './order-types';
 import { sendOrderPushNotification, formatOrderReport } from './notifications';
+import { client, isDbConfigured } from '@/db';
 
 const API_URL = process.env.MOYSKLAD_API_URL || 'https://api.moysklad.ru/api/remap/1.2';
 const TOKEN = process.env.MOYSKLAD_TOKEN;
@@ -133,21 +134,27 @@ async function buildOrderPositions(order: Order): Promise<any[]> {
           mediaType: 'application/json',
         };
       } else {
-        const searchCode = item.oem || item.article;
-        if (searchCode) {
+        // Fast local lookup in Neon Postgres to eliminate live MoySklad API search (<5ms, zero token quota usage)
+        const searchCode = item.oem || item.article || item.id;
+        if (searchCode && isDbConfigured() && client) {
           try {
-            const clean = searchCode.replace(/[\s\-\.]/g, '');
-            const pRes = await fetch(`${API_URL}/entity/product?filter=code~=${encodeURIComponent(clean)}&limit=1`, {
-              headers: getGetHeaders(),
-            });
-            if (pRes.ok) {
-              const pData = await pRes.json();
-              if (pData.rows && pData.rows.length > 0) {
-                itemMeta = pData.rows[0].meta;
-              }
+            const clean = searchCode.replace(/[\s\-\.]/g, '').toUpperCase();
+            const rows = await client`
+              SELECT id FROM my_sklad_products
+              WHERE clean_oem_number = ${clean}
+                 OR original_oem = ${searchCode}
+                 OR id = ${item.id}
+              LIMIT 1;
+            `;
+            if (rows && rows.length > 0 && rows[0].id) {
+              itemMeta = {
+                href: `${API_URL}/entity/product/${rows[0].id}`,
+                type: 'product',
+                mediaType: 'application/json',
+              };
             }
-          } catch (e) {
-            // fallback
+          } catch (dbErr) {
+            console.warn('[MoySklad Order] Neon DB product lookup failed for item:', item.id, dbErr);
           }
         }
       }

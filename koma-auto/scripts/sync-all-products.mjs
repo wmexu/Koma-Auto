@@ -295,6 +295,9 @@ async function run() {
       process.stdout.write(
         `\r[Progress] ${syncedCount.toLocaleString('ru-RU')} / ${totalProducts.toLocaleString('ru-RU')} (${pct}%) | ${itemsPerSec} items/sec | ETA: ${remainingSec}s    `
       );
+
+      // Pacing delay (<= 3 req/sec) to avoid triggering MoySklad 429 rate limit or token ban
+      await new Promise((r) => setTimeout(r, 350));
     } catch (batchErr) {
       console.error('\nBatch error, retrying in 3s:', batchErr.message);
       await new Promise((r) => setTimeout(r, 3000));

@@ -141,8 +141,8 @@ async function run() {
       failed++;
     }
 
-    // Small delay to be polite to MoySklad API rate limits
-    await new Promise((res) => setTimeout(res, 200));
+    // Pacing delay (<= 3 req/sec) to respect MoySklad API rate limits
+    await new Promise((res) => setTimeout(res, 350));
   }
 
   console.log(`================================================================================`);

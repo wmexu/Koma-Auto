@@ -67,8 +67,8 @@ async function fetchAllPages(endpointUrl) {
     console.log(`Fetched ${allRows.length} / ${total} rows...`);
 
     if (rows.length === 0) break;
-    // Small delay between requests to be safe
-    await new Promise(r => setTimeout(r, 300));
+    // Pacing delay (<= 3 req/sec) to avoid rate limits
+    await new Promise(r => setTimeout(r, 350));
   }
 
   return allRows;
