@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 
 export const dynamic = 'force-dynamic';
 
-// In-memory cache for ultra-fast (<0.1ms) image delivery
+// In-memory cache for instant (<0.1ms) image delivery
 interface CachedImage {
   buffer: Buffer;
   contentType: string;
@@ -14,49 +14,11 @@ interface CachedImage {
 const memoryCache = new Map<string, CachedImage>();
 const MAX_MEMORY_ITEMS = 500;
 
-// Negative cache: stores failed image UUIDs to prevent repeated requests to MoySklad (DDoS protection)
+// Negative cache: stores failed image UUIDs to prevent repeated failing requests to MoySklad
 const negativeCache = new Map<string, number>();
 const NEGATIVE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-// Strict concurrency throttle: limits simultaneous outbound fetches to MoySklad
-// MoySklad has a global 15 req/sec limit. Capping to max 3 concurrent fetches guarantees
-// we never exceed MoySklad limits, even under severe DDoS or script attacks.
-const MAX_CONCURRENT_MOYSKLAD_FETCHES = 3;
-let activeMoyskladFetches = 0;
-const fetchQueue: Array<() => void> = [];
-
-async function acquireFetchSlot(): Promise<() => void> {
-  if (activeMoyskladFetches < MAX_CONCURRENT_MOYSKLAD_FETCHES) {
-    activeMoyskladFetches++;
-    return releaseFetchSlot;
-  }
-
-  return new Promise((resolve, reject) => {
-    // Fast backpressure timeout (3.5s) so client requests never hang
-    const timer = setTimeout(() => {
-      const idx = fetchQueue.indexOf(proceed);
-      if (idx !== -1) fetchQueue.splice(idx, 1);
-      reject(new Error('Image fetch queue busy'));
-    }, 3500);
-
-    const proceed = () => {
-      clearTimeout(timer);
-      resolve(releaseFetchSlot);
-    };
-    fetchQueue.push(proceed);
-  });
-}
-
-function releaseFetchSlot() {
-  activeMoyskladFetches--;
-  const next = fetchQueue.shift();
-  if (next) {
-    activeMoyskladFetches++;
-    next();
-  }
-}
-
-// Local disk cache directory to survive server restarts and avoid any MoySklad traffic
+// Local disk cache directory to survive restarts and avoid repeating MoySklad downloads
 const CACHE_DIR = path.join(process.cwd(), '.cache', 'ms-images');
 
 export async function GET(request: Request) {
@@ -128,35 +90,24 @@ export async function GET(request: Request) {
       console.warn('[Image Proxy] Disk cache read error, proceeding to fetch:', diskErr);
     }
 
-    // 4. Not in cache: Acquire concurrency semaphore slot before talking to MoySklad
-    let releaseSlot: (() => void) | null = null;
-    try {
-      releaseSlot = await acquireFetchSlot();
-    } catch {
-      // Concurrency limit reached and queue timed out: return 429 backpressure to protect MoySklad
-      return new NextResponse('Too many image requests in progress. Please retry.', {
-        status: 429,
-        headers: { 'Retry-After': '2' },
-      });
-    }
-
+    // 4. Fetch directly from MoySklad (No artificial client-throttling / No 429 queue reject)
     try {
       const headers = getMoySkladAuthHeaders();
       let response = await fetch(href, { headers });
 
-      // Handle 429 rate limit with backoff
+      // Handle MoySklad 429 rate limit with automatic backoff retry
       if (response.status === 429) {
         const retryMs = Number(response.headers.get('X-Lognex-Retry-TimeInterval')) || 2500;
-        console.warn(`[Image Proxy] 429 rate limit hit. Waiting ${retryMs}ms...`);
+        console.warn(`[Image Proxy] MoySklad 429 rate limit hit. Waiting ${retryMs}ms...`);
         await new Promise((r) => setTimeout(r, retryMs));
         response = await fetch(href, { headers });
       }
 
       if (!response.ok) {
-        // Record in negative cache so repeated attacks with this non-existent URL never hit MoySklad again
+        // Record in negative cache so repeated failed requests don't hit MoySklad again
         negativeCache.set(cacheKey, Date.now() + NEGATIVE_CACHE_TTL_MS);
         return new NextResponse(`Failed to fetch image: ${response.statusText}`, {
-          status: response.status,
+          status: response.status === 429 ? 429 : 404,
           headers: { 'Cache-Control': 'public, max-age=3600' },
         });
       }
@@ -197,10 +148,13 @@ export async function GET(request: Request) {
           'Cache-Control': 'public, max-age=31536000, immutable',
         },
       });
-    } finally {
-      if (releaseSlot) {
-        releaseSlot();
-      }
+    } catch (fetchErr) {
+      console.warn('[Image Proxy] Error fetching from MoySklad:', fetchErr);
+      negativeCache.set(cacheKey, Date.now() + 60000); // 1 minute negative cache on network error
+      return new NextResponse('Image unavailable', {
+        status: 404,
+        headers: { 'Cache-Control': 'public, max-age=60' },
+      });
     }
   } catch (error) {
     console.error('Image proxy error:', error);

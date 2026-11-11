@@ -83,7 +83,8 @@ export async function POST(request: Request) {
               UPDATE my_sklad_products
               SET 
                 stock_quantity = stock_total,
-                in_stock = in_stock_total,
+                in_stock = (stock_total > 0),
+                in_stock_total = (stock_total > 0),
                 updated_at = NOW();
             `;
           } else if (isOnlyPodval) {
@@ -91,7 +92,8 @@ export async function POST(request: Request) {
               UPDATE my_sklad_products
               SET 
                 stock_quantity = stock_podval,
-                in_stock = in_stock_podval,
+                in_stock = (stock_podval > 0),
+                in_stock_podval = (stock_podval > 0),
                 updated_at = NOW();
             `;
           } else if (storeIds.length > 0) {
