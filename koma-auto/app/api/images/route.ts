@@ -90,17 +90,26 @@ export async function GET(request: Request) {
       console.warn('[Image Proxy] Disk cache read error, proceeding to fetch:', diskErr);
     }
 
-    // 4. Fetch directly from MoySklad (No artificial client-throttling / No 429 queue reject)
+    // 4. Fetch directly from MoySklad with strict timeout guard
     try {
       const headers = getMoySkladAuthHeaders();
-      let response = await fetch(href, { headers });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+      let response = await fetch(href, { headers, signal: controller.signal }).finally(() => {
+        clearTimeout(timeoutId);
+      });
 
       // Handle MoySklad 429 rate limit with automatic backoff retry
       if (response.status === 429) {
         const retryMs = Number(response.headers.get('X-Lognex-Retry-TimeInterval')) || 2500;
         console.warn(`[Image Proxy] MoySklad 429 rate limit hit. Waiting ${retryMs}ms...`);
         await new Promise((r) => setTimeout(r, retryMs));
-        response = await fetch(href, { headers });
+        const retryController = new AbortController();
+        const retryTimeoutId = setTimeout(() => retryController.abort(), 3500);
+        response = await fetch(href, { headers, signal: retryController.signal }).finally(() => {
+          clearTimeout(retryTimeoutId);
+        });
       }
 
       if (!response.ok) {

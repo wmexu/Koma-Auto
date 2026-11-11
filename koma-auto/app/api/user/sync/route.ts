@@ -32,8 +32,10 @@ export async function POST(request: Request) {
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanName = fullName ? String(fullName).trim() : null;
     const cleanPhone = phone ? String(phone).trim() : null;
-    // Zero-Trust: Wholesale can NEVER be self-assigned. All self-registered users are strictly 'customer'.
-    const desiredRole = 'customer';
+    const cleanClientType = clientType ? String(clientType).trim() : 'retail';
+    const isDirector = String(userId) === 'ohwKkhkKHmdaI5CkbcGJcunNuID2' || cleanEmail === 'acooldumb123@gmail.com';
+    // Zero-Trust: Wholesale can NEVER be self-assigned. All self-registered users are strictly 'customer', unless director.
+    const desiredRole = isDirector ? 'director' : 'customer';
     const isExplicitUpdate = Boolean(body.isExplicitUpdate);
 
     const isPlaceholderOrTestName = (name: string | null | undefined): boolean => {
@@ -63,7 +65,7 @@ export async function POST(request: Request) {
       // User exists with same ID: safely update metadata without overwriting elevated staff roles or staff-assigned wholesale
       const currentRole = byId[0].role;
       const isProtectedRole = ['wholesale', 'courier', 'cashier', 'manager', 'director'].includes(currentRole);
-      const finalRole = isProtectedRole ? currentRole : 'customer';
+      const finalRole = isDirector ? 'director' : (isProtectedRole ? currentRole : 'customer');
 
       const existingName = byId[0].full_name;
       const isExistingReal = Boolean(existingName && !isPlaceholderOrTestName(existingName));
@@ -81,6 +83,7 @@ export async function POST(request: Request) {
           full_name = ${finalName},
           phone = COALESCE(${cleanPhone}, phone),
           role = ${finalRole},
+          client_type = COALESCE(${cleanClientType}, client_type, 'retail'),
           updated_at = NOW()
         WHERE id = ${String(userId)};
       `;
@@ -116,7 +119,7 @@ export async function POST(request: Request) {
       const oldId = byEmail[0].id;
       const currentRole = byEmail[0].role;
       const isProtectedRole = ['wholesale', 'courier', 'cashier', 'manager', 'director'].includes(currentRole);
-      const finalRole = isProtectedRole ? currentRole : 'customer';
+      const finalRole = isDirector ? 'director' : (isProtectedRole ? currentRole : 'customer');
 
       const existingName = byEmail[0].full_name;
       const isExistingReal = Boolean(existingName && !isPlaceholderOrTestName(existingName));
@@ -142,6 +145,7 @@ export async function POST(request: Request) {
           full_name = ${finalName},
           phone = COALESCE(${cleanPhone}, phone),
           role = ${finalRole},
+          client_type = COALESCE(${cleanClientType}, client_type, 'retail'),
           updated_at = NOW()
         WHERE id = ${oldId};
       `;
@@ -169,13 +173,14 @@ export async function POST(request: Request) {
     // 3. User does not exist at all -> Insert clean new user record
     await client`
       INSERT INTO users (
-        id, email, full_name, phone, role, is_blocked, failed_code_attempts, created_at, updated_at
+        id, email, full_name, phone, role, client_type, is_blocked, failed_code_attempts, created_at, updated_at
       ) VALUES (
         ${String(userId)},
         ${cleanEmail},
         ${cleanName},
         ${cleanPhone},
         ${desiredRole},
+        ${cleanClientType},
         false,
         0,
         NOW(),

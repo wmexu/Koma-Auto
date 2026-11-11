@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, usePathname } from 'next/navigation';
-import { Menu, ShoppingCart, User, Store } from 'lucide-react';
+import { Menu, ShoppingCart, User, Store, Shield } from 'lucide-react';
 import { useCartStore } from '../../store/useCartStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { auth, db } from '../../lib/firebase';
@@ -300,6 +300,13 @@ export default function Header() {
           </span>
         </Link>
 
+        {/* Staff Management Panel Button (Director, Manager, Courier) */}
+        {isMounted && Boolean(userProfile?.role && ['director', 'manager', 'courier'].includes(userProfile.role as any)) && (
+          <Link href="/admin" className={styles.staffHeaderBtn} title="Перейти в панель управления">
+            <Shield size={18} color="#002b49" />
+            <span className={styles.staffHeaderBtnText}>Панель управления</span>
+          </Link>
+        )}
 
         {/* Cart Block */}
         <Link href="/cart" className={styles.cartBtn} aria-label="Корзина">
