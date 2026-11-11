@@ -3,7 +3,6 @@ import Image from 'next/image';
 import styles from './page.module.css';
 import { User, Phone, CarFront, MapPin, ArrowRight, MessageSquareText } from 'lucide-react';
 import CarBrands from '../components/CarBrands/CarBrands';
-import { getProductsByIds } from '../lib/moysklad';
 import { getFeaturedProductsFromDb } from '../lib/products-db';
 import { Product } from '../data/products';
 import SideSlider from '../components/SideSlider/SideSlider';
@@ -128,25 +127,11 @@ export default async function Home() {
   try {
     // 1. Primary: Direct high-speed Neon Postgres query (<15ms)
     sliderProducts = await getFeaturedProductsFromDb(FEATURED_PRODUCT_IDS);
-
-    // 2. Secondary fallback: MoySklad API if Neon returns empty
-    if (!sliderProducts || sliderProducts.length === 0) {
-      const rawProducts = await getProductsByIds(FEATURED_PRODUCT_IDS);
-      const productMap = new Map<string, Product>();
-      rawProducts.forEach((p) => {
-        if (p.price >= 500 && (p.minPrice === undefined || p.minPrice >= 500)) {
-          productMap.set(p.id, p);
-        }
-      });
-      sliderProducts = FEATURED_PRODUCT_IDS
-        .map((id) => productMap.get(id))
-        .filter((p): p is Product => Boolean(p));
-    }
   } catch (error) {
     console.error("Failed to fetch products for slider:", error);
   }
 
-  // 3. Guaranteed safety fallback: Never let the slider disappear
+  // 2. Guaranteed safety fallback: Never let the slider disappear (Zero MoySklad API traffic)
   if (!sliderProducts || sliderProducts.length === 0) {
     sliderProducts = FEATURED_FALLBACK_PRODUCTS;
   }

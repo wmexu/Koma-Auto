@@ -1,44 +1,20 @@
 import { NextResponse } from 'next/server';
-import { getProductFolders } from '@/lib/moysklad';
 import { getCategoriesFromDb } from '@/lib/products-db';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // 1. Primary: High-speed database lookup (<10ms) - Zero MoySklad rate limit consumption
-    try {
-      const dbCategories = await getCategoriesFromDb();
-      if (dbCategories && dbCategories.length > 0) {
-        return NextResponse.json(dbCategories);
-      }
-    } catch (dbErr) {
-      console.warn('[Categories API] DB lookup failed, falling back to MoySklad API:', dbErr);
+    // 1. High-speed database lookup (<10ms) - Single Source of Truth
+    // Zero MoySklad rate limit consumption: protects MoySklad from DDoS/flooding
+    const dbCategories = await getCategoriesFromDb();
+    if (dbCategories && dbCategories.length > 0) {
+      return NextResponse.json(dbCategories);
     }
 
-    // 2. Secondary fallback: MoySklad API only if DB is empty
-    const foldersRes = await getProductFolders();
-    const seenNames = new Set<string>();
-    const categories: Array<{ id: string; name: string }> = [];
-
-    for (const folder of (foldersRes.rows || [])) {
-      const name = folder.name?.trim();
-      if (!name || name === 'Без группы' || name === 'Автозапчасти') continue;
-      if (!seenNames.has(name.toLowerCase())) {
-        seenNames.add(name.toLowerCase());
-        categories.push({
-          id: folder.id,
-          name,
-        });
-      }
-    }
-
-    // Sort categories alphabetically (A-Z, А-Я)
-    categories.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-
-    return NextResponse.json(categories);
+    return NextResponse.json([]);
   } catch (error) {
-    console.error('Error fetching categories:', error);
+    console.error('Error fetching categories from DB:', error);
     return NextResponse.json({ error: 'Failed to fetch categories' }, { status: 500 });
   }
 }

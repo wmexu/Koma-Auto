@@ -1,12 +1,4 @@
 import { NextResponse } from 'next/server';
-import {
-  getProducts,
-  getProductFolders,
-  mapMoySkladToProduct,
-  groupProductsByOem,
-  PODVAL_STORE_URL,
-} from '@/lib/moysklad';
-import { isBrandBlacklisted } from '@/lib/brand-utils';
 import { products as fallbackProducts } from '@/data/products';
 import { getProductsFromDb } from '@/lib/products-db';
 
@@ -15,13 +7,14 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '36', 10);
-    const offset = parseInt(searchParams.get('offset') || '0', 10);
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '36', 10), 1), 100);
+    const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0);
     const inStockOnly = searchParams.get('inStockOnly') === 'true';
     const category = searchParams.get('category') || undefined;
     const search = searchParams.get('search') || undefined;
 
-    // 1. High-speed database layer (<15ms)
+    // 1. High-speed database layer (<15ms) - Single Source of Truth
+    // Zero MoySklad rate limit consumption: protects MoySklad from DDoS/flooding
     try {
       const dbResult = await getProductsFromDb({
         limit,
@@ -35,68 +28,26 @@ export async function GET(request: Request) {
         return NextResponse.json(dbResult);
       }
     } catch (dbErr) {
-      console.warn('[Products API] DB lookup failed, falling back to MoySklad API:', dbErr);
+      console.error('[Products API] DB lookup error:', dbErr);
     }
 
-    // 2. Fallback to direct MoySklad API
-    let categoryHref: string | string[] = '';
-
-    if (category) {
-      const foldersRes = await getProductFolders();
-      const folder = foldersRes.rows.find(
-        (f: any) => f.name.toLowerCase() === category.toLowerCase() || f.id === category
-      );
-      if (folder && folder.meta) {
-        categoryHref = folder.meta.href;
-      }
-    }
-
-    // Fetch from MoySklad strictly using store "Car City 1 ярус Подвал"
-    const productsRes = await getProducts(
-      limit,
-      offset,
-      search || '',
-      categoryHref,
-      '',
-      inStockOnly
-    );
-
-    // Map each MoySklad product to Product with OEM and clean normalized brand
-    let mappedProducts = (productsRes.rows || []).map((msProduct) =>
-      mapMoySkladToProduct(msProduct)
-    );
-
-    // Filter out products with price below 500 and blacklisted brands
-    mappedProducts = mappedProducts.filter(
-      (p) => p.price >= 500 && !isBrandBlacklisted(p.brand)
-    );
-
-    // Group products that share the same OEM code into 1 single card!
-    const groupedProducts = groupProductsByOem(mappedProducts).filter(
-      (p) =>
-        p.price >= 500 &&
-        (p.minPrice === undefined || p.minPrice >= 500) &&
-        !isBrandBlacklisted(p.brand)
-    );
-
-    const rawCount = productsRes.rows?.length || 0;
-    const hasMore = rawCount >= limit;
-
-    return NextResponse.json({
-      products: groupedProducts,
-      total: productsRes.meta?.size || groupedProducts.length,
-      limit: productsRes.meta?.limit || limit,
-      offset: productsRes.meta?.offset || offset,
-      hasMore,
-    });
-  } catch (error) {
-    console.error('Error fetching products from API:', error);
+    // 2. Safe fallback to local seed data if database is unreachable
     return NextResponse.json({
       products: fallbackProducts,
       total: fallbackProducts.length,
-      limit: 100,
+      limit,
       offset: 0,
-      error: 'MoySklad API failed, using fallback data',
+      hasMore: false,
     });
+  } catch (error) {
+    console.error('Error in products API:', error);
+    return NextResponse.json({
+      products: [],
+      total: 0,
+      limit: 36,
+      offset: 0,
+      hasMore: false,
+      error: 'Failed to fetch products',
+    }, { status: 500 });
   }
 }
