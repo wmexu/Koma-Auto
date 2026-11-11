@@ -31,7 +31,7 @@ export async function GET(request: Request) {
         inStockOnly,
       });
 
-      if (dbResult && dbResult.products.length > 0) {
+      if (dbResult !== null) {
         return NextResponse.json(dbResult);
       }
     } catch (dbErr) {

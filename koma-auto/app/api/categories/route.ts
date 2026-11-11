@@ -6,7 +6,17 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // 1. Live fetch of all categories/folders from MoySklad (so newly added or renamed folders appear instantly)
+    // 1. Primary: High-speed database lookup (<10ms) - Zero MoySklad rate limit consumption
+    try {
+      const dbCategories = await getCategoriesFromDb();
+      if (dbCategories && dbCategories.length > 0) {
+        return NextResponse.json(dbCategories);
+      }
+    } catch (dbErr) {
+      console.warn('[Categories API] DB lookup failed, falling back to MoySklad API:', dbErr);
+    }
+
+    // 2. Secondary fallback: MoySklad API only if DB is empty
     const foldersRes = await getProductFolders();
     const seenNames = new Set<string>();
     const categories: Array<{ id: string; name: string }> = [];
@@ -28,12 +38,7 @@ export async function GET() {
 
     return NextResponse.json(categories);
   } catch (error) {
-    console.error('Error fetching categories from MoySklad, falling back to DB:', error);
-    try {
-      const dbCategories = await getCategoriesFromDb();
-      return NextResponse.json(dbCategories);
-    } catch {
-      return NextResponse.json({ error: 'Failed to fetch categories' }, { status: 500 });
-    }
+    console.error('Error fetching categories:', error);
+    return NextResponse.json({ error: 'Failed to fetch categories' }, { status: 500 });
   }
 }

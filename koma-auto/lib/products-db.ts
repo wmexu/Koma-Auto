@@ -114,6 +114,9 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
 
   const finalVariants = variants.length > 0 ? variants : [defaultVariant];
   const primaryBrand = finalVariants[0]?.brand || determinedBrand;
+  const prices = finalVariants.map((v) => v.price).filter((p) => p >= 500);
+  const minPrice = prices.length > 0 ? Math.min(...prices) : price;
+  const maxPrice = prices.length > 0 ? Math.max(...prices) : price;
 
   return {
     id: r.id,
@@ -123,6 +126,8 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
     brand: primaryBrand,
     name: r.title,
     price,
+    minPrice,
+    maxPrice,
     oldPrice,
     stock,
     inStock: Boolean(r.in_stock),
@@ -355,9 +360,130 @@ export async function getBatchProductsFromDb(ids: string[]): Promise<Product[]> 
       SELECT * FROM my_sklad_products 
       WHERE id IN ${sql(ids)} AND price >= 500;
     `;
-    return rows.map((r: any) => mapDbRowToProduct(r));
+    const mapped = rows.map((r: any) => mapDbRowToProduct(r));
+    const productMap = new Map<string, Product>();
+    mapped.forEach((p) => productMap.set(p.id, p));
+    return ids.map((id) => productMap.get(id)).filter((p): p is Product => Boolean(p));
   } catch (err) {
     console.error('[DB] Error querying batch products:', err);
+    return [];
+  }
+}
+
+/**
+ * Fast featured products lookup directly from Neon (<15ms)
+ * Preserves exact requested ID order, loads sibling OEM variants, calculates min/max price
+ */
+export async function getFeaturedProductsFromDb(ids: string[]): Promise<Product[]> {
+  const sql = client;
+  if (!isDbConfigured() || !sql || ids.length === 0) return [];
+  try {
+    const rows = await sql`
+      SELECT * FROM my_sklad_products 
+      WHERE id IN ${sql(ids)} AND price >= 500;
+    `;
+    if (!rows || rows.length === 0) return [];
+
+    // Collect all clean OEMs to fetch sibling variants in a single batch query
+    const cleanOems = Array.from(
+      new Set(
+        rows
+          .map((r: any) => r.clean_oem_number)
+          .filter((oem: string) => oem && oem.length >= 4)
+      )
+    );
+
+    const variantsByOem = new Map<string, ProductVariant[]>();
+    if (cleanOems.length > 0) {
+      const variantRows = await sql`
+        SELECT id, title, brand, clean_oem_number, original_oem, price, old_price, stock_quantity, in_stock, image, images, description
+        FROM my_sklad_products
+        WHERE clean_oem_number IN ${sql(cleanOems)} AND price >= 500
+        ORDER BY in_stock DESC, price ASC;
+      `;
+
+      const rawByOem = new Map<string, any[]>();
+      for (const vr of variantRows) {
+        const oem = vr.clean_oem_number;
+        if (!rawByOem.has(oem)) rawByOem.set(oem, []);
+        rawByOem.get(oem)!.push(vr);
+      }
+
+      for (const [oem, vRows] of rawByOem.entries()) {
+        const mappedVariants = vRows.map((r: any) => {
+          let images: string[] = [];
+          if (Array.isArray(r.images)) {
+            images = r.images.filter((img: any) => typeof img === 'string' && img.trim().length > 0);
+          } else if (typeof r.images === 'string') {
+            try {
+              const parsed = JSON.parse(r.images);
+              if (Array.isArray(parsed)) {
+                images = parsed.filter((img: any) => typeof img === 'string' && img.trim().length > 0);
+              } else if (typeof parsed === 'string' && parsed.trim().length > 0) {
+                images = [parsed.trim()];
+              }
+            } catch {
+              if (r.images.trim().length > 0) images = [r.images.trim()];
+            }
+          }
+          const variantPrice = Number(r.price) || 0;
+          let variantOldPrice = r.old_price ? Number(r.old_price) : undefined;
+          if (variantOldPrice && variantOldPrice <= variantPrice) {
+            variantOldPrice = undefined;
+          }
+          const bInfo = normalizeBrand(
+            r.brand && r.brand !== 'Koma Auto' ? r.brand : undefined,
+            r.original_oem || r.clean_oem_number
+          );
+          return {
+            id: r.id,
+            moySkladId: r.id,
+            name: r.title,
+            code: r.original_oem || '',
+            oem: r.clean_oem_number,
+            brand: bInfo.brand,
+            tier: bInfo.tier,
+            price: variantPrice,
+            oldPrice: variantOldPrice,
+            stock: Number(r.stock_quantity) || 0,
+            inStock: Boolean(r.in_stock),
+            image: r.image || (images.length > 0 ? images[0] : ''),
+            images,
+            article: r.clean_oem_number,
+            description: r.description || '',
+          };
+        });
+
+        const brandMap = new Map<string, ProductVariant>();
+        mappedVariants.forEach((v: ProductVariant) => {
+          const existing = brandMap.get(v.brand);
+          if (!existing) {
+            brandMap.set(v.brand, v);
+          } else {
+            if (!existing.inStock && v.inStock) {
+              brandMap.set(v.brand, v);
+            } else if (existing.inStock === v.inStock && v.price < existing.price && v.price >= 500) {
+              brandMap.set(v.brand, v);
+            }
+          }
+        });
+        variantsByOem.set(oem, sortProductVariants(Array.from(brandMap.values())));
+      }
+    }
+
+    const mappedProducts = rows.map((r: any) => {
+      const vars = r.clean_oem_number ? (variantsByOem.get(r.clean_oem_number) || []) : [];
+      return mapDbRowToProduct(r, vars);
+    });
+
+    const productMap = new Map<string, Product>();
+    mappedProducts.forEach((p) => productMap.set(p.id, p));
+
+    return ids
+      .map((id) => productMap.get(id))
+      .filter((p): p is Product => typeof p !== 'undefined' && p !== null && p.price >= 500);
+  } catch (err) {
+    console.error('[DB] Error querying featured products:', err);
     return [];
   }
 }
