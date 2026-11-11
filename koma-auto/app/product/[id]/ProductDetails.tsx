@@ -144,6 +144,12 @@ export default function ProductDetails({
   const [quantity, setQuantity] = useState(1);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    setFailedImages({});
+    setImageLoaded(false);
+  }, [product?.id, selectedVariantId]);
   
   const [touchStart, setTouchStart] = useState(0);
   const [touchEnd, setTouchEnd] = useState(0);
@@ -521,18 +527,25 @@ ${productUrl}
           >
             {!imageLoaded && <div className={styles.skeleton}></div>}
             {images.length > 0 ? (
-              images.map((imgSrc, index) => (
-                <Image
-                  key={index}
-                  src={imgSrc}
-                  alt={`${product.name} - Фото ${index + 1}`}
-                  fill
-                  className={`${styles.image} ${index === currentImageIndex ? styles.activeImage : styles.hiddenImage} ${imageLoaded ? styles.loaded : ''}`}
-                  onLoad={() => setImageLoaded(true)}
-                  priority={index === 0}
-                  unoptimized
-                />
-              ))
+              images.map((imgSrc, index) => {
+                const srcToUse = failedImages[index] ? fallbackPlaceholder : imgSrc;
+                return (
+                  <Image
+                    key={index}
+                    src={srcToUse}
+                    alt={`${product.name} - Фото ${index + 1}`}
+                    fill
+                    className={`${styles.image} ${index === currentImageIndex ? styles.activeImage : styles.hiddenImage} ${imageLoaded ? styles.loaded : ''}`}
+                    onLoad={() => setImageLoaded(true)}
+                    onError={() => {
+                      setImageLoaded(true);
+                      setFailedImages((prev) => ({ ...prev, [index]: true }));
+                    }}
+                    priority={index === 0}
+                    unoptimized
+                  />
+                );
+              })
             ) : (
               <Image
                 src={fallbackPlaceholder}
@@ -540,6 +553,7 @@ ${productUrl}
                 fill
                 className={`${styles.image} ${styles.activeImage} ${imageLoaded ? styles.loaded : ''}`}
                 onLoad={() => setImageLoaded(true)}
+                onError={() => setImageLoaded(true)}
                 priority
                 unoptimized
               />

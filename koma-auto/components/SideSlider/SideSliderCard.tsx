@@ -5,12 +5,21 @@ import { Product } from '../../data/products';
 import { useCartStore } from '../../store/useCartStore';
 import { useToastStore } from '../../store/useToastStore';
 import styles from './SideSlider.module.css';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function SideSliderCard({ product }: { product: Product }) {
   const addItemToCart = useCartStore((state) => state.addItem);
   const addToast = useToastStore((state) => state.addToast);
+  const fallbackPlaceholder = `https://placehold.co/200x200/F5F5F5/060F48?text=${encodeURIComponent(
+    (product.name || '').split(' ').slice(0, 2).join('\n')
+  )}`;
+  const [imgSrc, setImgSrc] = useState(product.image || fallbackPlaceholder);
   const [imageLoaded, setImageLoaded] = useState(false);
+
+  useEffect(() => {
+    setImgSrc(product.image || fallbackPlaceholder);
+    setImageLoaded(false);
+  }, [product.image, fallbackPlaceholder]);
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -27,12 +36,16 @@ export default function SideSliderCard({ product }: { product: Product }) {
       <div className={styles.cardImageWrapper}>
         {!imageLoaded && <div className={styles.skeleton}></div>}
         <Image
-          src={product.image || `https://placehold.co/200x200/F5F5F5/060F48?text=${encodeURIComponent((product.name || '').split(' ').slice(0, 2).join('\n'))}`}
+          src={imgSrc}
           alt={product.name || 'Товар'}
           width={160}
           height={160}
           className={`${styles.cardImage} ${imageLoaded ? styles.loaded : ''}`}
           onLoad={() => setImageLoaded(true)}
+          onError={() => {
+            setImageLoaded(true);
+            setImgSrc(fallbackPlaceholder);
+          }}
           unoptimized
         />
       </div>

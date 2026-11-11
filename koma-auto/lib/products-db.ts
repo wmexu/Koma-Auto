@@ -185,6 +185,7 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
             title ILIKE ${wp}
             OR clean_oem_number ILIKE ${cleanWp}
             OR original_oem ILIKE ${wp}
+            OR translate(COALESCE(original_oem, ''), ' -_./\,', '') ILIKE ${cleanWp}
             OR brand ILIKE ${wp}
             OR compatibility::text ILIKE ${wp}
           )`;
@@ -196,8 +197,8 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
             title ILIKE ${searchPattern}
             OR clean_oem_number ILIKE ${oemPattern}
             OR original_oem ILIKE ${searchPattern}
-            OR regexp_replace(original_oem, '[\s\-_\./]', '', 'g') ILIKE ${oemPattern}
-            OR regexp_replace(title, '[\s\-_\./]', '', 'g') ILIKE ${oemPattern}
+            OR translate(COALESCE(original_oem, ''), ' -_./\,', '') ILIKE ${oemPattern}
+            OR translate(COALESCE(title, ''), ' -_./\,', '') ILIKE ${oemPattern}
             OR brand ILIKE ${searchPattern}
             OR compatibility::text ILIKE ${searchPattern}
           )`

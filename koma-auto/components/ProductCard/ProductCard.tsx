@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ShoppingCart, Heart } from 'lucide-react';
@@ -15,7 +15,16 @@ interface ProductCardProps {
 }
 
 export default function ProductCard({ product }: ProductCardProps) {
+  const fallbackPlaceholder = `https://placehold.co/400x400/F5F5F5/060F48?text=${encodeURIComponent(
+    (product.name || '').split(' ').slice(0, 2).join('\n')
+  )}`;
+  const [imgSrc, setImgSrc] = useState(product.image || fallbackPlaceholder);
   const [imageLoaded, setImageLoaded] = useState(false);
+
+  useEffect(() => {
+    setImgSrc(product.image || fallbackPlaceholder);
+    setImageLoaded(false);
+  }, [product.image, fallbackPlaceholder]);
   const addItemToCart = useCartStore((state) => state.addItem);
   const { toggleFavorite, isFavorite } = useFavoritesStore();
   const addToast = useToastStore((state) => state.addToast);
@@ -55,17 +64,16 @@ export default function ProductCard({ product }: ProductCardProps) {
       <div className={styles.imageContainer}>
         {!imageLoaded && <div className={styles.skeleton}></div>}
         <Image
-          src={
-            product.image ||
-            `https://placehold.co/400x400/F5F5F5/060F48?text=${encodeURIComponent(
-              (product.name || '').split(' ').slice(0, 2).join('\n')
-            )}`
-          }
+          src={imgSrc}
           alt={product.name}
           width={400}
           height={400}
           className={`${styles.image} ${imageLoaded ? styles.loaded : ''}`}
           onLoad={() => setImageLoaded(true)}
+          onError={() => {
+            setImageLoaded(true);
+            setImgSrc(fallbackPlaceholder);
+          }}
           unoptimized
         />
         {product.oldPrice && <div className={styles.badgeSale}>Sale</div>}

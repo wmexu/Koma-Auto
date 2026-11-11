@@ -41,10 +41,20 @@ export async function fetchMoySklad<T>(path: string, options: RequestInit = {}):
     ...options.headers,
   };
 
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     ...options,
     headers,
   });
+
+  if (response.status === 429) {
+    const retryMs = Number(response.headers.get('X-Lognex-Retry-TimeInterval')) || 2500;
+    console.warn(`[MoySklad API 429] Rate limit hit. Waiting ${retryMs}ms before retrying...`);
+    await new Promise((r) => setTimeout(r, retryMs));
+    response = await fetch(url, {
+      ...options,
+      headers,
+    });
+  }
 
   if (!response.ok) {
     let errorMsg = `MoySklad API Error: ${response.status} ${response.statusText}`;
