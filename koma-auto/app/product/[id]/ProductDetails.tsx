@@ -145,11 +145,19 @@ export default function ProductDetails({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
     setFailedImages({});
+    setCurrentImageIndex(0);
     setImageLoaded(false);
-  }, [product?.id, selectedVariantId]);
+    setLoadedSrc(null);
+  }, [product?.id]);
+
+  useEffect(() => {
+    setCurrentImageIndex(0);
+  }, [selectedVariantId]);
   
   const [touchStart, setTouchStart] = useState(0);
   const [touchEnd, setTouchEnd] = useState(0);
@@ -462,13 +470,32 @@ ${productUrl}
     }
   };
 
-  const variantImages = (activeVariant?.images && activeVariant.images.length > 0)
+  // 1. Check if active variant has its own image(s)
+  const activeVariantImages = (activeVariant?.images && activeVariant.images.length > 0)
     ? activeVariant.images
     : (activeVariant?.image ? [activeVariant.image] : null);
 
-  const rawImages = (variantImages && variantImages.length > 0)
-    ? variantImages
-    : (product.images && product.images.length > 0 ? product.images : (product.image ? [product.image] : []));
+  // 2. If active variant has no image, inherit from the first sibling variant in effectiveVariants that HAS an image
+  const firstSiblingWithImage = effectiveVariants.find(
+    (v) => (v.images && v.images.length > 0) || (v.image && v.image.trim().length > 0)
+  );
+  const inheritedVariantImages = (firstSiblingWithImage?.images && firstSiblingWithImage.images.length > 0)
+    ? firstSiblingWithImage.images
+    : (firstSiblingWithImage?.image ? [firstSiblingWithImage.image] : null);
+
+  // 3. Fallback to product images
+  const productImages = (product.images && product.images.length > 0)
+    ? product.images
+    : (product.image ? [product.image] : null);
+
+  // Priority: Active Variant's own image -> Inherited sibling's image -> Product's image -> empty
+  const rawImages = (activeVariantImages && activeVariantImages.length > 0)
+    ? activeVariantImages
+    : (inheritedVariantImages && inheritedVariantImages.length > 0)
+    ? inheritedVariantImages
+    : (productImages && productImages.length > 0)
+    ? productImages
+    : [];
 
   const images = rawImages.filter((img): img is string => typeof img === 'string' && img.trim().length > 0);
 
@@ -476,6 +503,48 @@ ${productUrl}
     ((product.name || '').split(' ').slice(0, 2).join('\n')) || 'Koma'
   );
   const fallbackPlaceholder = `https://placehold.co/600x600/F5F5F5/060F48?text=${placeholderText}`;
+
+  const currentDisplaySrc = useMemo(() => {
+    if (images.length === 0) return fallbackPlaceholder;
+    const idx = currentImageIndex < images.length ? currentImageIndex : 0;
+    if (failedImages[idx]) return fallbackPlaceholder;
+    return images[idx] || fallbackPlaceholder;
+  }, [images, currentImageIndex, failedImages, fallbackPlaceholder]);
+
+  // Synchronize image loaded state without resetting if the image URL is unchanged
+  useEffect(() => {
+    if (loadedSrc === currentDisplaySrc) {
+      setImageLoaded(true);
+      return;
+    }
+
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      setImageLoaded(true);
+      setLoadedSrc(currentDisplaySrc);
+      return;
+    }
+
+    setImageLoaded(false);
+  }, [currentDisplaySrc, loadedSrc]);
+
+  // Safety timer: Never allow infinite skeleton under any circumstances
+  useEffect(() => {
+    if (imageLoaded) return;
+    const timer = setTimeout(() => {
+      setImageLoaded(true);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [imageLoaded, currentDisplaySrc]);
+
+  const handleImageLoad = () => {
+    setImageLoaded(true);
+    setLoadedSrc(currentDisplaySrc);
+  };
+
+  const handleImageError = (index: number) => {
+    setImageLoaded(true);
+    setFailedImages((prev) => ({ ...prev, [index]: true }));
+  };
 
   const nextImage = () => setCurrentImageIndex(prev => (prev === images.length - 1 ? 0 : prev + 1));
   const prevImage = () => setCurrentImageIndex(prev => (prev === 0 ? images.length - 1 : prev - 1));
@@ -529,18 +598,17 @@ ${productUrl}
             {images.length > 0 ? (
               images.map((imgSrc, index) => {
                 const srcToUse = failedImages[index] ? fallbackPlaceholder : imgSrc;
+                const isCurrent = index === currentImageIndex;
                 return (
                   <Image
-                    key={index}
+                    key={`${srcToUse}-${index}`}
+                    ref={isCurrent ? imgRef : null}
                     src={srcToUse}
                     alt={`${product.name} - Фото ${index + 1}`}
                     fill
-                    className={`${styles.image} ${index === currentImageIndex ? styles.activeImage : styles.hiddenImage} ${imageLoaded ? styles.loaded : ''}`}
-                    onLoad={() => setImageLoaded(true)}
-                    onError={() => {
-                      setImageLoaded(true);
-                      setFailedImages((prev) => ({ ...prev, [index]: true }));
-                    }}
+                    className={`${styles.image} ${isCurrent ? styles.activeImage : styles.hiddenImage} ${imageLoaded ? styles.loaded : ''}`}
+                    onLoad={isCurrent ? handleImageLoad : undefined}
+                    onError={() => handleImageError(index)}
                     priority={index === 0}
                     unoptimized
                   />
@@ -548,12 +616,14 @@ ${productUrl}
               })
             ) : (
               <Image
+                key={fallbackPlaceholder}
+                ref={imgRef}
                 src={fallbackPlaceholder}
                 alt={product.name}
                 fill
                 className={`${styles.image} ${styles.activeImage} ${imageLoaded ? styles.loaded : ''}`}
-                onLoad={() => setImageLoaded(true)}
-                onError={() => setImageLoaded(true)}
+                onLoad={handleImageLoad}
+                onError={handleImageLoad}
                 priority
                 unoptimized
               />

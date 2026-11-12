@@ -106,6 +106,18 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
     }
   }
 
+  // Ensure all sibling variants inherit resolvedImage if they do not have their own
+  if (resolvedImage && variants && variants.length > 0) {
+    variants.forEach((v) => {
+      if (!v.image || v.image.trim().length === 0) {
+        v.image = resolvedImage;
+        if (!v.images || v.images.length === 0) {
+          v.images = images.length > 0 ? images : [resolvedImage];
+        }
+      }
+    });
+  }
+
   const defaultVariant: ProductVariant = {
     id: r.id,
     name: r.title,
@@ -256,11 +268,12 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
 export async function getVariantsByOemFromDb(cleanOem: string): Promise<ProductVariant[]> {
   const sql = client;
   if (!isDbConfigured() || !sql || !cleanOem) return [];
+  const normalizedOem = cleanOem.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   try {
     const rows = await sql`
       SELECT id, title, brand, clean_oem_number, original_oem, price, old_price, stock_quantity, in_stock, image, images, description
       FROM my_sklad_products
-      WHERE clean_oem_number = ${cleanOem} AND price >= 500
+      WHERE clean_oem_number = ${normalizedOem} AND price >= 500
       ORDER BY in_stock DESC, price ASC;
     `;
     const mappedVariants = rows.map((r: any) => {

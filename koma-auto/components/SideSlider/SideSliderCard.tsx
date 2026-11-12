@@ -5,12 +5,18 @@ import { Product } from '../../data/products';
 import { useCartStore } from '../../store/useCartStore';
 import { useToastStore } from '../../store/useToastStore';
 import styles from './SideSlider.module.css';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function SideSliderCard({ product }: { product: Product }) {
   const addItemToCart = useCartStore((state) => state.addItem);
   const addToast = useToastStore((state) => state.addToast);
   const [imageLoaded, setImageLoaded] = useState(false);
+
+  useEffect(() => {
+    if (imageLoaded) return;
+    const timer = setTimeout(() => setImageLoaded(true), 2500);
+    return () => clearTimeout(timer);
+  }, [imageLoaded]);
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
