@@ -143,10 +143,35 @@ export default function ProductDetails({
   const [activeTab, setActiveTab] = useState('specs');
   const [quantity, setQuantity] = useState(1);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [isSwitchingVariant, setIsSwitchingVariant] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
   const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const variantSwitchTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (variantSwitchTimerRef.current) {
+        clearTimeout(variantSwitchTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleVariantSelect = (variantId: string) => {
+    if (variantId === selectedVariantId) return;
+
+    if (variantSwitchTimerRef.current) {
+      clearTimeout(variantSwitchTimerRef.current);
+    }
+
+    setSelectedVariantId(variantId);
+    setIsSwitchingVariant(true);
+
+    variantSwitchTimerRef.current = setTimeout(() => {
+      setIsSwitchingVariant(false);
+    }, 700);
+  };
 
   useEffect(() => {
     setFailedImages({});
@@ -549,6 +574,8 @@ ${productUrl}
   const nextImage = () => setCurrentImageIndex(prev => (prev === images.length - 1 ? 0 : prev + 1));
   const prevImage = () => setCurrentImageIndex(prev => (prev === 0 ? images.length - 1 : prev - 1));
 
+  const isVisuallyLoaded = imageLoaded && !isSwitchingVariant;
+
   const dromData = formatDromCompatibility(product.compatibility);
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -594,7 +621,7 @@ ${productUrl}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
           >
-            {!imageLoaded && <div className={styles.skeleton}></div>}
+            <div className={`${styles.skeleton} ${!isVisuallyLoaded ? styles.skeletonVisible : ''}`}></div>
             {images.length > 0 ? (
               images.map((imgSrc, index) => {
                 const srcToUse = failedImages[index] ? fallbackPlaceholder : imgSrc;
@@ -606,7 +633,7 @@ ${productUrl}
                     src={srcToUse}
                     alt={`${product.name} - Фото ${index + 1}`}
                     fill
-                    className={`${styles.image} ${isCurrent ? styles.activeImage : styles.hiddenImage} ${imageLoaded ? styles.loaded : ''}`}
+                    className={`${styles.image} ${isCurrent ? styles.activeImage : styles.hiddenImage} ${isVisuallyLoaded ? styles.loaded : ''}`}
                     onLoad={isCurrent ? handleImageLoad : undefined}
                     onError={() => handleImageError(index)}
                     priority={index === 0}
@@ -621,7 +648,7 @@ ${productUrl}
                 src={fallbackPlaceholder}
                 alt={product.name}
                 fill
-                className={`${styles.image} ${styles.activeImage} ${imageLoaded ? styles.loaded : ''}`}
+                className={`${styles.image} ${styles.activeImage} ${isVisuallyLoaded ? styles.loaded : ''}`}
                 onLoad={handleImageLoad}
                 onError={handleImageLoad}
                 priority
@@ -697,7 +724,7 @@ ${productUrl}
                       key={v.id}
                       type="button"
                       className={`${styles.brandOption} ${isSelected ? styles.brandOptionActive : ''} ${!v.inStock ? styles.brandOptionOutOfStock : ''}`}
-                      onClick={() => setSelectedVariantId(v.id)}
+                      onClick={() => handleVariantSelect(v.id)}
                     >
                       <div className={styles.brandOptionMain}>
                         <span className={styles.brandOptionName}>{v.brand}</span>
