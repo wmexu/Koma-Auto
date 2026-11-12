@@ -240,36 +240,5 @@
   .userBlock {
     margin-right: 0;
   }
-
-  .staffHeaderBtnText {
-    display: none;
-  }
-
-  .staffHeaderBtn {
-    padding: 8px;
-    margin-right: 0;
-  }
-}
-
-.staffHeaderBtn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #39e09b;
-  color: #002b49;
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  font-weight: 700;
-  font-size: 13px;
-  text-decoration: none;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(57, 224, 155, 0.25);
-  white-space: nowrap;
-  margin-right: 12px;
-}
-
-.staffHeaderBtn:hover {
-  background: #2ecb8b;
-  transform: translateY(-1px);
 }
 

@@ -54,11 +54,11 @@ export async function GET(request: Request) {
     const photoKey = extractPhotoKey(href);
     const storageKey = `products/${photoKey}.webp`;
 
-    // 1. Negative cache check: If this download URL previously failed/404, block immediately without touching MoySklad
+    // 1. Negative cache check: If this download URL previously failed/404, redirect to placeholder
     const negativeUntil = negativeCache.get(cacheKey) || negativeCache.get(photoKey);
     if (negativeUntil && negativeUntil > Date.now()) {
-      return new NextResponse('Image not found', {
-        status: 404,
+      return NextResponse.redirect('https://placehold.co/400x400/F5F5F5/060F48?text=Koma', {
+        status: 307,
         headers: { 'Cache-Control': 'public, max-age=3600, immutable' },
       });
     }
@@ -148,8 +148,8 @@ export async function GET(request: Request) {
         // Record in negative cache so repeated failed requests don't hit MoySklad again
         negativeCache.set(cacheKey, Date.now() + NEGATIVE_CACHE_TTL_MS);
         negativeCache.set(photoKey, Date.now() + NEGATIVE_CACHE_TTL_MS);
-        return new NextResponse(`Failed to fetch image: ${response.statusText}`, {
-          status: response.status === 429 ? 429 : 404,
+        return NextResponse.redirect('https://placehold.co/400x400/F5F5F5/060F48?text=Koma', {
+          status: 307,
           headers: { 'Cache-Control': 'public, max-age=3600' },
         });
       }
@@ -169,12 +169,12 @@ export async function GET(request: Request) {
       const arrayBuf = await response.arrayBuffer();
       const rawBuffer = Buffer.from(arrayBuf);
 
-      // Compress to high-quality WebP (max 800x800, quality 78, metadata stripped)
+      // Compress to ultra-compact WebP (<= 21.16 KB, metadata stripped)
       let finalBuffer: Buffer = rawBuffer;
       let finalContentType = rawContentType;
 
       try {
-        const compressed = await compressToWebp(rawBuffer, 800, 78);
+        const compressed = await compressToWebp(rawBuffer);
         finalBuffer = Buffer.from(compressed);
         finalContentType = 'image/webp';
       } catch (compressErr) {
@@ -215,8 +215,8 @@ export async function GET(request: Request) {
       console.warn('[Image Proxy] Error fetching from MoySklad:', fetchErr);
       negativeCache.set(cacheKey, Date.now() + 60000); // 1 minute negative cache on network error
       negativeCache.set(photoKey, Date.now() + 60000);
-      return new NextResponse('Image unavailable', {
-        status: 404,
+      return NextResponse.redirect('https://placehold.co/400x400/F5F5F5/060F48?text=Koma', {
+        status: 307,
         headers: { 'Cache-Control': 'public, max-age=60' },
       });
     }

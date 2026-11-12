@@ -95,6 +95,17 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
   const determinedBrand = brandInfo.brand;
   const determinedTier = brandInfo.tier;
 
+  let resolvedImage = r.image || (images.length > 0 ? images[0] : '');
+  if (!resolvedImage && variants && variants.length > 0) {
+    const vWithImage = variants.find((v) => Boolean(v.image && v.image.trim().length > 0));
+    if (vWithImage) {
+      resolvedImage = vWithImage.image;
+      if (images.length === 0 && vWithImage.images && vWithImage.images.length > 0) {
+        images = vWithImage.images;
+      }
+    }
+  }
+
   const defaultVariant: ProductVariant = {
     id: r.id,
     name: r.title,
@@ -106,7 +117,7 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
     oldPrice,
     stock,
     inStock: Boolean(r.in_stock),
-    image: r.image || (images.length > 0 ? images[0] : ''),
+    image: resolvedImage,
     images,
     article: r.clean_oem_number || r.original_oem || '',
     description: r.description || '',
@@ -126,7 +137,7 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
     stock,
     inStock: Boolean(r.in_stock),
     category: r.category || 'Автозапчасти',
-    image: r.image || (images.length > 0 ? images[0] : ''),
+    image: resolvedImage,
     images,
     specs,
     compatibility,
@@ -310,7 +321,26 @@ export async function getVariantsByOemFromDb(cleanOem: string): Promise<ProductV
       }
     });
 
-    return sortProductVariants(Array.from(brandMap.values()));
+    const sortedVariants = sortProductVariants(Array.from(brandMap.values()));
+
+    // OEM photo inheritance rule:
+    // If one or more manufacturers have a photo, any sibling manufacturer without a photo
+    // inherits the first available manufacturer's photo for this clean OEM.
+    const firstAvailableImage = sortedVariants.find((v) => Boolean(v.image && v.image.trim().length > 0))?.image || '';
+    const firstAvailableImages = sortedVariants.find((v) => Boolean(v.images && v.images.length > 0))?.images || [];
+
+    if (firstAvailableImage) {
+      sortedVariants.forEach((v) => {
+        if (!v.image || v.image.trim().length === 0) {
+          v.image = firstAvailableImage;
+          if (!v.images || v.images.length === 0) {
+            v.images = firstAvailableImages;
+          }
+        }
+      });
+    }
+
+    return sortedVariants;
   } catch (err) {
     console.error('[DB] Error querying variants by OEM:', err);
     return [];
