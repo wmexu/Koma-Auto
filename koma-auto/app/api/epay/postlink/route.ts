@@ -56,6 +56,24 @@ export async function POST(request: Request) {
         return NextResponse.json({ status: 'unverified' }, { status: 200 });
       }
 
+      // Idempotency Guard: Check if order is already processed to prevent duplicate MoySklad payments/tasks
+      if (isDbConfigured() && client) {
+        try {
+          const existingCheck = await client`
+            SELECT payment_status FROM orders WHERE id = ${String(invoiceId)} OR invoice_id = ${String(invoiceId)} LIMIT 1;
+          `;
+          if (existingCheck && existingCheck.length > 0) {
+            const currentStatus = String(existingCheck[0].payment_status || '').toLowerCase();
+            if (currentStatus === 'paid' || currentStatus === 'completed') {
+              console.log(`[Halyk Postlink Idempotency] Order ${invoiceId} is ALREADY marked as paid in Neon PostgreSQL. Skipping redundant MoySklad sync.`);
+              return NextResponse.json({ status: 'ok', message: 'Order already processed' }, { status: 200 });
+            }
+          }
+        } catch (idempErr) {
+          console.warn('[Halyk Postlink] Idempotency DB check warning:', idempErr);
+        }
+      }
+
       let updatedOrder: Order | null = null;
 
       try {
@@ -64,6 +82,10 @@ export async function POST(request: Request) {
 
         if (orderSnap.exists()) {
           const orderData = orderSnap.data() as Order;
+          if (orderData.status === 'paid' && orderData.notificationSent) {
+            console.log(`[Halyk Postlink Idempotency] Order ${invoiceId} is ALREADY marked as paid in Firestore. Skipping redundant MoySklad sync.`);
+            return NextResponse.json({ status: 'ok', message: 'Order already processed' }, { status: 200 });
+          }
           updatedOrder = {
             ...orderData,
             status: 'paid',

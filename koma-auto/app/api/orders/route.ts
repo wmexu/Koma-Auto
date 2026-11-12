@@ -11,6 +11,41 @@ import { isKillSwitchActive } from '@/lib/system-settings';
 import { getOrderPickupCode } from '@/lib/pickup-code';
 import { getTestPromoConfig } from '@/lib/promocode';
 
+interface OrderRateLimitEntry {
+  timestamps: number[];
+  lastOrderHash?: string;
+  lastResponse?: any;
+}
+const orderRateLimits = new Map<string, OrderRateLimitEntry>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 60 seconds
+const MAX_ORDERS_PER_WINDOW = 3; // Max 3 order attempts per minute per IP
+const DOUBLE_CLICK_WINDOW_MS = 6 * 1000; // 6 seconds debounce window
+
+let lastCleanup = Date.now();
+function cleanupRateLimits() {
+  const now = Date.now();
+  if (now - lastCleanup < 5 * 60 * 1000) return;
+  lastCleanup = now;
+  for (const [ip, entry] of orderRateLimits.entries()) {
+    entry.timestamps = entry.timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+    if (entry.timestamps.length === 0) {
+      orderRateLimits.delete(ip);
+    }
+  }
+}
+
+function getClientIp(request: Request): string {
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  const realIp = request.headers.get('x-real-ip');
+  if (realIp) return realIp.trim();
+  const cfIp = request.headers.get('cf-connecting-ip');
+  if (cfIp) return cfIp.trim();
+  return 'unknown-ip';
+}
+
 export async function POST(request: Request) {
   try {
     // 0. Emergency Kill-Switch Check
@@ -22,11 +57,46 @@ export async function POST(request: Request) {
       );
     }
 
+    // IP Rate Limiter & Flood Protection Guard
+    const clientIp = getClientIp(request);
+    const now = Date.now();
+    cleanupRateLimits();
+
+    let clientEntry = orderRateLimits.get(clientIp);
+    if (!clientEntry) {
+      clientEntry = { timestamps: [] };
+      orderRateLimits.set(clientIp, clientEntry);
+    }
+
+    clientEntry.timestamps = clientEntry.timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+    if (clientEntry.timestamps.length >= MAX_ORDERS_PER_WINDOW) {
+      console.warn(`[Orders Rate Limit] IP ${clientIp} exceeded order creation limit (${clientEntry.timestamps.length}/${MAX_ORDERS_PER_WINDOW} per min)`);
+      return NextResponse.json(
+        { error: 'Слишком много попыток оформления заказа. Пожалуйста, подождите одну минуту перед следующим заказом.' },
+        { status: 429 }
+      );
+    }
+
     const order = (await request.json()) as Order;
 
     if (!order || !order.id) {
       return NextResponse.json({ error: 'Некорректные данные заказа' }, { status: 400 });
     }
+
+    // Double-click debounce / deduplication guard
+    const orderDedupeHash = `${order.customer?.phone || ''}_${order.amount || 0}_${Array.isArray(order.items) ? order.items.length : 0}`;
+    const lastTimestamp = clientEntry.timestamps[clientEntry.timestamps.length - 1] || 0;
+    if (
+      clientEntry.lastOrderHash === orderDedupeHash &&
+      now - lastTimestamp < DOUBLE_CLICK_WINDOW_MS &&
+      clientEntry.lastResponse
+    ) {
+      console.log(`[Orders Debounce] Deduplicated rapid repeat order click from IP ${clientIp}. Reusing recent order result.`);
+      return NextResponse.json(clientEntry.lastResponse);
+    }
+
+    clientEntry.timestamps.push(now);
+    clientEntry.lastOrderHash = orderDedupeHash;
 
     // Strict Financial Security: On creation, orders MUST ALWAYS have status 'pending'
     // A client can never inject or bypass payment by sending { status: 'paid' }
@@ -187,11 +257,16 @@ export async function POST(request: Request) {
       console.error('MoySklad order creation exception:', msErr);
     }
 
-    return NextResponse.json({
+    const responsePayload = {
       success: true,
       order,
       moySkladResult,
-    });
+    };
+    if (clientEntry) {
+      clientEntry.lastResponse = responsePayload;
+    }
+
+    return NextResponse.json(responsePayload);
   } catch (error: any) {
     console.error('Error creating order in API:', error);
     return NextResponse.json(

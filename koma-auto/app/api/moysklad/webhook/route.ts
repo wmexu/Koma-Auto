@@ -37,7 +37,14 @@ async function fetchMoySkladWithRetry(url: string, options: RequestInit = {}, ma
 /**
  * High-speed synchronization of an individual updated or newly created product into Neon Postgres
  */
-async function syncProductFromMoySklad(productHref: string, sql: any) {
+async function syncProductFromMoySklad(
+  productHref: string,
+  sql: any,
+  options: {
+    preserveStock?: boolean;
+    fallbackStoreStock?: { storeId: string; qty: number };
+  } = {}
+) {
   try {
     const res = await fetchMoySkladWithRetry(`${productHref}?expand=images,supplier,productFolder`, {
       headers: getMoySkladHeaders(),
@@ -110,35 +117,67 @@ async function syncProductFromMoySklad(productHref: string, sql: any) {
       });
     }
 
-    // Fetch current real-time stock across all 7 warehouses via bystore
+    // Check if product already exists in Neon DB to preserve stocks without redundant MoySklad calls
     const stocksByStore: Record<string, number> = {};
     let stockPodval = 0;
     let stockTotal = 0;
 
+    let existingProduct: any = null;
     try {
-      const byStoreRes = await fetchMoySkladWithRetry(
-        `https://api.moysklad.ru/api/remap/1.2/report/stock/bystore?filter=product=https://api.moysklad.ru/api/remap/1.2/entity/product/${productId}`,
-        { headers: getMoySkladHeaders() }
-      );
-      if (byStoreRes.ok) {
-        const d = await byStoreRes.json();
-        const row = d.rows?.[0];
-        if (row && Array.isArray(row.stockByStore)) {
-          for (const s of row.stockByStore) {
-            const sid = s.meta?.href?.split('/').pop();
-            const qty = Math.max(0, Math.floor(Number(s.stock) || 0));
-            if (sid && qty > 0) {
-              stocksByStore[sid] = qty;
+      const existingRows = await sql`
+        SELECT stock_podval, in_stock_podval, stock_total, in_stock_total, stock_quantity, in_stock, stocks_by_store
+        FROM my_sklad_products
+        WHERE id = ${productId}
+        LIMIT 1;
+      `;
+      if (existingRows && existingRows.length > 0) {
+        existingProduct = existingRows[0];
+      }
+    } catch {}
+
+    if (existingProduct && (options.preserveStock || !options.fallbackStoreStock)) {
+      // Re-use current stocks from Neon DB - 0 calls to MoySklad API!
+      if (
+        existingProduct.stocks_by_store &&
+        typeof existingProduct.stocks_by_store === 'object' &&
+        !Array.isArray(existingProduct.stocks_by_store)
+      ) {
+        Object.assign(stocksByStore, existingProduct.stocks_by_store);
+      }
+      stockPodval = existingProduct.stock_podval || 0;
+      stockTotal = existingProduct.stock_total || 0;
+    } else if (options.fallbackStoreStock) {
+      // Fallback from warehouse document without calling bystore
+      stocksByStore[options.fallbackStoreStock.storeId] = options.fallbackStoreStock.qty;
+      stockPodval = stocksByStore[PODVAL_ID] || 0;
+      stockTotal = options.fallbackStoreStock.qty;
+    } else {
+      // Only for completely new products not yet in Neon DB: fetch real-time stock
+      try {
+        const byStoreRes = await fetchMoySkladWithRetry(
+          `https://api.moysklad.ru/api/remap/1.2/report/stock/bystore?filter=product=https://api.moysklad.ru/api/remap/1.2/entity/product/${productId}`,
+          { headers: getMoySkladHeaders() }
+        );
+        if (byStoreRes.ok) {
+          const d = await byStoreRes.json();
+          const row = d.rows?.[0];
+          if (row && Array.isArray(row.stockByStore)) {
+            for (const s of row.stockByStore) {
+              const sid = s.meta?.href?.split('/').pop();
+              const qty = Math.max(0, Math.floor(Number(s.stock) || 0));
+              if (sid && qty > 0) {
+                stocksByStore[sid] = qty;
+              }
             }
           }
         }
+      } catch (stockErr) {
+        console.warn(`[Sync Webhook] Stock fetch error for ${productId}:`, stockErr);
       }
-    } catch (stockErr) {
-      console.warn(`[Sync Webhook] Stock fetch error for ${productId}:`, stockErr);
+      stockPodval = stocksByStore[PODVAL_ID] || 0;
+      stockTotal = Object.values(stocksByStore).reduce((a, b) => a + b, 0);
     }
 
-    stockPodval = stocksByStore[PODVAL_ID] || 0;
-    stockTotal = Object.values(stocksByStore).reduce((a, b) => a + b, 0);
     const inStockPodval = stockPodval > 0;
     const inStockTotal = stockTotal > 0;
 
@@ -377,13 +416,20 @@ async function syncDocumentPositionsStock(docHref: string, entityType: string, a
 
     console.log(`[MoySklad Webhook SUCCESS] Bulk updated ${existingRows.length} items in Neon in ONE transaction!`);
 
-    // 7. For any products not yet existing in Neon, sync them individually
+    // 7. For any products not yet existing in Neon, sync them individually with safe pacing and document store stock
     const missingPids = pIds.filter((id) => !existingSet.has(id));
     if (missingPids.length > 0) {
-      console.log(`[MoySklad Webhook] Syncing ${missingPids.length} newly discovered products in document...`);
-      for (const mId of missingPids.slice(0, 20)) {
-        await syncProductFromMoySklad(`https://api.moysklad.ru/api/remap/1.2/entity/product/${mId}`, sql);
-        await new Promise((r) => setTimeout(r, 150));
+      console.log(`[MoySklad Webhook] Syncing up to 10 newly discovered products in document with safe pacing...`);
+      const toSync = missingPids.slice(0, 10);
+      for (let i = 0; i < toSync.length; i++) {
+        const mId = toSync[i];
+        const docQty = updatesMap.get(mId) || 0;
+        await syncProductFromMoySklad(`https://api.moysklad.ru/api/remap/1.2/entity/product/${mId}`, sql, {
+          fallbackStoreStock: { storeId, qty: docQty },
+        });
+        if (i < toSync.length - 1) {
+          await new Promise((r) => setTimeout(r, 400));
+        }
       }
     }
 
@@ -418,8 +464,14 @@ export async function POST(request: Request) {
     const isDbReady = isDbConfigured() && Boolean(sql);
     const results: any[] = [];
 
-    // Filter and sanitize events
+    const MOYSKLAD_ACCOUNT_ID = '78573dad-4aa7-11f1-0a80-0bbb0001008b';
+
+    // Filter and sanitize events with strict Account ID and URL validation
     const validEvents = events.filter((ev: any) => {
+      if (ev.accountId && ev.accountId !== MOYSKLAD_ACCOUNT_ID) {
+        console.warn(`[MoySklad Webhook Security] Dropped event with untrusted accountId: ${ev.accountId}`);
+        return false;
+      }
       const href = ev.meta?.href;
       return href && typeof href === 'string' && href.startsWith('https://api.moysklad.ru/api/remap/1.2/entity/');
     });
@@ -514,15 +566,14 @@ export async function POST(request: Request) {
         }
       }
 
-      // Handle upserts in controlled batches of 3 with 150ms delay
+      // Handle upserts strictly sequentially with safe 400ms pacing and stock preservation
       const upserts = uniqueProductEvents.filter((ev: any) => ev.action === 'CREATE' || ev.action === 'UPDATE');
-      const BATCH_SIZE = 3;
-      for (let i = 0; i < upserts.length; i += BATCH_SIZE) {
-        const batch = upserts.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map((ev: any) => syncProductFromMoySklad(ev.meta.href, sql)));
-        results.push(...batch.map((ev: any) => ({ action: 'upserted', href: ev.meta.href })));
-        if (i + BATCH_SIZE < upserts.length) {
-          await new Promise((r) => setTimeout(r, 150));
+      for (let i = 0; i < upserts.length; i++) {
+        const ev = upserts[i];
+        await syncProductFromMoySklad(ev.meta.href, sql, { preserveStock: true });
+        results.push({ action: 'upserted', href: ev.meta.href });
+        if (i < upserts.length - 1) {
+          await new Promise((r) => setTimeout(r, 400));
         }
       }
     }

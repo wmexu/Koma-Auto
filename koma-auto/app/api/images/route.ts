@@ -7,6 +7,7 @@ import {
   compressToWebp,
   extractPhotoKey,
 } from '@/lib/neon-storage';
+import { client, isDbConfigured } from '@/db';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -24,6 +25,36 @@ const MAX_MEMORY_ITEMS = 500;
 // Negative cache: stores failed image identifiers to prevent repeated failing requests to MoySklad
 const negativeCache = new Map<string, number>();
 const NEGATIVE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+// In-memory set of verified photo keys present in Neon DB
+const verifiedPhotoKeys = new Set<string>();
+const MAX_VERIFIED_KEYS = 5000;
+
+// Concurrency limiter for MoySklad API downloads (max 2 parallel active fetches)
+let activeMoySkladDownloads = 0;
+const MAX_CONCURRENT_DOWNLOADS = 2;
+const downloadQueue: (() => void)[] = [];
+
+function acquireDownloadSlot(): Promise<void> {
+  if (activeMoySkladDownloads < MAX_CONCURRENT_DOWNLOADS) {
+    activeMoySkladDownloads++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    downloadQueue.push(() => {
+      activeMoySkladDownloads++;
+      resolve();
+    });
+  });
+}
+
+function releaseDownloadSlot(): void {
+  activeMoySkladDownloads = Math.max(0, activeMoySkladDownloads - 1);
+  const next = downloadQueue.shift();
+  if (next) {
+    next();
+  }
+}
 
 // Local disk cache directory to survive restarts and avoid repeating MoySklad downloads
 const CACHE_DIR = path.join(process.cwd(), '.cache', 'ms-images');
@@ -122,7 +153,36 @@ export async function GET(request: Request) {
       console.warn('[Image Proxy] Disk cache read error, proceeding to fetch:', diskErr);
     }
 
-    // 5. Fetch from MoySklad with strict timeout guard
+    // 5. CRITICAL SECURITY GUARD: Verify that this image is legitimately registered in Neon DB
+    // Under no circumstances should arbitrary, crawled, or forged URLs reach MoySklad API.
+    if (!verifiedPhotoKeys.has(photoKey)) {
+      if (isDbConfigured() && client) {
+        try {
+          const rows = await client`
+            SELECT id FROM my_sklad_products
+            WHERE image LIKE ${'%' + photoKey + '%'} OR images::text LIKE ${'%' + photoKey + '%'}
+            LIMIT 1;
+          `;
+          if (!rows || rows.length === 0) {
+            console.warn(`[Image Proxy Guard] Photo key ${photoKey} is NOT in Neon DB. Blocking request to MoySklad.`);
+            negativeCache.set(cacheKey, Date.now() + NEGATIVE_CACHE_TTL_MS);
+            negativeCache.set(photoKey, Date.now() + NEGATIVE_CACHE_TTL_MS);
+            return NextResponse.redirect('https://placehold.co/400x400/F5F5F5/060F48?text=Koma', {
+              status: 307,
+              headers: { 'Cache-Control': 'public, max-age=3600' },
+            });
+          }
+          if (verifiedPhotoKeys.size < MAX_VERIFIED_KEYS) {
+            verifiedPhotoKeys.add(photoKey);
+          }
+        } catch (dbErr) {
+          console.warn('[Image Proxy Guard] DB check error:', dbErr);
+        }
+      }
+    }
+
+    // 6. Fetch from MoySklad with concurrency lock (max 2 concurrent) and strict timeout guard
+    await acquireDownloadSlot();
     try {
       const headers = getMoySkladAuthHeaders();
       const controller = new AbortController();
@@ -219,6 +279,8 @@ export async function GET(request: Request) {
         status: 307,
         headers: { 'Cache-Control': 'public, max-age=60' },
       });
+    } finally {
+      releaseDownloadSlot();
     }
   } catch (error) {
     console.error('Image proxy error:', error);

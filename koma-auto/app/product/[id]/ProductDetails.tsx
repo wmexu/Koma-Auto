@@ -170,7 +170,7 @@ export default function ProductDetails({
 
     variantSwitchTimerRef.current = setTimeout(() => {
       setIsSwitchingVariant(false);
-    }, 700);
+    }, 350);
   };
 
   useEffect(() => {
