@@ -88,12 +88,21 @@ export function mapDbRowToProduct(r: any, variants: ProductVariant[] = []): Prod
   }
   const stock = Number(r.stock_quantity) || 0;
 
+  const rawOemClean = (r.clean_oem_number || '').replace(/[\s\-\.]/g, '').toUpperCase();
+  const rawCode = (r.original_oem || '').replace(/[\s\-\.]/g, '').toUpperCase();
+  const isStarter361002G200 = rawOemClean === '361002G200' || rawCode.includes('361002G200');
+
+  let rawBrand = r.brand && r.brand !== 'Koma Auto' ? r.brand : undefined;
+  if (isStarter361002G200 && rawBrand && /valeo/i.test(rawBrand)) {
+    rawBrand = 'Valeo China';
+  }
+
   const brandInfo = normalizeBrand(
-    r.brand && r.brand !== 'Koma Auto' ? r.brand : undefined,
+    rawBrand,
     r.original_oem || r.clean_oem_number
   );
-  const determinedBrand = brandInfo.brand;
-  const determinedTier = brandInfo.tier;
+  const determinedBrand = isStarter361002G200 && /valeo/i.test(brandInfo.brand) ? 'Valeo China' : brandInfo.brand;
+  const determinedTier = isStarter361002G200 && determinedBrand === 'Valeo China' ? 45 : brandInfo.tier;
 
   let resolvedImage = r.image || (images.length > 0 ? images[0] : '');
   if (!resolvedImage && variants && variants.length > 0) {
@@ -178,6 +187,11 @@ export async function getProductsFromDb(params: GetProductsDbParams): Promise<Ge
 
     // Filter price >= 500
     whereConditions.push(sql`price >= 500`);
+
+    // Deduplication rule: 361002G200 has two duplicate catalog entries (Mobis & Valeo).
+    // In catalog and search results, show ONLY the primary Mobis entry (02bd811c-4e95-11f1-0a80-17ce000b265a)
+    // while the Valeo China option is accessible as a variant inside the product card.
+    whereConditions.push(sql`id != 'bade0018-4e95-11f1-0a80-17ce000c04b4'`);
 
     if (params.inStockOnly) {
       whereConditions.push(sql`in_stock = true`);
@@ -297,18 +311,30 @@ export async function getVariantsByOemFromDb(cleanOem: string): Promise<ProductV
       if (variantOldPrice && variantOldPrice <= variantPrice) {
         variantOldPrice = undefined;
       }
+      const rawOemClean = (r.clean_oem_number || '').replace(/[\s\-\.]/g, '').toUpperCase();
+      const rawCode = (r.original_oem || '').replace(/[\s\-\.]/g, '').toUpperCase();
+      const isStarter361002G200 = rawOemClean === '361002G200' || rawCode.includes('361002G200');
+
+      let rawBrand = r.brand && r.brand !== 'Koma Auto' ? r.brand : undefined;
+      if (isStarter361002G200 && rawBrand && /valeo/i.test(rawBrand)) {
+        rawBrand = 'Valeo China';
+      }
+
       const bInfo = normalizeBrand(
-        r.brand && r.brand !== 'Koma Auto' ? r.brand : undefined,
+        rawBrand,
         r.original_oem || r.clean_oem_number
       );
+      const finalBrand = isStarter361002G200 && /valeo/i.test(bInfo.brand) ? 'Valeo China' : bInfo.brand;
+      const finalTier = isStarter361002G200 && finalBrand === 'Valeo China' ? 45 : bInfo.tier;
+
       return {
         id: r.id,
         moySkladId: r.id,
         name: r.title,
         code: r.original_oem || '',
         oem: r.clean_oem_number,
-        brand: bInfo.brand,
-        tier: bInfo.tier,
+        brand: finalBrand,
+        tier: finalTier,
         price: variantPrice,
         oldPrice: variantOldPrice,
         stock: Number(r.stock_quantity) || 0,

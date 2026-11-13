@@ -143,6 +143,18 @@ const CODE_SUFFIX_RULES: Array<{ sfx: RegExp; brand: string; tier: number }> = [
 export function normalizeBrand(supplierName?: string, code?: string): BrandInfo {
   const cleanSupplier = (supplierName || '').trim();
 
+  // Special business rule: Exclusively for starter OEM 361002G200, Valeo is Chinese Valeo -> "Valeo China"
+  // For all other products across the entire catalog, Valeo remains canonical "Valeo"
+  const isStarter361002G200 =
+    (code && /361002G200/i.test(code.replace(/[\s\-\.]/g, ''))) ||
+    (cleanSupplier && /361002G200/i.test(cleanSupplier.replace(/[\s\-\.]/g, '')));
+
+  if (isStarter361002G200) {
+    if (/valeo/i.test(cleanSupplier) || (code && /361002g200v/i.test(code))) {
+      return { brand: 'Valeo China', tier: 45 };
+    }
+  }
+
   // If supplier is blacklisted (e.g. Genuine Parts), treat as unbranded
   if (isBrandBlacklisted(cleanSupplier)) {
     return { brand: 'Корея', tier: 30 };
@@ -152,6 +164,9 @@ export function normalizeBrand(supplierName?: string, code?: string): BrandInfo 
   if (cleanSupplier) {
     const canonical = findCanonicalBrand(cleanSupplier);
     if (canonical && !isBrandBlacklisted(canonical)) {
+      if (isStarter361002G200 && (canonical === 'Valeo' || canonical === 'PHC Valeo')) {
+        return { brand: 'Valeo China', tier: 45 };
+      }
       return { brand: canonical, tier: getBrandTier(canonical) };
     }
   }

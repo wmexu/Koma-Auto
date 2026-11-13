@@ -89,7 +89,15 @@ async function syncProductFromMoySklad(
     const cleanOem = extractOemCode(p.code, p.article, p.name) || rawOem.replace(/[\s\-\.]/g, '').toUpperCase();
 
     // Extract Brand
-    const brandInfo = normalizeBrand(p.supplier?.name, rawOem);
+    let rawBrand = p.supplier?.name;
+    if (cleanOem === '361002G200' && rawBrand && /valeo/i.test(rawBrand)) {
+      rawBrand = 'Valeo China';
+    }
+    const brandInfo = normalizeBrand(rawBrand, rawOem);
+    if (cleanOem === '361002G200' && /valeo/i.test(brandInfo.brand)) {
+      brandInfo.brand = 'Valeo China';
+      brandInfo.tier = 45;
+    }
 
     // Extract Images
     let image = '';
