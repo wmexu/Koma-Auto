@@ -1128,15 +1128,34 @@ export default function AdminClient() {
     if (!userToDelete || isDeletingUser) return;
     setIsDeletingUser(true);
     try {
-      const res = await adminFetch(`/api/accounts/${userToDelete.id}`, {
+      // 1. Primary endpoint: /api/accounts/[uid]
+      let res = await adminFetch(`/api/accounts/${encodeURIComponent(userToDelete.id)}`, {
         method: 'DELETE',
       });
+
+      // 2. Redundancy Fallback: /api/admin/users?id=... (if 404 or method not allowed)
+      if (res.status === 404 || res.status === 405) {
+        res = await adminFetch(
+          `/api/admin/users?id=${encodeURIComponent(userToDelete.id)}&email=${encodeURIComponent(userToDelete.email || '')}`,
+          { method: 'DELETE' }
+        );
+      }
+
       const rawText = await res.text();
       let data: any = {};
       try {
         data = JSON.parse(rawText);
       } catch {
-        data = { error: rawText ? rawText.slice(0, 160) : `HTTP ${res.status}: ${res.statusText || 'Ошибка сервера'}` };
+        let extracted = '';
+        const titleMatch = rawText.match(/<title>(.*?)<\/title>/i);
+        const h1Match = rawText.match(/<h1[^>]*>(.*?)<\/h1>/i);
+        const h2Match = rawText.match(/<h2[^>]*>(.*?)<\/h2>/i);
+        if (titleMatch?.[1]) {
+          extracted = titleMatch[1].trim();
+        } else if (h1Match?.[1]) {
+          extracted = `${h1Match[1]} ${h2Match?.[1] || ''}`.trim();
+        }
+        data = { error: `Ошибка сервера (HTTP ${res.status}): ${extracted || res.statusText || 'Неожиданный ответ'}` };
       }
 
       if (res.ok && data.success) {

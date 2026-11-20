@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
-import { adminAuth } from '@/lib/firebaseAdmin';
+import { deleteFirebaseUser, getFirebaseUser, getFirebaseUserByEmail } from '@/lib/firebaseAdmin';
 import { verifyStaffSession } from '@/lib/admin-auth';
 import { client, isDbConfigured } from '@/db';
 import { logAuditEvent } from '@/lib/audit';
+
+export const dynamic = 'force-dynamic';
 
 export async function DELETE(
   request: Request,
@@ -45,9 +47,11 @@ export async function DELETE(
 
     // A) Try direct Firebase lookup first
     try {
-      const fbUser = await adminAuth.getUser(targetUid);
-      targetEmail = fbUser.email;
-      actualFirebaseUid = fbUser.uid;
+      const fbUser = await getFirebaseUser(targetUid);
+      if (fbUser) {
+        targetEmail = fbUser.email;
+        actualFirebaseUid = fbUser.uid;
+      }
     } catch (lookupErr: any) {
       console.warn(`[DeleteAccount] Firebase direct lookup for ${targetUid}:`, lookupErr?.message);
     }
@@ -64,16 +68,14 @@ export async function DELETE(
       }
     }
 
-    // C) If targetEmail is known but Firebase user wasn't found by targetUid, resolve by email
-    if (targetEmail && actualFirebaseUid === targetUid) {
+    // C) If targetEmail is known, resolve actual Firebase UID by email
+    if (targetEmail) {
       try {
-        const fbUserByEmail = await adminAuth.getUserByEmail(targetEmail);
+        const fbUserByEmail = await getFirebaseUserByEmail(targetEmail);
         if (fbUserByEmail?.uid) {
           actualFirebaseUid = fbUserByEmail.uid;
         }
-      } catch {
-        // User may not exist in Firebase, which is valid for Neon-only records
-      }
+      } catch {}
     }
 
     // 4. Additional director protection check by email
@@ -91,15 +93,15 @@ export async function DELETE(
     let fbDeleted = false;
     let fbError: string | null = null;
     try {
-      await adminAuth.deleteUser(actualFirebaseUid);
-      fbDeleted = true;
-    } catch (fbErr: any) {
-      if (fbErr?.code === 'auth/user-not-found') {
-        fbDeleted = true; // User doesn't exist in Firebase Auth (already deleted or synced record)
+      const fbRes = await deleteFirebaseUser(actualFirebaseUid);
+      if (fbRes.success) {
+        fbDeleted = true;
       } else {
-        fbError = fbErr?.message || String(fbErr);
-        console.error('[DeleteAccount] Error deleting from Firebase:', fbErr);
+        fbError = fbRes.error || 'Failed to delete from Firebase';
       }
+    } catch (fbErr: any) {
+      fbError = fbErr?.message || String(fbErr);
+      console.error('[DeleteAccount] Error deleting from Firebase:', fbErr);
     }
 
     // 6. Delete user from Neon PostgreSQL (users and audit_logs)
@@ -121,21 +123,9 @@ export async function DELETE(
       }
     }
 
-    // If both failed or Neon failed, inform the client clearly
     if (!neonDeleted && neonError) {
       return NextResponse.json(
         { success: false, error: `Ошибка базы данных Neon: ${neonError}` },
-        { status: 500 }
-      );
-    }
-
-    if (!fbDeleted && fbError) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Ошибка Firebase Admin: ${fbError}`,
-          neon: neonDeleted,
-        },
         { status: 500 }
       );
     }
@@ -152,6 +142,7 @@ export async function DELETE(
           deletedBy: auth.user?.email,
           firebaseDeleted: fbDeleted,
           neonDeleted,
+          firebaseError: fbError,
         },
       });
     } catch (auditErr) {
@@ -164,6 +155,7 @@ export async function DELETE(
         message: `Пользователь ${targetEmail || targetUid} успешно удален`,
         firebase: fbDeleted,
         neon: neonDeleted,
+        firebaseError: fbError,
       },
       { status: 200 }
     );

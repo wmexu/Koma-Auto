@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { client, isDbConfigured } from '@/db';
 import { logAuditEvent } from '@/lib/audit';
 import { verifyStaffSession } from '@/lib/admin-auth';
+import { deleteFirebaseUser, getFirebaseUserByEmail } from '@/lib/firebaseAdmin';
 
 export async function GET(request: Request) {
   try {
@@ -185,5 +186,132 @@ export async function PATCH(request: Request) {
   } catch (error: any) {
     console.error('[AdminUsers PATCH Error]:', error);
     return NextResponse.json({ error: error?.message || 'Ошибка изменения роли' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    // 1. Strict Zero-Trust Security Check: Director only
+    const auth = await verifyStaffSession(request, ['director']);
+    if (!auth.authorized) {
+      return NextResponse.json(
+        { success: false, error: auth.error || 'Доступ запрещен: только для директоров' },
+        { status: auth.status || 403 }
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    let targetUid = searchParams.get('id') || searchParams.get('uid');
+    let targetEmail = searchParams.get('email');
+
+    if (!targetUid && !targetEmail) {
+      try {
+        const body = await request.json();
+        targetUid = body.id || body.uid;
+        if (!targetEmail) targetEmail = body.email;
+      } catch {}
+    }
+
+    if (!targetUid && !targetEmail) {
+      return NextResponse.json(
+        { success: false, error: 'Не указан идентификатор (id) или email пользователя' },
+        { status: 400 }
+      );
+    }
+
+    // Protection check: Never delete director accounts
+    if (
+      targetUid === 'ohwKkhkKHmdaI5CkbcGJcunNuID2' ||
+      targetUid === '09aENK2sWTYNE16eqVa1g5fBV9E2' ||
+      (auth.user?.id && targetUid === auth.user.id) ||
+      (targetEmail && (targetEmail.toLowerCase() === 'acooldumb123@gmail.com' || targetEmail.toLowerCase() === 'kamoliddint@gmail.com'))
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'Защита системы: Нельзя удалить аккаунт директора' },
+        { status: 400 }
+      );
+    }
+
+    // Lookup email from DB if not provided
+    if (!targetEmail && targetUid && client && isDbConfigured()) {
+      try {
+        const rows = await client`SELECT email FROM users WHERE id = ${targetUid} LIMIT 1;`;
+        if (rows && rows.length > 0) targetEmail = rows[0].email;
+      } catch {}
+    }
+
+    let actualFbUid = targetUid;
+    if (targetEmail) {
+      try {
+        const fbUser = await getFirebaseUserByEmail(targetEmail);
+        if (fbUser?.uid) actualFbUid = fbUser.uid;
+      } catch {}
+    }
+
+    // Delete from Firebase Auth
+    let fbDeleted = false;
+    let fbError: string | null = null;
+    if (actualFbUid) {
+      const fbRes = await deleteFirebaseUser(actualFbUid);
+      fbDeleted = fbRes.success;
+      if (!fbRes.success) fbError = fbRes.error || null;
+    }
+
+    // Delete from Neon PostgreSQL
+    let neonDeleted = false;
+    let neonError: string | null = null;
+    if (client && isDbConfigured()) {
+      try {
+        if (targetEmail) {
+          await client`DELETE FROM users WHERE id = ${targetUid || ''} OR email ILIKE ${targetEmail};`;
+          await client`DELETE FROM audit_logs WHERE user_id = ${targetUid || ''} OR details::text ILIKE ${'%' + targetEmail + '%'};`;
+        } else if (targetUid) {
+          await client`DELETE FROM users WHERE id = ${targetUid};`;
+          await client`DELETE FROM audit_logs WHERE user_id = ${targetUid};`;
+        }
+        neonDeleted = true;
+      } catch (dbErr: any) {
+        neonError = dbErr?.message || String(dbErr);
+        console.error('[AdminUsers DELETE DB Error]:', dbErr);
+      }
+    }
+
+    if (!neonDeleted && neonError) {
+      return NextResponse.json(
+        { success: false, error: `Ошибка базы данных Neon: ${neonError}` },
+        { status: 500 }
+      );
+    }
+
+    // Audit log
+    try {
+      await logAuditEvent({
+        userId: auth.user?.id || 'director',
+        action: 'USER_DELETED',
+        entityType: 'user',
+        entityId: targetUid || targetEmail || 'unknown',
+        details: {
+          email: targetEmail,
+          deletedBy: auth.user?.email,
+          firebaseDeleted: fbDeleted,
+          neonDeleted,
+          firebaseError: fbError,
+        },
+      });
+    } catch {}
+
+    return NextResponse.json({
+      success: true,
+      message: `Пользователь ${targetEmail || targetUid} успешно удален`,
+      firebase: fbDeleted,
+      neon: neonDeleted,
+      firebaseError: fbError,
+    });
+  } catch (error: any) {
+    console.error('[AdminUsers DELETE Error]:', error);
+    return NextResponse.json(
+      { success: false, error: error?.message || 'Ошибка удаления пользователя' },
+      { status: 500 }
+    );
   }
 }
