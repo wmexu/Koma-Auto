@@ -1131,13 +1131,21 @@ export default function AdminClient() {
       const res = await adminFetch(`/api/accounts/${userToDelete.id}`, {
         method: 'DELETE',
       });
-      const data = await res.json().catch(() => ({}));
+      const rawText = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        data = { error: rawText ? rawText.slice(0, 160) : `HTTP ${res.status}: ${res.statusText || 'Ошибка сервера'}` };
+      }
+
       if (res.ok && data.success) {
         addToast(`Пользователь ${userToDelete.email} успешно удален`, 'success');
         setUsersList(prev => prev.filter(u => u.id !== userToDelete.id));
         setUserToDelete(null);
       } else {
-        addToast(data.error || 'Ошибка при удалении пользователя', 'error');
+        const errorMsg = data.error || `Ошибка (${res.status}): ${res.statusText || 'Сервер отклонил запрос на удаление'}`;
+        addToast(errorMsg, 'error');
       }
     } catch (err: any) {
       addToast(err?.message || 'Ошибка сети при удалении', 'error');

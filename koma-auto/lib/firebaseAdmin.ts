@@ -9,7 +9,18 @@ function getServiceAccount(): ServiceAccount | null {
   const envKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (envKey) {
     try {
-      return typeof envKey === 'string' ? JSON.parse(envKey) : envKey;
+      let raw = typeof envKey === 'string' ? envKey.trim() : envKey;
+      // Handle base64 encoding if someone base64-encoded the JSON
+      if (typeof raw === 'string' && !raw.startsWith('{') && (raw.startsWith('ey') || raw.startsWith('ew'))) {
+        try {
+          raw = Buffer.from(raw, 'base64').toString('utf8');
+        } catch {}
+      }
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (parsed && typeof parsed.private_key === 'string') {
+        parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
+      }
+      return parsed;
     } catch (e) {
       console.error('[FirebaseAdmin] Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY from env:', e);
     }
@@ -19,7 +30,11 @@ function getServiceAccount(): ServiceAccount | null {
   try {
     const localFile = path.resolve(process.cwd(), 'koma-kz-3d27cf66c894.json');
     if (fs.existsSync(localFile)) {
-      return JSON.parse(fs.readFileSync(localFile, 'utf8'));
+      const parsed = JSON.parse(fs.readFileSync(localFile, 'utf8'));
+      if (parsed && typeof parsed.private_key === 'string') {
+        parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
+      }
+      return parsed;
     }
   } catch (err) {
     console.warn('[FirebaseAdmin] Could not read local service account file:', err);
@@ -35,14 +50,18 @@ function initAdminApp() {
 
   const credentials = getServiceAccount();
   if (!credentials) {
-    // Return dummy or throw on actual use if missing
-    console.warn('[FirebaseAdmin] Warning: FIREBASE_SERVICE_ACCOUNT_KEY is missing.');
+    console.warn('[FirebaseAdmin] Warning: FIREBASE_SERVICE_ACCOUNT_KEY is missing or invalid.');
     return null;
   }
 
-  return initializeApp({
-    credential: cert(credentials),
-  });
+  try {
+    return initializeApp({
+      credential: cert(credentials),
+    });
+  } catch (err) {
+    console.error('[FirebaseAdmin] initializeApp error:', err);
+    return null;
+  }
 }
 
 // Lazy safe proxy so Next.js build never crashes if env var is temporarily missing during static analysis
@@ -51,7 +70,7 @@ export const adminAuth = new Proxy({} as ReturnType<typeof getAuth>, {
     const app = initAdminApp();
     if (!app) {
       throw new Error(
-        'Firebase Admin SDK is not configured. Please add FIREBASE_SERVICE_ACCOUNT_KEY to your Vercel Environment Variables.'
+        'Firebase Admin SDK не настроен на сервере Vercel. Добавьте переменную FIREBASE_SERVICE_ACCOUNT_KEY и обязательно сделайте Redeploy проекта.'
       );
     }
     const auth = getAuth(app);
