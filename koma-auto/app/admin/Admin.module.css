@@ -43,8 +43,8 @@
 .roleBadge {
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
+  text-transform: none;
+  letter-spacing: 0;
   padding: 3px 10px;
   border-radius: 6px;
 }
@@ -751,6 +751,55 @@
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.deleteUserBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  font-size: 12px;
+  font-weight: 500;
+  background-color: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.deleteUserBtn:hover:not(:disabled) {
+  border-color: #fca5a5;
+  background-color: #fffafb;
+  color: #b91c1c;
+}
+
+.deleteUserBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: #f1f5f9;
+}
+
+.deleteConfirmBtn {
+  background: var(--color-navy-gradient);
+  color: #ffffff;
+  border: none;
+  padding: 9px 20px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.deleteConfirmBtn:hover:not(:disabled) {
+  background: var(--color-navy-gradient-hover);
+}
+
+.deleteConfirmBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .submitBtn {

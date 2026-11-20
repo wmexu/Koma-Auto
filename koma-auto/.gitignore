@@ -42,3 +42,7 @@ next-env.d.ts
 
 certificates
 .neon
+koma-kz-*.json
+*serviceAccount*.json
+service-account*.json
+*.pem

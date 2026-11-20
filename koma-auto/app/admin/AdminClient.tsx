@@ -220,6 +220,8 @@ export default function AdminClient() {
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
   const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null);
+  const [userToDelete, setUserToDelete] = useState<any | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   // Tokens state
   const [tokensList, setTokensList] = useState<any[]>([]);
@@ -1118,6 +1120,29 @@ export default function AdminClient() {
       addToast(err?.message || 'Ошибка сети при изменении роли', 'error');
     } finally {
       setUpdatingRoleId(null);
+    }
+  };
+
+  // Handle Permanent Delete User (Firebase Auth + Neon PostgreSQL)
+  const handleDeleteUser = async () => {
+    if (!userToDelete || isDeletingUser) return;
+    setIsDeletingUser(true);
+    try {
+      const res = await adminFetch(`/api/accounts/${userToDelete.id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        addToast(`Пользователь ${userToDelete.email} успешно удален`, 'success');
+        setUsersList(prev => prev.filter(u => u.id !== userToDelete.id));
+        setUserToDelete(null);
+      } else {
+        addToast(data.error || 'Ошибка при удалении пользователя', 'error');
+      }
+    } catch (err: any) {
+      addToast(err?.message || 'Ошибка сети при удалении', 'error');
+    } finally {
+      setIsDeletingUser(false);
     }
   };
 
@@ -2567,8 +2592,9 @@ export default function AdminClient() {
                     <th>Телефон</th>
                     <th>Текущая роль</th>
                     <th>Заказов</th>
-                    <th>Дата регистрации</th>
+                    <th>Дата</th>
                     <th>Сменить роль</th>
+                    <th>Действие</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2620,6 +2646,32 @@ export default function AdminClient() {
                             <span style={{ fontSize: '11px', color: '#0ea5e9' }}>...</span>
                           )}
                         </div>
+                      </td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          className={styles.deleteUserBtn}
+                          disabled={
+                            isDeletingUser ||
+                            u.id === 'ohwKkhkKHmdaI5CkbcGJcunNuID2' ||
+                            u.id === '09aENK2sWTYNE16eqVa1g5fBV9E2' ||
+                            u.email === 'acooldumb123@gmail.com' ||
+                            u.email === 'kamoliddint@gmail.com' ||
+                            u.id === user?.uid
+                          }
+                          title={
+                            u.id === 'ohwKkhkKHmdaI5CkbcGJcunNuID2' || u.id === '09aENK2sWTYNE16eqVa1g5fBV9E2' || u.email === 'acooldumb123@gmail.com' || u.email === 'kamoliddint@gmail.com'
+                              ? 'Основной аккаунт директора защищен'
+                              : 'Удалить пользователя'
+                          }
+                          onClick={e => {
+                            e.stopPropagation();
+                            setUserToDelete(u);
+                          }}
+                        >
+                          <span>Удалить</span>
+                          <Trash2 size={13} color="#f87171" />
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -3180,6 +3232,38 @@ export default function AdminClient() {
                   }}
                 >
                   Подтвердить
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: DELETE USER CONFIRMATION */}
+        {userToDelete && (
+          <div className={styles.modalOverlay} onClick={() => !isDeletingUser && setUserToDelete(null)}>
+            <div className={styles.modalCard} onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+              <h3 className={styles.modalTitle} style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-navy)', margin: '0 0 10px 0' }}>
+                Вы уверены что хотите полностью удалить этого пользователя
+              </h3>
+              <p className={styles.modalDesc} style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.5, margin: '0 0 16px 0' }}>
+                Удаление пользователей безвозвратно. Аккаунт <strong>{userToDelete.email}</strong> ({userToDelete.full_name || 'без имени'}) будет окончательно удален из базы данных и сервиса авторизации.
+              </p>
+              <div className={styles.modalFooter} style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+                <button
+                  type="button"
+                  className={styles.cancelBtn}
+                  disabled={isDeletingUser}
+                  onClick={() => setUserToDelete(null)}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  className={styles.deleteConfirmBtn}
+                  disabled={isDeletingUser}
+                  onClick={handleDeleteUser}
+                >
+                  {isDeletingUser ? 'Удаление...' : 'Удалить'}
                 </button>
               </div>
             </div>

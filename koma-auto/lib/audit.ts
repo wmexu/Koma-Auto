@@ -6,6 +6,7 @@ export type AuditAction =
   | 'ROLE_CHANGED'
   | 'USER_REGISTERED'
   | 'USER_SYNCED'
+  | 'USER_DELETED'
   | 'ORDER_ASSIGNED'
   | 'ORDER_UNASSIGNED'
   | 'ORDER_COMPLETED'
